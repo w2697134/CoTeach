@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="description" content="师生多智能体协同教学系统：多智能体协同备课、作业批改与讲评、课堂互动、课程答疑与在线编程评测。" />
+    <meta name="theme-color" content="#4f46e5" />
+    <link rel="icon" type="image/svg+xml" href="/logo.svg" />
+    <title>CoTeach · 师生多智能体协同教学系统</title>
+    <script>
+      // 在首帧绘制前应用主题，避免深色模式闪烁
+      (function () {
+        try {
+          var pref = localStorage.getItem('ct-theme') || 'light';
+          var dark = pref === 'dark' || (pref === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+          document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+        } catch (e) {
+          document.documentElement.dataset.theme = 'light';
+        }
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
