@@ -3,7 +3,13 @@ import { AlertTriangle, CheckCircle2, ChevronDown, Info, Loader2, XCircle } from
 import { cn } from './cn';
 
 /* ---------------- Card ---------------- */
-export function Card({ className, children, hover, padded = true, ...rest }: HTMLAttributes<HTMLDivElement> & { hover?: boolean; padded?: boolean }) {
+export function Card({
+  className,
+  children,
+  hover,
+  padded = true,
+  ...rest
+}: HTMLAttributes<HTMLDivElement> & { hover?: boolean; padded?: boolean }) {
   return (
     <div
       className={cn(
@@ -20,7 +26,17 @@ export function Card({ className, children, hover, padded = true, ...rest }: HTM
 }
 
 /** 板块标题：只显示标题本身；desc / icon 保留参数以兼容调用处，但不再渲染（界面不写解释性小字） */
-export function CardHeader({ title, actions, className }: { title: ReactNode; desc?: ReactNode; icon?: ReactNode; actions?: ReactNode; className?: string }) {
+export function CardHeader({
+  title,
+  actions,
+  className,
+}: {
+  title: ReactNode;
+  desc?: ReactNode;
+  icon?: ReactNode;
+  actions?: ReactNode;
+  className?: string;
+}) {
   return (
     <div className={cn('mb-3 flex flex-wrap items-center justify-between gap-3', className)}>
       <h3 className="min-w-0 truncate text-[16px] font-semibold leading-tight text-ink">{title}</h3>
@@ -98,17 +114,24 @@ export function PageLoading({ label = '加载中…' }: { label?: string }) {
 }
 
 export function ErrorState({ error, onRetry }: { error: unknown; onRetry?: () => void }) {
+  const denied = (error as { status?: number })?.status === 403;
+  const missing = (error as { status?: number })?.status === 404;
   return (
     <div className="flex h-[50vh] flex-col items-center justify-center gap-3 text-center">
       <div className="flex size-12 items-center justify-center rounded-2xl bg-bad-soft text-bad">
         <XCircle className="size-6" />
       </div>
-      <p className="text-[16px] font-medium text-ink">加载失败</p>
-      <p className="max-w-sm text-[14px] text-ink-3">{(error as Error)?.message || '请稍后重试'}</p>
-      {onRetry && (
+      <p className="text-[16px] font-medium text-ink">{denied ? '没有访问权限' : missing ? '内容已不存在' : '加载失败'}</p>
+      {!denied && <p className="max-w-sm text-[14px] text-ink-3">{(error as Error)?.message || '请稍后重试'}</p>}
+      {onRetry && !denied && !missing && (
         <button onClick={onRetry} className="mt-1 rounded-md border border-line px-4 py-1.5 text-sm text-ink-2 hover:bg-surface-3">
           重试
         </button>
+      )}
+      {(denied || missing) && (
+        <a href="/knowledge" className="text-brand">
+          返回知识库
+        </a>
       )}
     </div>
   );
@@ -119,6 +142,7 @@ export function ErrorState({ error, onRetry }: { error: unknown; onRetry?: () =>
 export function Empty({
   icon,
   title,
+  desc,
   action,
   className,
   compact,
@@ -190,7 +214,13 @@ export function Progress({
   const v = Math.max(0, Math.min(1, value || 0));
   return (
     <div className={cn('w-full overflow-hidden rounded-full', className)} style={{ height, background: track || 'var(--c-surface-3)' }}>
-      <div className="h-full rounded-full transition-[width] duration-700 ease-out" style={{ width: `${v * 100}%`, background: color || 'var(--c-primary)' }} />
+      <div
+        className="h-full rounded-full transition-[width] duration-700 ease-out"
+        style={{
+          width: `${v * 100}%`,
+          background: color || 'var(--c-primary)',
+        }}
+      />
     </div>
   );
 }
@@ -273,7 +303,9 @@ export function Stat({
         <span className="text-[28px] font-semibold leading-none tracking-tight text-ink">{value}</span>
         {unit && <span className="text-sm text-ink-3">{unit}</span>}
         {delta && (
-          <span className={cn('ml-2 text-[13px] font-medium', deltaGood === undefined ? 'text-ink-2' : deltaGood ? 'text-ok' : 'text-bad')}>{delta}</span>
+          <span className={cn('ml-2 text-[13px] font-medium', deltaGood === undefined ? 'text-ink-2' : deltaGood ? 'text-ok' : 'text-bad')}>
+            {delta}
+          </span>
         )}
       </div>
       {spark && <div className="mt-3">{spark}</div>}
@@ -291,14 +323,19 @@ export function Tabs<T extends string>({
 }: {
   value: T;
   onChange: (v: T) => void;
-  items: { value: T; label: ReactNode; icon?: ReactNode; count?: number | null }[];
+  items: {
+    value: T;
+    label: ReactNode;
+    icon?: ReactNode;
+    count?: number | null;
+  }[];
   className?: string;
   variant?: 'line' | 'pill';
 }) {
   if (variant === 'pill') {
     return (
       <div className={cn('flex flex-wrap gap-1.5', className)}>
-        {items.map(it => (
+        {items.map((it) => (
           <button
             key={it.value}
             type="button"
@@ -320,7 +357,7 @@ export function Tabs<T extends string>({
   }
   return (
     <div className={cn('no-scrollbar flex gap-6 overflow-x-auto border-b border-line', className)}>
-      {items.map(it => (
+      {items.map((it) => (
         <button
           key={it.value}
           type="button"
@@ -334,7 +371,10 @@ export function Tabs<T extends string>({
           {it.label}
           {it.count !== undefined && it.count !== null && (
             <span
-              className={cn('rounded-full px-1.5 text-[12.5px] leading-4', value === it.value ? 'bg-brand-soft text-brand-ink' : 'bg-surface-3 text-ink-3')}
+              className={cn(
+                'rounded-full px-1.5 text-[12.5px] leading-4',
+                value === it.value ? 'bg-brand-soft text-brand-ink' : 'bg-surface-3 text-ink-3',
+              )}
             >
               {it.count}
             </span>
@@ -374,13 +414,23 @@ export function Clamp({
   return (
     <div className={className}>
       <div className="relative">
-        <div ref={ref} className="overflow-hidden transition-[max-height] duration-300" style={{ maxHeight: open || !over ? undefined : max }}>
+        <div
+          ref={ref}
+          className="overflow-hidden transition-[max-height] duration-300"
+          style={{ maxHeight: open || !over ? undefined : max }}
+        >
           {children}
         </div>
-        {over && !open && <div className="pointer-events-none absolute inset-x-0 bottom-0 h-14 bg-gradient-to-t from-surface to-transparent" />}
+        {over && !open && (
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-14 bg-gradient-to-t from-surface to-transparent" />
+        )}
       </div>
       {over && (
-        <button type="button" onClick={() => setOpen(!open)} className="mt-1 inline-flex items-center gap-1 text-[13px] font-medium text-brand hover:underline">
+        <button
+          type="button"
+          onClick={() => setOpen(!open)}
+          className="mt-1 inline-flex items-center gap-1 text-[13px] font-medium text-brand hover:underline"
+        >
           <ChevronDown className={cn('size-3.5 transition-transform', open && 'rotate-180')} />
           {open ? lessText : moreText}
         </button>

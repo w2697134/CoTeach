@@ -1,12 +1,27 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
-import { ArrowUp, BookOpen, Check, ChevronDown, FolderSearch, MoveRight, OctagonX, PenLine, Search, Send, Trash2, Upload, X } from 'lucide-react';
-import { post } from '../../lib/api';
+import { useEffect, useRef, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  ArrowUp,
+  BookOpen,
+  Check,
+  ChevronDown,
+  FolderSearch,
+  MoveRight,
+  OctagonX,
+  PenLine,
+  Search,
+  Send,
+  Trash2,
+  Upload,
+  X,
+} from 'lucide-react';
+import { get, post } from '../../lib/api';
 import { toast, useAuth } from '../../lib/store';
 import { Markdown } from '../../components/Markdown';
-import { AgentAvatar, Avatar, Badge, Button, IconButton, Textarea, cn } from '../../components/ui';
+import { AgentAvatar, Alert, Avatar, Badge, Button, IconButton, Skeleton, Textarea, cn } from '../../components/ui';
 import { useChangeActions } from './Changes';
-import { KEEPER, STATUS_TEXT, STATUS_TONE, plainPath, plainText, useChanges, useRuns, type Run, type RunEvent } from './data';
+import { readableError, toolPresentation } from './presentation';
+import { KEEPER, STATUS_TEXT, STATUS_TONE, plainText, useChanges, useRuns, useCourse, type Run, type RunEvent } from './data';
 
 const TOOL_ICON: Record<string, typeof BookOpen> = {
   list_files: FolderSearch,
@@ -20,21 +35,15 @@ const TOOL_ICON: Record<string, typeof BookOpen> = {
 };
 
 function ToolLine({ e }: { e: RunEvent }) {
-  const d = e.data;
-  const Icon = TOOL_ICON[d.name] || BookOpen;
-  let what: ReactNode = d.path ? plainPath(d.path) : '';
-  if (d.name === 'search') what = `「${d.text}」${d.hits !== undefined ? `，找到 ${d.hits} 处` : ''}`;
-  if (d.name === 'move_file') what = `${plainPath(d.from)} → ${plainPath(d.to)}`;
-  if (d.name === 'write_file') what = `${plainPath(d.path)}（${d.isNew ? '新建' : '改写'}，${d.chars} 字）`;
-  if (d.name === 'read_file' && d.lines && d.total && d.lines !== `1-${d.total}`) what = `${plainPath(d.path)} 第 ${d.lines} 行`;
-  if (d.name === 'finish') what = plainText(d.title);
-  if (d.name === 'list_files') what = '';
+  const d = e.data || {};
+  const Icon = typeof d.name === 'string' && Object.hasOwn(TOOL_ICON,d.name) ? TOOL_ICON[d.name] : BookOpen;
+  const view = toolPresentation(d);
   return (
     <div className={cn('flex items-start gap-2 text-[13px] leading-5', d.error ? 'text-bad' : 'text-ink-2')}>
       <Icon className={cn('mt-0.5 size-3.5 shrink-0', d.error ? 'text-bad' : 'text-ink-3')} />
       <span className="min-w-0 break-all">
-        <span className="font-medium text-ink">{d.label}</span> {what}
-        {d.error && <span>：{plainText(d.error)}</span>}
+        <span className="font-medium text-ink">{view.label}</span> {view.target}
+        {view.error && <span>：{view.error}</span>}
       </span>
     </div>
   );
@@ -42,7 +51,7 @@ function ToolLine({ e }: { e: RunEvent }) {
 
 function ChangeCard({ cid, changeId, title, onOpen }: { cid: number; changeId: number; title?: string; onOpen: (id: number) => void }) {
   const changes = useChanges(cid);
-  const c = changes.data?.changes.find(x => x.id === changeId);
+  const c = changes.data?.changes.find((x) => x.id === changeId);
   const { act, busy } = useChangeActions(cid);
   const status = c?.status;
   return (
@@ -57,10 +66,23 @@ function ChangeCard({ cid, changeId, title, onOpen }: { cid: number; changeId: n
         </Button>
         {c && (status === 'pending' || status === 'conflict') && (
           <>
-            <Button size="sm" variant="primary" icon={<Check className="size-3.5" />} loading={busy === `${c.id}:apply`} disabled={status === 'conflict'} onClick={() => act(c, 'apply')}>
+            <Button
+              size="sm"
+              variant="primary"
+              icon={<Check className="size-3.5" />}
+              loading={busy === `${c.id}:apply`}
+              disabled={status === 'conflict'}
+              onClick={() => act(c, 'apply')}
+            >
               确认生效
             </Button>
-            <Button size="sm" variant="ghost" icon={<X className="size-3.5" />} loading={busy === `${c.id}:reject`} onClick={() => act(c, 'reject')}>
+            <Button
+              size="sm"
+              variant="ghost"
+              icon={<X className="size-3.5" />}
+              loading={busy === `${c.id}:reject`}
+              onClick={() => act(c, 'reject')}
+            >
               不要
             </Button>
           </>
@@ -71,34 +93,51 @@ function ChangeCard({ cid, changeId, title, onOpen }: { cid: number; changeId: n
 }
 
 function RunBlock({ cid, run, live, onOpenChange }: { cid: number; run: Run; live: string | null; onOpenChange: (id: number) => void }) {
-  const user = useAuth(s => s.user);
+  const user = useAuth((s) => s.user);
   const running = run.status === 'running';
   const [expanded, setExpanded] = useState(false);
-  const steps = run.events.filter(e => e.type === 'tool' || e.type === 'say');
+  const steps = run.events.filter((e) => e.type === 'tool' || e.type === 'say');
   const showAll = running || expanded;
-  const changeEvent = run.events.find(e => e.type === 'change');
+  const changeEvent = run.events.find((e) => e.type === 'change');
   const changeId: number | null = changeEvent?.data.changeId ?? run.changeId;
-  const errorEvent = run.events.find(e => e.type === 'error');
+  const errorEvent = run.events.find((e) => e.type === 'error');
   return (
     <div className="space-y-3">
-      <div className="flex justify-end gap-2">
-        <div className="max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-tr-md bg-brand px-3.5 py-2 text-[14px] leading-relaxed text-white">{plainText(run.request)}</div>
-        <Avatar name={user?.name} seed={user?.id} size={28} className="mt-0.5" />
-      </div>
+      {run.kind === 'chat' ? (
+        <div className="flex justify-end gap-2">
+          <div className="max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-tr-md bg-brand px-3.5 py-2 text-[14px] leading-relaxed text-white">
+            {plainText(run.request)}
+          </div>
+          <Avatar name={user?.name} seed={user?.id} size={28} className="mt-0.5" />
+        </div>
+      ) : (
+        <div className="rounded-lg bg-surface-2 px-3 py-2 text-[13px] text-ink-2">
+          <p>
+            {run.task?.label ||
+              (run.kind === 'summary' ? '学期提炼' : run.kind === 'observation' ? '其他助手提交的记录' : '上传资料后的整理')}{' '}
+            · {new Date(run.createdAt).toLocaleString('zh-CN')}
+          </p>
+          {run.task?.detail && <p className="mt-1">{plainText(run.task.detail)}</p>}
+        </div>
+      )}
       <div className="flex gap-2.5">
         <AgentAvatar agent={KEEPER} size={28} active={running} className="mt-0.5" />
         <div className="min-w-0 flex-1 space-y-2.5">
           {steps.length > 0 && (
             <div className="rounded-xl border border-line bg-surface-2 px-3 py-2.5">
               {!running && (
-                <button type="button" onClick={() => setExpanded(!expanded)} className="flex w-full items-center gap-1.5 text-left text-[13px] font-medium text-ink-2 hover:text-ink">
+                <button
+                  type="button"
+                  onClick={() => setExpanded(!expanded)}
+                  className="flex w-full items-center gap-1.5 text-left text-[13px] font-medium text-ink-2 hover:text-ink"
+                >
                   <ChevronDown className={cn('size-3.5 transition-transform', !expanded && '-rotate-90')} />
-                  工作记录 · {steps.filter(e => e.type === 'tool').length} 步
+                  工作记录 · {steps.filter((e) => e.type === 'tool').length} 步
                 </button>
               )}
               {showAll && (
                 <div className={cn('space-y-1.5', !running && 'mt-2')}>
-                  {steps.map(e =>
+                  {steps.map((e) =>
                     e.type === 'say' ? (
                       <p key={e.id} className="text-[13px] leading-5 text-ink-3">
                         {plainText(e.data.text)}
@@ -114,11 +153,11 @@ function RunBlock({ cid, run, live, onOpenChange }: { cid: number; run: Run; liv
           {running && (
             <div className="flex items-start gap-2 text-[13px] text-ink-3">
               <span className="mt-1.5 flex gap-1">
-                {[0, 1, 2].map(i => (
+                {[0, 1, 2].map((i) => (
                   <span key={i} className="size-1.5 animate-bounce rounded-full bg-brand/60" style={{ animationDelay: `${i * 0.15}s` }} />
                 ))}
               </span>
-              {live && <span className="min-w-0 whitespace-pre-wrap">{live}</span>}
+              {live && <span className="min-w-0 whitespace-pre-wrap">{plainText(live)}</span>}
             </div>
           )}
           {!running && run.reply && !run.changeId && (
@@ -128,22 +167,52 @@ function RunBlock({ cid, run, live, onOpenChange }: { cid: number; run: Run; liv
           )}
           {changeId && <ChangeCard cid={cid} changeId={changeId} title={changeEvent?.data.title} onOpen={onOpenChange} />}
           {run.status === 'done' && !run.changeId && !run.reply && <p className="text-[13px] text-ink-3">这次没有改知识库</p>}
-          {errorEvent && <p className="text-[13px] text-bad">{errorEvent.data.message}</p>}
+          {(errorEvent || run.error) && (
+            <p role="alert" className="text-[13px] text-bad">
+              {readableError(run.error || errorEvent?.data.message)}
+            </p>
+          )}
+          {run.status === 'canceled' && <p className="text-[13px] text-ink-3">已停止</p>}
         </div>
       </div>
     </div>
   );
 }
 
-export function KeeperPanel({ cid, live, onOpenChange, onUpload }: { cid: number; live: { runId: number; text: string } | null; onOpenChange: (id: number) => void; onUpload: () => void }) {
+export function KeeperPanel({
+  cid,
+  live,
+  onOpenChange,
+  onUpload,
+}: {
+  cid: number;
+  live: { runId: number; text: string } | null;
+  onOpenChange: (id: number) => void;
+  onUpload: () => void;
+}) {
   const q = useRuns(cid);
+  const archived = useCourse(cid).data?.knowledgeBase.status === 'archived';
+  const inbox = useQuery({
+    queryKey: ['kb-inbox', cid],
+    queryFn: () =>
+      get<{
+        items: {
+          id: number;
+          status: string;
+          error: string | null;
+          content: string;
+          task?: { label: string; detail: string };
+        }[];
+      }>(`/knowledge/${cid}/inbox`),
+    refetchInterval: 5000,
+  });
   const qc = useQueryClient();
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
   const scroller = useRef<HTMLDivElement>(null);
   const runs = q.data?.runs || [];
   const activeId = q.data?.activeRunId ?? null;
-  const busy = !!activeId || runs.some(r => r.status === 'running');
+  const busy = !!activeId || runs.some((r) => r.status === 'running');
   const lastLen = runs.reduce((n, r) => n + r.events.length, 0) + (live?.text.length || 0);
 
   useEffect(() => {
@@ -156,10 +225,10 @@ export function KeeperPanel({ cid, live, onOpenChange, onUpload }: { cid: number
 
   const send = async () => {
     const msg = text.trim();
-    if (!msg || busy) return;
+    if (!msg || busy || archived) return;
     setSending(true);
     try {
-      await post(`/courses/${cid}/kb/runs`, { message: msg });
+      await post(`/knowledge/${cid}/kb/runs`, { message: msg });
       setText('');
       qc.invalidateQueries({ queryKey: ['kb-runs', cid] });
     } catch (err) {
@@ -171,7 +240,7 @@ export function KeeperPanel({ cid, live, onOpenChange, onUpload }: { cid: number
 
   const stop = async () => {
     if (!activeId) return;
-    await post(`/courses/${cid}/kb/runs/${activeId}/cancel`, {}).catch(err => toast.fromError(err));
+    await post(`/knowledge/${cid}/kb/runs/${activeId}/cancel`, {}).catch((err) => toast.fromError(err));
   };
 
   return (
@@ -180,7 +249,7 @@ export function KeeperPanel({ cid, live, onOpenChange, onUpload }: { cid: number
         <AgentAvatar agent={KEEPER} size={32} status={busy ? 'running' : null} />
         <div className="min-w-0 flex-1 leading-tight">
           <p className="text-[15px] font-semibold text-ink">{KEEPER.name}</p>
-          <p className="text-[12.5px] text-ink-3">{busy ? '正在干活' : '空闲'}</p>
+          {(archived || busy) && <p className="text-[12.5px] text-ink-3">{archived ? '已封存' : '正在整理'}</p>}
         </div>
         {busy && activeId && (
           <IconButton label="让它停下" onClick={stop}>
@@ -189,15 +258,55 @@ export function KeeperPanel({ cid, live, onOpenChange, onUpload }: { cid: number
         )}
       </div>
       <div ref={scroller} className="min-h-0 flex-1 space-y-6 overflow-y-auto px-4 py-4">
+        {inbox.data?.items
+          .filter((item) => item.status !== 'running')
+          .map((item) => (
+            <div key={item.id} className="rounded-lg border border-line bg-surface-2 p-3 text-[13px] leading-relaxed">
+              <p className="text-ink-2">
+                {item.task?.label || '整理任务'} · {item.status === 'error' ? '未完成' : '排队中'}
+              </p>
+              {item.task?.detail && <p className="mt-1 text-ink-2">{plainText(item.task.detail)}</p>}
+              {item.error && <p className="mt-1 text-bad">{readableError(item.error)}</p>}
+              {!archived && item.status === 'error' && (
+                <Button
+                  size="sm"
+                  className="mt-2"
+                  onClick={async () => {
+                    try {
+                      await post(`/knowledge/${cid}/inbox/${item.id}/process`, {});
+                      await inbox.refetch();
+                      qc.invalidateQueries({ queryKey: ['kb-runs', cid] });
+                    } catch (e) {
+                      toast.fromError(e);
+                    }
+                  }}
+                >
+                  重试
+                </Button>
+              )}
+            </div>
+          ))}
+        {q.error && (
+          <Alert tone="bad">
+            工作记录加载失败。
+            <Button size="sm" onClick={() => q.refetch()}>
+              重试
+            </Button>
+          </Alert>
+        )}
+        {!q.data && !q.error && <Skeleton className="h-32" />}
         {q.data && !runs.length && (
           <div className="flex h-full flex-col items-center justify-center gap-4">
             <AgentAvatar agent={KEEPER} size={88} />
-            <Button variant="primary" icon={<Upload className="size-4" />} onClick={onUpload}>
-              交资料
-            </Button>
+            {!archived && (
+              <Button variant="primary" icon={<Upload className="size-4" />} onClick={onUpload}>
+                交资料
+              </Button>
+            )}
+            {archived && <p className="text-[14px] text-ink-3">这个学期还没有整理记录</p>}
           </div>
         )}
-        {runs.map(r => (
+        {runs.map((r) => (
           <RunBlock key={r.id} cid={cid} run={r} live={live && live.runId === r.id ? live.text : null} onOpenChange={onOpenChange} />
         ))}
       </div>
@@ -208,21 +317,21 @@ export function KeeperPanel({ cid, live, onOpenChange, onUpload }: { cid: number
             maxRows={6}
             rows={1}
             value={text}
-            onChange={e => setText(e.target.value)}
-            onKeyDown={e => {
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
                 e.preventDefault();
                 send();
               }
             }}
-            placeholder={busy ? '整理助手正在忙…' : '跟整理助手说'}
-            disabled={busy}
+            placeholder={archived ? '学期已封存，只能查阅' : busy ? '整理助手正在忙…' : '跟整理助手说'}
+            disabled={busy || archived}
             className="min-h-0 flex-1 resize-none border-0 bg-transparent px-0 py-1.5 shadow-none! focus:ring-0"
           />
           <button
             type="button"
             onClick={send}
-            disabled={!text.trim() || busy || sending}
+            disabled={!text.trim() || busy || sending || archived}
             aria-label="发送"
             className="inline-flex size-9 shrink-0 items-center justify-center rounded-xl bg-brand text-white transition-colors hover:bg-brand-hover disabled:opacity-50"
           >

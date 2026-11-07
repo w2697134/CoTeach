@@ -7,9 +7,19 @@ import { get } from '../../lib/api';
 import { APP_NAME, APP_SHORT_NAME } from '../../lib/brand';
 import { useAuth, useTheme, useUi } from '../../lib/store';
 import { Avatar, IconButton, MenuItem, MenuLabel, Popover, cn } from '../ui';
+import { useKnowledgeBases } from '../../pages/kb/data';
 
 export function Logo({ size = 32, className }: { size?: number; className?: string }) {
-  return <img src="/logo.svg" alt="" width={size} height={size} className={cn('shrink-0 rounded-[10px] shadow-sm', className)} draggable={false} />;
+  return (
+    <img
+      src="/logo.svg"
+      alt=""
+      width={size}
+      height={size}
+      className={cn('shrink-0 rounded-[10px] shadow-sm', className)}
+      draggable={false}
+    />
+  );
 }
 
 export interface CourseItem {
@@ -19,10 +29,14 @@ export interface CourseItem {
   pending: number;
 }
 
-export const useCourses = () => useQuery({ queryKey: ['courses'], queryFn: () => get<{ courses: CourseItem[] }>('/courses') });
+export const useCourses = () =>
+  useQuery({
+    queryKey: ['courses'],
+    queryFn: () => get<{ courses: CourseItem[] }>('/courses'),
+  });
 
 function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
-  const courses = useCourses().data?.courses || [];
+  const courses = (useKnowledgeBases().data?.knowledgeBases || []).filter((k) => k.kind === 'class');
   const item = (active: boolean) =>
     cn(
       'group relative flex h-9 items-center gap-3 rounded-md px-3 text-[14.5px] font-medium transition-colors',
@@ -44,18 +58,34 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
           <LayoutGrid className="size-[18px] shrink-0 text-ink-3" />
           我的课程
         </NavLink>
+        <NavLink to="/knowledge" end onClick={onNavigate} className={({ isActive }) => item(isActive)}>
+          <BookOpen className="size-[18px] shrink-0 text-ink-3" />
+          我的知识库
+        </NavLink>
         {courses.length > 0 && (
           <div>
-            <p className="mb-1.5 px-3 text-[12.5px] font-medium tracking-wider text-ink-3">知识库</p>
+            <p className="mb-1.5 px-3 text-[12.5px] font-medium tracking-wider text-ink-3">班级</p>
             <div className="space-y-0.5">
-              {courses.map(c => (
-                <NavLink key={c.id} to={`/c/${c.id}`} onClick={onNavigate} className={({ isActive }) => item(isActive)}>
+              {courses.map((c) => (
+                <NavLink
+                  key={c.id}
+                  to={`/knowledge/${c.id}`}
+                  onClick={onNavigate}
+                  className={({ isActive }) => cn(item(isActive), 'h-auto min-h-12 py-2')}
+                >
                   {({ isActive }) => (
                     <>
-                      {isActive && <motion.span layoutId="nav-indicator" className="absolute -left-3 top-1.5 h-6 w-[3px] rounded-r-full bg-brand" />}
+                      {isActive && (
+                        <motion.span layoutId="nav-indicator" className="absolute -left-3 top-1.5 h-6 w-[3px] rounded-r-full bg-brand" />
+                      )}
                       <BookOpen className={cn('size-[18px] shrink-0', isActive ? 'text-brand' : 'text-ink-3')} />
-                      <span className="min-w-0 flex-1 truncate">{c.name}</span>
-                      {c.pending > 0 && <span className="rounded-full bg-brand px-1.5 text-[11.5px] font-semibold text-white">{c.pending}</span>}
+                      <span className="min-w-0 flex-1 break-words">
+                        <span className="block">{c.name}</span>
+                        <span className="mt-0.5 block text-[12px] font-normal text-ink-3">{c.term}</span>
+                      </span>
+                      {c.pending > 0 && (
+                        <span className="rounded-full bg-brand px-1.5 text-[11.5px] font-semibold text-white">{c.pending}</span>
+                      )}
                     </>
                   )}
                 </NavLink>
@@ -79,7 +109,7 @@ function ThemeMenu() {
       )}
       width={168}
     >
-      {close => (
+      {(close) => (
         <>
           <MenuLabel>外观</MenuLabel>
           <MenuItem icon={<Sun />} active={pref === 'light'} onClick={() => (setPref('light'), close())}>
@@ -114,7 +144,7 @@ function UserMenu() {
         </button>
       )}
     >
-      {close => (
+      {(close) => (
         <MenuItem
           icon={<LogOut />}
           danger
@@ -136,7 +166,7 @@ export function AppShell() {
   const location = useLocation();
   useEffect(() => setMobileNav(false), [location.pathname, setMobileNav]);
   // 知识库页面要占满整屏高度，自己管滚动
-  const full = location.pathname.startsWith('/c/');
+  const full = location.pathname.startsWith('/c/') || /^\/knowledge\/\d+/.test(location.pathname);
   return (
     <div className="min-h-screen bg-bg">
       <aside className="fixed inset-y-0 left-0 z-40 hidden w-[248px] border-r border-line bg-surface lg:block">
@@ -174,7 +204,12 @@ export function AppShell() {
             <UserMenu />
           </div>
         </header>
-        <main className={cn('mx-auto w-full', full ? 'h-[calc(100dvh-4rem)] max-w-[1680px] px-3 py-3 sm:px-4' : 'max-w-[1200px] px-4 py-6 sm:px-6 lg:px-10 lg:py-8')}>
+        <main
+          className={cn(
+            'mx-auto w-full',
+            full ? 'h-[calc(100dvh-4rem)] max-w-[1680px] px-3 py-3 sm:px-4' : 'max-w-[1200px] px-4 py-6 sm:px-6 lg:px-10 lg:py-8',
+          )}
+        >
           <Outlet />
         </main>
       </div>

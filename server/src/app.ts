@@ -5,8 +5,9 @@ import { Hono } from 'hono';
 import { compress } from 'hono/compress';
 import { csrfMiddleware, sessionMiddleware, type AppEnv } from './auth.js';
 import { config, isProd } from './config.js';
-import { kbRoutes } from './kb/routes.js';
+import { kbRoutes, courseRoutes } from './kb/routes.js';
 import { HttpError } from './lib/http.js';
+import { teacherError } from './kb/teacher-text.js';
 import { authRoutes } from './routes/auth.js';
 
 export function createApp() {
@@ -20,6 +21,7 @@ export function createApp() {
   });
 
   app.use('/api/*', async (c, next) => {
+    c.header('Cache-Control', 'no-store');
     const t0 = Date.now();
     await next();
     const ms = Date.now() - t0;
@@ -29,15 +31,25 @@ export function createApp() {
   app.use('/api/*', csrfMiddleware);
 
   app.route('/api/auth', authRoutes);
-  app.route('/api/courses', kbRoutes);
+  app.route('/api/courses', courseRoutes);
+  app.route('/api/knowledge', kbRoutes);
 
-  app.get('/api/health', c => c.json({ ok: true, time: Date.now() }));
-  app.all('/api/*', c => c.json({ error: '接口不存在' }, 404));
+  app.get('/api/health', (c) => c.json({ ok: true, time: Date.now() }));
+  app.all('/api/*', (c) => c.json({ error: '接口不存在' }, 404));
 
   app.onError((err, c) => {
-    if (err instanceof HttpError) return c.json({ error: err.message, code: err.code }, err.status as any);
+    if (err instanceof HttpError)
+      return c.json(
+        { error: ['teacher', 'admin'].includes(c.get('user')?.role || '') ? teacherError(err, c.req.method) : err.message, code: err.code },
+        err.status as any,
+      );
     console.error('[error]', c.req.method, c.req.path, err);
-    return c.json({ error: isProd ? '服务器错误，请稍后重试' : String((err as Error)?.message || err) }, 500);
+    return c.json(
+      {
+        error: '操作未完成，请稍后重试',
+      },
+      500,
+    );
   });
 
   // 前端静态资源 + SPA 回退
@@ -57,7 +69,7 @@ export function createApp() {
     '.json': 'application/json',
     '.txt': 'text/plain; charset=utf-8',
   };
-  app.get('*', c => {
+  app.get('*', (c) => {
     const url = decodeURIComponent(new URL(c.req.url).pathname);
     const rel = normalize(url).replace(/^([/\\])+/, '');
     if (rel.includes('..')) return c.text('Not found', 404);

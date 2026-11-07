@@ -12,12 +12,23 @@ const STATUS: Record<FileDiff['status'], { text: string; tone: 'ok' | 'brand' | 
   renamed: { text: '挪位置', tone: 'gray' },
 };
 
-const LANG: Record<string, string> = { py: 'python', c: 'c', h: 'c', cpp: 'cpp', java: 'java', js: 'javascript', ts: 'typescript', sql: 'sql', go: 'go', json: 'json' };
+const LANG: Record<string, string> = {
+  py: 'python',
+  c: 'c',
+  h: 'c',
+  cpp: 'cpp',
+  java: 'java',
+  js: 'javascript',
+  ts: 'typescript',
+  sql: 'sql',
+  go: 'go',
+  json: 'json',
+};
 
 /** 代码和纯文本包成代码块，和 Markdown 走同一套显示 */
 function asMarkdown(path: string, text: string): string {
   if (/\.(md|markdown)$/i.test(path)) return text;
-  const fence = '`'.repeat(Math.max(3, ...(text.match(/`+/g) || []).map(s => s.length + 1)));
+  const fence = '`'.repeat(Math.max(3, ...(text.match(/`+/g) || []).map((s) => s.length + 1)));
   return `${fence}${LANG[path.split('.').pop()!.toLowerCase()] || 'text'}\n${text.replace(/\n$/, '')}\n${fence}\n`;
 }
 
@@ -53,7 +64,8 @@ export function FileDiffView({ diff, defaultOpen = true }: { diff: FileDiff; def
   const s = STATUS[diff.status];
   const dir = fileDir(diff.path);
   let body: ReactNode;
-  if (diff.binary) body = <p className="text-[13.5px] text-ink-3">原件文件，不显示内容</p>;
+  if (diff.sourceChanged && !diff.binary && diff.before === diff.after) body = <p className="text-[13.5px] text-ink-3">原文件已更新，文字内容未变</p>;
+  else if (diff.binary) body = <p className="text-[13.5px] text-ink-3">原文件</p>;
   else if (diff.status === 'added')
     body = (
       <Markdown compact plugins={PLAIN_NAMES}>
@@ -63,7 +75,7 @@ export function FileDiffView({ diff, defaultOpen = true }: { diff: FileDiff; def
   else if (diff.status === 'deleted')
     body = (
       <>
-        <p className="mb-3 text-[13.5px] text-ink-3">整份删掉，下面是删掉前的内容</p>
+        <p className="mb-3 text-[13.5px] text-ink-3">已移除</p>
         <div className="opacity-60">
           <Markdown compact plugins={PLAIN_NAMES}>
             {asMarkdown(diff.path, diff.before ?? '')}
@@ -78,13 +90,13 @@ export function FileDiffView({ diff, defaultOpen = true }: { diff: FileDiff; def
         <ChevronRight className={cn('size-4 shrink-0 text-ink-3 transition-transform', open && 'rotate-90')} />
         <Badge tone={s.tone}>{s.text}</Badge>
         <span className="min-w-0 truncate text-[14px]">
-          {dir && <span className="text-ink-3">{dir.split('/').join(' / ')} / </span>}
+          {dir && <span className="text-ink-3">{plainPath(dir)} · </span>}
           <span className="font-medium text-ink">{fileTitle(diff.path)}</span>
         </span>
       </button>
       {open && (
         <div className="max-h-[560px] overflow-y-auto px-5 py-4">
-          {diff.from && <p className="mb-3 text-[13.5px] text-ink-3">原来在：{plainPath(diff.from).split('/').join(' / ')}</p>}
+          {diff.from && <p className="mb-3 text-[13.5px] text-ink-3">原位置：{plainPath(diff.from)}</p>}
           {body}
           {diff.truncated && <p className="mt-3 text-[13px] text-ink-3">内容太长，只显示了前面一部分</p>}
         </div>

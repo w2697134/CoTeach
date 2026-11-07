@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { acquireDataLock } from './data-lock.js';
 
 /** 读取 .env 文件，已有的环境变量不覆盖 */
 function loadEnvFile(file: string) {
@@ -26,6 +27,7 @@ if (process.env.CT_ENV_FILE) loadEnvFile(process.env.CT_ENV_FILE);
 const env = process.env;
 const dataDir = resolve(env.CT_DATA_DIR || resolve(serverRoot, 'data'));
 if (!existsSync(dataDir)) mkdirSync(dataDir, { recursive: true });
+export const releaseDataLock = acquireDataLock(dataDir);
 
 /** 第一次启动时生成应用密钥并保存，用来加密 API Key */
 function loadSecret(): string {
@@ -43,7 +45,7 @@ export const config = {
   port: Number(env.CT_PORT || 18660),
   dataDir,
   dbFile: resolve(dataDir, env.CT_DB_FILE || 'coteach.db'),
-  /** 每门课的知识库是一个 git 仓库，放在这里 */
+  /** 旧课程仓库的迁移来源；新库与历史档案见 knowledge/、archives/ */
   kbDir: resolve(dataDir, 'kb'),
   webDir: resolve(env.CT_WEB_DIR || resolve(serverRoot, 'dist', 'web')),
   secret: loadSecret(),

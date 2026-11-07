@@ -29,30 +29,35 @@ interface AuthState {
   logout: () => Promise<void>;
 }
 
+let authLoadVersion = 0;
 export const useAuth = create<AuthState>((set, getState) => ({
   user: null,
   ready: false,
   async load() {
+    const version = ++authLoadVersion;
     try {
       const r = await get<{ user: User | null }>('/auth/me');
-      set({ user: r.user, ready: true });
+      if (version === authLoadVersion) set({ user: r.user, ready: true });
     } catch {
-      set({ user: null, ready: true });
+      if (version === authLoadVersion) set({ user: null, ready: true });
     }
   },
   async login(username, password) {
+    authLoadVersion++;
     const r = await post<{ user: User }>('/auth/login', { username, password });
     set({ user: r.user });
     await getState().load();
     return r.user;
   },
   async demo(role) {
+    authLoadVersion++;
     const r = await post<{ user: User }>('/auth/demo', { role });
     set({ user: r.user });
     await getState().load();
     return r.user;
   },
   async logout() {
+    authLoadVersion++;
     await post('/auth/logout').catch(() => {});
     set({ user: null });
   },
@@ -65,7 +70,6 @@ setUnauthorizedHandler(() => {
     toast.info('登录已过期，请重新登录');
   }
 });
-
 
 /* ---------------- 主题 ---------------- */
 type ThemePref = 'light' | 'dark' | 'system';
@@ -85,7 +89,7 @@ function readPref(): ThemePref {
     return 'light';
   }
 }
-export const useTheme = create<ThemeState>(set => ({
+export const useTheme = create<ThemeState>((set) => ({
   pref: readPref(),
   dark: resolveDark(readPref()),
   setPref(p) {
@@ -122,12 +126,12 @@ export const useToasts = create<ToastState>((set, getState) => ({
   items: [],
   push(t, ms = 3800) {
     const id = ++tid;
-    set(s => ({ items: [...s.items.slice(-4), { ...t, id }] }));
+    set((s) => ({ items: [...s.items.slice(-4), { ...t, id }] }));
     if (ms > 0) setTimeout(() => getState().dismiss(id), ms);
     return id;
   },
   dismiss(id) {
-    set(s => ({ items: s.items.filter(i => i.id !== id) }));
+    set((s) => ({ items: s.items.filter((i) => i.id !== id) }));
   },
 }));
 
@@ -136,7 +140,8 @@ export const toast = {
   error: (title: string, desc?: string) => useToasts.getState().push({ type: 'error', title, desc }, 5200),
   info: (title: string, desc?: string) => useToasts.getState().push({ type: 'info', title, desc }),
   warning: (title: string, desc?: string) => useToasts.getState().push({ type: 'warning', title, desc }, 5000),
-  fromError: (err: unknown, fallback = '操作失败') => useToasts.getState().push({ type: 'error', title: (err as Error)?.message || fallback }, 5200),
+  fromError: (err: unknown, fallback = '操作失败') =>
+    (err as Error)?.name === 'AbortError' ? undefined : useToasts.getState().push({ type: 'error', title: (err as Error)?.message || fallback }, 5200),
 };
 
 /* ---------------- 界面偏好 ---------------- */
@@ -146,7 +151,7 @@ interface UiState {
   mobileNav: boolean;
   setMobileNav: (v: boolean) => void;
 }
-export const useUi = create<UiState>(set => ({
+export const useUi = create<UiState>((set) => ({
   collapsed: (() => {
     try {
       return localStorage.getItem('ct-collapsed') === '1';
@@ -155,7 +160,7 @@ export const useUi = create<UiState>(set => ({
     }
   })(),
   toggle: () =>
-    set(s => {
+    set((s) => {
       try {
         localStorage.setItem('ct-collapsed', s.collapsed ? '0' : '1');
       } catch {
@@ -164,5 +169,5 @@ export const useUi = create<UiState>(set => ({
       return { collapsed: !s.collapsed };
     }),
   mobileNav: false,
-  setMobileNav: v => set({ mobileNav: v }),
+  setMobileNav: (v) => set({ mobileNav: v }),
 }));

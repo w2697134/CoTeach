@@ -6,12 +6,13 @@ export class HttpError extends Error {
     public status: number,
     message: string,
     public code?: string,
+    public details?: Record<string, unknown>,
   ) {
     super(message);
   }
 }
 
-export const bad = (msg: string) => new HttpError(400, msg);
+export const bad = (msg: string, code?: string, details?: Record<string, unknown>) => new HttpError(400, msg, code, details);
 export const unauthorized = (msg = '请先登录') => new HttpError(401, msg, 'unauthorized');
 export const forbidden = (msg = '没有权限执行此操作') => new HttpError(403, msg, 'forbidden');
 export const notFound = (msg = '内容不存在或已被删除') => new HttpError(404, msg, 'not_found');
@@ -29,8 +30,21 @@ export async function body<T extends z.ZodType>(c: Context, schema: T): Promise<
   const r = schema.safeParse(data);
   if (!r.success) {
     const issue = r.error.issues[0];
-    const path = issue?.path?.join('.') || '';
-    throw bad(`参数错误${path ? `（${path}）` : ''}：${issue?.message || '格式不正确'}`);
+    const field = String(issue?.path?.[issue.path.length - 1] || '');
+    const names: Record<string, string> = {
+      name: '名称',
+      term: '学期',
+      message: '这段话',
+      content: '内容',
+      studentNo: '学号',
+      aliases: '曾用名',
+      students: '名单',
+      path: '名称',
+      from: '原位置',
+      to: '新位置',
+    };
+    const label = names[field] || '填写的内容';
+    throw bad(issue?.code === 'too_big' ? `${label}太长或太多，请分开填写` : `${label}没有填完整，请检查后再试`);
   }
   return r.data;
 }
@@ -55,12 +69,12 @@ export function clientIp(c: Context): string {
 const buckets = new Map<string, number[]>();
 export function rateLimit(key: string, limit: number, windowMs: number) {
   const t = Date.now();
-  const arr = (buckets.get(key) || []).filter(x => t - x < windowMs);
+  const arr = (buckets.get(key) || []).filter((x) => t - x < windowMs);
   if (arr.length >= limit) throw tooMany();
   arr.push(t);
   buckets.set(key, arr);
 }
 setInterval(() => {
   const t = Date.now();
-  for (const [k, arr] of buckets) if (!arr.some(x => t - x < 3600_000)) buckets.delete(k);
+  for (const [k, arr] of buckets) if (!arr.some((x) => t - x < 3600_000)) buckets.delete(k);
 }, 600_000).unref();

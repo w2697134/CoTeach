@@ -7,6 +7,7 @@ export interface FileDiff {
   from?: string;
   status: 'added' | 'modified' | 'deleted' | 'renamed';
   binary?: boolean;
+  sourceChanged?: boolean;
   /** 改之前的全文，新建的文件是 null */
   before: string | null;
   /** 改之后的全文，删掉的文件是 null */

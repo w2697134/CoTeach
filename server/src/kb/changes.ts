@@ -1,20 +1,37 @@
 import { db, j, now } from '../db/index.js';
 import { bus } from '../lib/bus.js';
 import { bad, conflict, notFound } from '../lib/http.js';
+import { checkIdentity, loadKb, writableKb } from './access.js';
 import { fileDiff, type FileDiff } from './diff.js';
-import { checkOps, commitDiff, commitOps, hashText, readText, revertCommit, type Author, type FileOp } from './repo.js';
-
-/**
- * 知识库的改动。整理助手提的改动先放着，老师确认了才写进仓库；
- * 老师自己改的、交的资料直接生效。每次生效都是一次 git 提交，提交信息里记着改动编号。
- */
+import {
+  checkOps,
+  commitDiff,
+  hashText,
+  hashBytes,
+  readBinary,
+  gitAt,
+  archiveDir,
+  isTextPath,
+  isTextEntry,
+  manifest,
+  prepareCommit,
+  publishCommit,
+  readEntry,
+  saveSource,
+  sameEntryMetadata,
+  settleRef,
+  validateOps,
+  withRepo,
+  type Author,
+  type FileOp,
+} from './repo.js';
 
 export type ChangeStatus = 'pending' | 'applied' | 'rejected' | 'conflict' | 'reverted';
 export type ChangeKind = 'teacher' | 'upload' | 'keeper' | 'tidy' | 'revert';
-
 export interface ChangeRow {
   id: number;
-  course_id: number;
+  kb_id: number;
+  course_id: number | null;
   title: string;
   reason: string | null;
   author: string;
@@ -29,45 +46,56 @@ export interface ChangeRow {
   created_at: number;
   decided_at: number | null;
   decided_by: number | null;
+  base_sha: string | null;
+  request_key: string | null;
+  commit_repo: 'legacy' | 'current';
 }
-
-export const KEEPER_AUTHOR: Author = { name: '整理助手', email: 'keeper@coteach.local' };
-export const teacherAuthor = (u: { id: number; name: string }): Author => ({ name: u.name, email: `teacher-${u.id}@coteach.local` });
-
-export function loadChange(id: number, courseId?: number): ChangeRow {
-  const row = db.get<any>('SELECT * FROM kb_changes WHERE id = ?', id);
-  if (!row || (courseId && row.course_id !== courseId)) throw notFound('这次改动不存在');
-  return { ...row, ops: j(row.ops, []) };
+export const KEEPER_AUTHOR: Author = {
+  name: '整理助手',
+  email: 'keeper@coteach.local',
+};
+export const teacherAuthor = (u: { id: number; name: string }): Author => ({
+  name: u.name,
+  email: `teacher-${u.id}@coteach.local`,
+});
+export function loadChange(id: number, kbId?: number): ChangeRow {
+  const r = db.get<any>('SELECT * FROM kb_changes WHERE id=?', id);
+  if (!r || (kbId !== undefined && r.kb_id !== kbId)) throw notFound('这次改动不存在');
+  const prefix =
+    r.commit_repo === 'legacy' ? db.get<any>('SELECT prefix FROM kb_imports WHERE course_id=?', r.course_id)?.prefix || '' : '';
+  return {
+    ...r,
+    ops: j<FileOp[]>(r.ops, []).map((op) =>
+      prefix
+        ? {
+            ...op,
+            path: prefix + op.path,
+            ...(op.from ? { from: prefix + op.from } : {}),
+          }
+        : op,
+    ),
+  };
 }
-
-function publish(courseId: number, id: number, status: ChangeStatus) {
-  bus.publish(`kb:${courseId}`, 'change', { id, status });
-  if (status === 'applied' || status === 'reverted') bus.publish(`kb:${courseId}`, 'tree', {});
-}
-
-const message = (c: { title: string; reason: string | null }, id: number) => `${c.title}\n\n${c.reason || ''}\n\nCoTeach-Change: ${id}`.replace(/\n{3,}/g, '\n\n');
-
-/** 只是挪文件、改目录的改动算纯整理，直接生效；动了内容的都要老师确认 */
-export function isTidy(courseId: number, ops: FileOp[]): boolean {
-  const removed = new Map<string, number>();
-  for (const op of ops) {
-    if (op.content !== null) continue;
-    const before = readText(courseId, op.path);
-    if (before === null) return false;
-    const h = hashText(before);
-    removed.set(h, (removed.get(h) || 0) + 1);
+function publish(kbId: number, id: number, status: ChangeStatus) {
+  bus.publish(`kb:${kbId}`, 'change', { id, status });
+  if (status === 'applied') {
+    const change = loadChange(id, kbId);
+    bus.publish(`kb:${kbId}`, 'tree', {
+      operations: change.ops.map((op) => ({
+        path: op.path,
+        from: op.from,
+        deleted: !op.from && op.content === null,
+      })),
+    });
   }
-  for (const op of ops) {
-    if (op.content === null || op.path === '目录.md') continue;
-    const h = hashText(op.content);
-    if (op.base !== null || !removed.get(h)) return false;
-    removed.set(h, removed.get(h)! - 1);
-  }
-  return [...removed.values()].every(n => n === 0);
 }
-
-export async function createChange(d: {
-  courseId: number;
+const message = (c: { title: string; reason: string | null }, id: number) => `${c.title}\n\n${c.reason || ''}\n\nCoTeach-Change: ${id}`;
+/** 只认内容不变、权限不变的明确移动操作，目录文档不享有豁免。 */
+export function isTidy(kbId: number, ops: FileOp[]): boolean {
+  return ops.length > 0 && ops.every((op) => !!op.from && op.content === null && op.from !== op.path) && checkOps(kbId, ops).length === 0;
+}
+type Create = {
+  kbId: number;
   title: string;
   reason?: string | null;
   author: string;
@@ -75,109 +103,271 @@ export async function createChange(d: {
   kind: ChangeKind;
   ops: FileOp[];
   runId?: number | null;
-  /** 直接生效：老师自己的改动、纯整理 */
+  requestKey?: string;
   apply?: { by: number | null; as: Author };
-}): Promise<ChangeRow> {
-  if (!d.ops.length) throw bad('没有要改的内容');
-  const t = now();
-  const id = db.insert('kb_changes', {
-    course_id: d.courseId,
-    title: d.title.slice(0, 120),
-    reason: d.reason || null,
-    author: d.author,
-    author_name: d.authorName,
-    kind: d.kind,
-    status: 'pending',
-    ops: d.ops,
-    run_id: d.runId ?? null,
-    created_at: t,
+  restore?: boolean;
+};
+export function checkMetadata(kbId: number, title: string, reason: string | null, ops: FileOp[]) {
+  const entries = manifest(kbId);
+  const original = (op: FileOp) => (op.from || op.base !== null ? entries.find((e) => e.path === (op.from || op.path)) : undefined);
+  if (ops.every((op) => op.sourceId || original(op)?.sourceId)) return;
+  const ids = new Set(ops.map((op) => original(op)?.studentId ?? op.studentId ?? null));
+  checkIdentity(kbId, title + '\n' + (reason || ''), ids.size === 1 ? [...ids][0] : null);
+}
+function applyLocked(c: ChangeRow, by: number | null, as: Author, restore = false): ChangeRow {
+  writableKb(c.kb_id);
+  if (c.status === 'applied') return c;
+  if (!['pending', 'conflict'].includes(c.status)) throw conflict('这次改动已经处理过了');
+  validateOps(c.kb_id, c.ops, { sourceUpload: c.kind === 'upload', restore });
+  if (c.kind !== 'upload') checkMetadata(c.kb_id, c.title, c.reason, c.ops);
+  const base = loadKb(c.kb_id).head_sha;
+  const { sha } = prepareCommit(c.kb_id, c.ops, message(c, c.id), c.author === 'keeper' ? KEEPER_AUTHOR : as, as);
+  db.tx(() => {
+    if (loadKb(c.kb_id).head_sha !== base) throw conflict('知识库已更新，请重试');
+    writableKb(c.kb_id);
+    publishCommit(c.kb_id, sha);
+    db.update('kb_changes', c.id, {
+      status: 'applied',
+      commit_sha: sha,
+      commit_repo: 'current',
+      ops: c.ops,
+      base_sha: base,
+      error: null,
+      decided_at: now(),
+      decided_by: by,
+    });
+    if (c.reverts) db.update('kb_changes', c.reverts, { status: 'reverted' });
   });
-  if (d.apply) {
+  // 已提交的数据以 SQLite 指针为准，ref 修复失败不能把成功的操作报告成失败。
+  try {
+    settleRef(c.kb_id);
+  } catch (err) {
+    console.error('[kb] ref will recover', c.kb_id, (err as Error).message);
+  }
+  publish(c.kb_id, c.id, 'applied');
+  if (c.reverts) publish(c.kb_id, c.reverts, 'reverted');
+  return loadChange(c.id);
+}
+export async function createChange(d: Create): Promise<ChangeRow> {
+  return withRepo(d.kbId, async () => {
+    writableKb(d.kbId);
+    if (d.requestKey) {
+      const old = db.get<{ id: number }>('SELECT id FROM kb_changes WHERE kb_id=? AND request_key=?', d.kbId, d.requestKey);
+      if (old) return loadChange(old.id);
+    }
+    validateOps(d.kbId, d.ops, {
+      sourceUpload: d.kind === 'upload',
+      restore: d.restore,
+    });
+    if (d.kind !== 'upload') checkMetadata(d.kbId, d.title, d.reason || null, d.ops);
+    const id = db.insert('kb_changes', {
+      kb_id: d.kbId,
+      course_id: null,
+      title: d.title.slice(0, 120),
+      reason: d.reason || null,
+      author: d.author,
+      author_name: d.authorName,
+      kind: d.kind,
+      status: 'pending',
+      ops: d.ops,
+      run_id: d.runId ?? null,
+      created_at: now(),
+      base_sha: loadKb(d.kbId).head_sha,
+      request_key: d.requestKey || null,
+    });
+    if (d.apply) {
+      try {
+        return applyLocked(loadChange(id), d.apply.by, d.apply.as, !!d.restore);
+      } catch (err) {
+        db.update('kb_changes', id, {
+          status: 'conflict',
+          error: (err as Error).message,
+        });
+        throw err;
+      }
+    }
+    publish(d.kbId, id, 'pending');
+    return loadChange(id);
+  });
+}
+export async function applyChange(kbId: number, id: number, by: number | null, as: Author): Promise<ChangeRow> {
+  return withRepo(kbId, async () => {
+    const c = loadChange(id, kbId);
     try {
-      return await applyChange(d.courseId, id, d.apply.by, d.apply.as);
+      return applyLocked(c, by, as);
     } catch (err) {
-      // 老师自己改没改成（内容过期），这次改动作废，不留在待确认里
-      db.run('DELETE FROM kb_changes WHERE id = ?', id);
-      publish(d.courseId, id, 'rejected');
+      if (c.status === 'pending' || c.status === 'conflict') {
+        db.update('kb_changes', id, {
+          status: 'conflict',
+          error: (err as Error).message,
+        });
+        publish(kbId, id, 'conflict');
+      }
       throw err;
     }
-  }
-  publish(d.courseId, id, 'pending');
-  return loadChange(id);
-}
-
-export async function applyChange(courseId: number, id: number, by: number | null, as: Author): Promise<ChangeRow> {
-  const c = loadChange(id, courseId);
-  if (c.status !== 'pending' && c.status !== 'conflict') throw conflict('这次改动已经处理过了');
-  try {
-    const author = c.author === 'keeper' ? KEEPER_AUTHOR : as;
-    const sha = await commitOps(courseId, c.ops, message(c, id), author, as);
-    db.update('kb_changes', id, { status: 'applied', commit_sha: sha, error: null, decided_at: now(), decided_by: by });
-    publish(courseId, id, 'applied');
-  } catch (err) {
-    db.update('kb_changes', id, { status: 'conflict', error: (err as Error).message });
-    publish(courseId, id, 'conflict');
-    throw err;
-  }
-  return loadChange(id);
-}
-
-export function rejectChange(courseId: number, id: number, by: number): ChangeRow {
-  const c = loadChange(id, courseId);
-  if (c.status !== 'pending' && c.status !== 'conflict') throw conflict('这次改动已经处理过了');
-  db.update('kb_changes', id, { status: 'rejected', decided_at: now(), decided_by: by });
-  publish(courseId, id, 'rejected');
-  return loadChange(id);
-}
-
-/** 撤回已经生效的改动：git 生成反向提交，记成一次新的改动 */
-export async function revertChange(courseId: number, id: number, by: { id: number; name: string }): Promise<ChangeRow> {
-  const c = loadChange(id, courseId);
-  if (c.status !== 'applied' || !c.commit_sha) throw conflict('只有已经生效的改动才能撤回');
-  const t = now();
-  const rid = db.insert('kb_changes', {
-    course_id: courseId,
-    title: `撤回：${c.title}`.slice(0, 120),
-    reason: null,
-    author: 'teacher',
-    author_name: by.name,
-    kind: 'revert',
-    status: 'pending',
-    ops: [],
-    reverts: id,
-    created_at: t,
   });
-  try {
-    const sha = await revertCommit(courseId, c.commit_sha, message({ title: `撤回：${c.title}`, reason: null }, rid), teacherAuthor(by));
-    db.update('kb_changes', rid, { status: 'applied', commit_sha: sha, decided_at: now(), decided_by: by.id });
-    db.update('kb_changes', id, { status: 'reverted' });
-    publish(courseId, id, 'reverted');
-    publish(courseId, rid, 'applied');
-  } catch (err) {
-    db.run('DELETE FROM kb_changes WHERE id = ?', rid);
-    throw err;
-  }
-  return loadChange(rid);
 }
-
-/** 改动的对比：待确认的拿现在的文件比，已生效的看那次提交 */
+export function rejectChange(kbId: number, id: number, by: number): ChangeRow {
+  writableKb(kbId);
+  const c = loadChange(id, kbId);
+  if (c.status === 'rejected') return c;
+  if (!['pending', 'conflict'].includes(c.status)) throw conflict('这次改动已经处理过了');
+  db.update('kb_changes', id, {
+    status: 'rejected',
+    decided_at: now(),
+    decided_by: by,
+  });
+  publish(kbId, id, 'rejected');
+  return loadChange(id);
+}
+export async function revertChange(kbId: number, id: number, by: { id: number; name: string }): Promise<ChangeRow> {
+  return withRepo(kbId, async () => {
+    writableKb(kbId);
+    const c = loadChange(id, kbId);
+    if (c.status !== 'applied' || !c.commit_sha) throw conflict('只有已经生效的改动才能撤回');
+    const current = manifest(kbId),
+      ops: FileOp[] = [];
+    if (c.commit_repo === 'legacy' && c.course_id) {
+      for (const f of await commitDiff(kbId, c.commit_sha, c.course_id)) {
+        const imp = db.get<any>('SELECT prefix FROM kb_imports WHERE course_id=?', c.course_id)!;
+        const sourcePath = f.path.slice(imp.prefix.length),
+          fromPath = (f.from || f.path).slice(imp.prefix.length);
+        const before = f.status === 'added' ? null : gitAt(archiveDir(c.course_id), ['show', `${c.commit_sha}^:${fromPath}`]);
+        const after = f.status === 'deleted' ? null : gitAt(archiveDir(c.course_id), ['show', `${c.commit_sha}:${sourcePath}`]);
+        const e =
+          current.find((e) => e.origin?.courseId === c.course_id && e.origin.path === sourcePath) || current.find((e) => e.path === f.path);
+        const cur = e ? readBinary(kbId, e.path) : null;
+        if (after === null ? cur !== null : cur === null || !after.equals(cur)) throw conflict('这次改动后内容又变了，不能直接撤回');
+        if (f.status === 'renamed' && e && e.path !== f.path) throw conflict('文件后来又移动过，不能直接撤回这次移动');
+        if (f.status === 'renamed' && before && after && before.equals(after)) {
+          ops.push({
+            from: e!.path,
+            path: f.from!,
+            content: null,
+            base: hashBytes(cur!),
+          });
+          continue;
+        }
+        if (f.status === 'renamed' && e) ops.push({ path: e.path, content: null, base: hashBytes(cur!) });
+        const op: FileOp = {
+          path: f.status === 'renamed' ? f.from! : e?.path || f.path,
+          content: before === null ? null : before.toString('utf8'),
+          base: f.status === 'renamed' || cur === null ? null : hashBytes(cur),
+          ...(e ? { entryId: e.id } : {}),
+          origin: e?.origin || { courseId: c.course_id, path: sourcePath },
+        };
+        if ((e?.sourceId || sourcePath.startsWith('资料/') || f.binary) && before !== null) {
+          op.sourceId = saveSource(kbId, f.path, before, isTextPath(f.path) ? before.toString('utf8') : '');
+          op.sourcePart = isTextPath(f.path) ? 'text' : 'original';
+        }
+        ops.push(op);
+      }
+    } else {
+      const before = manifest(kbId, c.base_sha),
+        after = manifest(kbId, c.commit_sha);
+      for (const fid of new Set([...before, ...after].map((e) => e.id))) {
+        const a = before.find((e) => e.id === fid),
+          b = after.find((e) => e.id === fid),
+          cur = current.find((e) => e.id === fid);
+        const av = a ? readEntry(kbId, a, c.base_sha) : null,
+          bv = b ? readEntry(kbId, b, c.commit_sha) : null;
+        if (a?.path === b?.path && av?.equals(bv || Buffer.alloc(0)) && sameEntryMetadata(a, b)) continue;
+        const cv = cur ? readEntry(kbId, cur) : null;
+        if (bv === null ? cv !== null : cv === null || !bv.equals(cv)) throw conflict('这次改动后内容又变了，不能直接撤回');
+        if (b && cur && !sameEntryMetadata(b, cur)) throw conflict('原文件后来又更新了，不能直接撤回');
+        if (a && b && a.path !== b.path) {
+          if (cur?.path !== b.path) throw conflict('文件后来又移动过，不能直接撤回这次移动');
+          ops.push({
+            from: cur!.path,
+            path: a.path,
+            content: av!.equals(bv!) ? null : av!.toString('utf8'),
+            base: hashBytes(cv!),
+            baseEntryId: cur!.id,
+            ...(a.sourceId ? { sourceId: a.sourceId, sourcePart: a.sourcePart } : {}),
+          });
+          continue;
+        }
+        const path = cur?.path || a!.path;
+        ops.push({
+          path,
+          content: av?.toString('utf8') ?? null,
+          base: cv === null ? null : hashBytes(cv),
+          baseEntryId: cur?.id ?? null,
+          entryId: fid,
+          ...(a?.origin ? { origin: a.origin } : {}),
+          ...(a?.studentId ? { studentId: a.studentId } : {}),
+          ...(a?.sourceId ? { sourceId: a.sourceId, sourcePart: a.sourcePart } : {}),
+        });
+      }
+    }
+    if (!ops.length) throw bad('没有可以撤回的内容');
+    validateOps(kbId, ops, { restore: true });
+    const rid = db.insert('kb_changes', {
+      kb_id: kbId,
+      course_id: null,
+      title: `撤回：${c.title}`.slice(0, 120),
+      author: 'teacher',
+      author_name: by.name,
+      kind: 'revert',
+      status: 'pending',
+      ops,
+      reverts: id,
+      created_at: now(),
+    });
+    try {
+      return applyLocked(loadChange(rid), by.id, teacherAuthor(by), true);
+    } catch (err) {
+      db.update('kb_changes', rid, {
+        status: 'conflict',
+        error: (err as Error).message,
+      });
+      throw err;
+    }
+  });
+}
 export async function changeDiff(c: ChangeRow): Promise<{ files: FileDiff[]; stale: string[] }> {
-  if (c.commit_sha) return { files: await commitDiff(c.course_id, c.commit_sha), stale: [] };
-  const files = c.ops.map(op => fileDiff(op.path, readText(c.course_id, op.path), op.content));
-  const stale = c.status === 'pending' || c.status === 'conflict' ? checkOps(c.course_id, c.ops) : [];
-  return { files, stale };
+  if (c.commit_sha)
+    return {
+      files: await commitDiff(c.kb_id, c.commit_sha, c.commit_repo === 'legacy' ? c.course_id : null),
+      stale: [],
+    };
+  return {
+    files: c.ops.map((op) => {
+      const entry = op.from || op.base !== null ? manifest(c.kb_id, c.base_sha).find((e) => e.path === (op.from || op.path)) : undefined;
+      const binary = !!entry && !isTextEntry(entry);
+      const before = entry && !binary ? readEntry(c.kb_id, entry, c.base_sha).toString('utf8') : null;
+      const after = binary ? null : op.from && op.content === null ? before : op.content;
+      return fileDiff(op.path, before, after, {
+        ...(op.from ? { status: 'renamed', from: op.from } : binary ? { status: op.content === null ? 'deleted' : 'modified' } : {}),
+        ...(binary ? { binary: true } : {}),
+      });
+    }),
+    stale: ['pending', 'conflict'].includes(c.status) ? checkOps(c.kb_id, c.ops) : [],
+  };
 }
-
 export function publicChange(c: ChangeRow) {
+  const source = c.run_id
+    ? db.get<any>(
+        'SELECT k.id AS kbId,k.name,k.term FROM kb_runs r JOIN knowledge_bases k ON k.id=r.source_kb_id JOIN knowledge_bases target ON target.id=? WHERE r.id=? AND k.teacher_id=target.teacher_id',
+        c.kb_id,
+        c.run_id,
+      )
+    : null;
   return {
     id: c.id,
     title: c.title,
     reason: c.reason,
+    source: source || null,
     author: c.author,
     authorName: c.author_name,
     kind: c.kind,
-    status: c.status,
-    files: c.ops.map(op => ({ path: op.path, deleted: op.content === null, added: op.base === null && op.content !== null })),
+    status: c.status === 'rejected' && c.decided_by === null && c.error?.includes('学期封存') ? 'canceled' : c.status,
+    files: c.ops.map((op) => ({
+      path: op.path,
+      from: op.from,
+      deleted: !op.from && op.content === null,
+      added: op.base === null && op.content !== null,
+    })),
     commit: c.commit_sha,
     runId: c.run_id,
     reverts: c.reverts,

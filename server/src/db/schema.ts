@@ -157,3 +157,109 @@ CREATE TABLE kb_events (
 CREATE INDEX idx_kb_events_run ON kb_events(run_id, id);
 `,
 ];
+
+// 老表的课程归属保留用于迁移追溯；新记录归 knowledge_bases。
+migrations.push(`
+CREATE TABLE knowledge_bases (
+  id INTEGER PRIMARY KEY,
+  teacher_id INTEGER NOT NULL REFERENCES users(id),
+  kind TEXT NOT NULL CHECK(kind IN ('teacher','class')),
+  name TEXT NOT NULL,
+  class_name TEXT,
+  term TEXT,
+  status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','archived')),
+  head_sha TEXT,
+  created_at INTEGER NOT NULL,
+  archived_at INTEGER
+);
+CREATE UNIQUE INDEX kb_one_teacher ON knowledge_bases(teacher_id) WHERE kind='teacher';
+CREATE UNIQUE INDEX kb_one_class_term ON knowledge_bases(teacher_id,class_name,term) WHERE kind='class';
+ALTER TABLE courses ADD COLUMN kb_id INTEGER REFERENCES knowledge_bases(id);
+CREATE TABLE kb_identity_terms (
+  teacher_id INTEGER NOT NULL REFERENCES users(id),
+  term TEXT NOT NULL,
+  source TEXT NOT NULL,
+  PRIMARY KEY(teacher_id,term)
+);
+CREATE TABLE kb_students (
+  id INTEGER PRIMARY KEY,
+  kb_id INTEGER NOT NULL REFERENCES knowledge_bases(id),
+  name TEXT NOT NULL,
+  student_no TEXT NOT NULL,
+  aliases TEXT NOT NULL DEFAULT '[]',
+  user_id INTEGER REFERENCES users(id),
+  created_at INTEGER NOT NULL,
+  UNIQUE(kb_id,student_no), UNIQUE(kb_id,user_id)
+);
+CREATE TABLE kb_sources (
+  id TEXT PRIMARY KEY,
+  kb_id INTEGER NOT NULL REFERENCES knowledge_bases(id),
+  name TEXT NOT NULL,
+  original_hash TEXT NOT NULL,
+  text_hash TEXT NOT NULL,
+  source_class TEXT,
+  term TEXT,
+  created_at INTEGER NOT NULL
+);
+CREATE TABLE kb_imports (
+  course_id INTEGER PRIMARY KEY REFERENCES courses(id),
+  kb_id INTEGER NOT NULL REFERENCES knowledge_bases(id),
+  prefix TEXT NOT NULL,
+  source_head TEXT NOT NULL,
+  fingerprint TEXT NOT NULL,
+  completed_at INTEGER NOT NULL
+);
+CREATE TABLE kb_migration_state (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+CREATE TABLE kb_inbox (
+  id INTEGER PRIMARY KEY,
+  kb_id INTEGER NOT NULL REFERENCES knowledge_bases(id),
+  student_id INTEGER REFERENCES kb_students(id),
+  sender TEXT NOT NULL,
+  source_id TEXT NOT NULL,
+  content TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','running','accepted','dismissed','error')),
+  source_kb_id INTEGER REFERENCES knowledge_bases(id), run_id INTEGER, error TEXT,
+  created_at INTEGER NOT NULL,
+  UNIQUE(kb_id,sender,source_id)
+);
+CREATE TABLE kb_changes_next (
+  id INTEGER PRIMARY KEY,
+  course_id INTEGER REFERENCES courses(id),
+  kb_id INTEGER REFERENCES knowledge_bases(id),
+  title TEXT NOT NULL, reason TEXT, author TEXT NOT NULL, author_name TEXT NOT NULL,
+  kind TEXT NOT NULL, status TEXT NOT NULL, ops TEXT NOT NULL, commit_sha TEXT,
+  run_id INTEGER, reverts INTEGER, error TEXT, created_at INTEGER NOT NULL,
+  decided_at INTEGER, decided_by INTEGER, base_sha TEXT, request_key TEXT,
+  commit_repo TEXT NOT NULL DEFAULT 'current',
+  UNIQUE(kb_id,request_key)
+);
+INSERT INTO kb_changes_next (id,course_id,title,reason,author,author_name,kind,status,ops,commit_sha,run_id,reverts,error,created_at,decided_at,decided_by)
+ SELECT id,course_id,title,reason,author,author_name,kind,status,ops,commit_sha,run_id,reverts,error,created_at,decided_at,decided_by FROM kb_changes;
+UPDATE kb_changes_next SET commit_repo='legacy';
+DROP TABLE kb_changes;
+ALTER TABLE kb_changes_next RENAME TO kb_changes;
+CREATE INDEX idx_kb_changes_owner ON kb_changes(kb_id,status,id);
+CREATE TABLE kb_events_copy AS SELECT * FROM kb_events;
+DROP TABLE kb_events;
+CREATE TABLE kb_runs_next (
+  id INTEGER PRIMARY KEY, course_id INTEGER REFERENCES courses(id), kb_id INTEGER REFERENCES knowledge_bases(id),
+  kind TEXT NOT NULL,status TEXT NOT NULL,request TEXT NOT NULL,reply TEXT,change_id INTEGER,
+  error TEXT,created_by INTEGER,created_at INTEGER NOT NULL,finished_at INTEGER,
+  student_id INTEGER REFERENCES kb_students(id), source_kb_id INTEGER REFERENCES knowledge_bases(id)
+);
+INSERT INTO kb_runs_next (id,course_id,kind,status,request,reply,change_id,error,created_by,created_at,finished_at)
+ SELECT id,course_id,kind,status,request,reply,change_id,error,created_by,created_at,finished_at FROM kb_runs;
+DROP TABLE kb_runs;
+ALTER TABLE kb_runs_next RENAME TO kb_runs;
+CREATE INDEX idx_kb_runs_owner ON kb_runs(kb_id,id);
+CREATE TABLE kb_events (
+  id INTEGER PRIMARY KEY,run_id INTEGER NOT NULL REFERENCES kb_runs(id) ON DELETE CASCADE,
+  type TEXT NOT NULL,data TEXT NOT NULL,created_at INTEGER NOT NULL
+);
+INSERT INTO kb_events SELECT * FROM kb_events_copy;
+DROP TABLE kb_events_copy;
+CREATE INDEX idx_kb_events_run ON kb_events(run_id,id);
+`);

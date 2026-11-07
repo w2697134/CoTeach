@@ -4,11 +4,26 @@ import { useAuth } from './lib/store';
 import { AppShell } from './components/layout/AppShell';
 import { PageLoading } from './components/ui';
 
-const page = <P extends object = {}>(loader: () => Promise<any>, name: string) => lazy<ComponentType<P>>(() => loader().then(m => ({ default: m[name] })));
+export function RouteError() {
+  return (
+    <main className="flex min-h-screen flex-col items-center justify-center gap-4 bg-surface p-6 text-ink">
+      <p role="alert">页面暂时无法显示</p>
+      <div className="flex gap-4">
+        <button onClick={() => window.location.reload()}>重新打开</button>
+        <a href="/knowledge">返回知识库</a>
+      </div>
+    </main>
+  );
+}
+
+const page = <P extends object = {}>(loader: () => Promise<any>, name: string) =>
+  lazy<ComponentType<P>>(() => loader().then((m) => ({ default: m[name] })));
 
 const Login = page(() => import('./pages/Login'), 'LoginPage');
 const Courses = page(() => import('./pages/Courses'), 'CoursesPage');
 const KnowledgeBase = page(() => import('./pages/kb/KnowledgeBase'), 'KnowledgeBasePage');
+const Libraries = page(() => import('./pages/kb/Libraries'), 'LibrariesPage');
+const LegacyCourse = page(() => import('./pages/kb/Libraries'), 'LegacyCoursePage');
 
 function S({ children }: { children: ReactNode }) {
   return <Suspense fallback={<PageLoading />}>{children}</Suspense>;
@@ -25,6 +40,7 @@ function RequireUser({ children }: { children: ReactNode }) {
 export const router = createBrowserRouter([
   {
     path: '/login',
+    errorElement: <RouteError />,
     element: (
       <S>
         <Login />
@@ -33,6 +49,7 @@ export const router = createBrowserRouter([
   },
   {
     path: '/',
+    errorElement: <RouteError />,
     element: (
       <RequireUser>
         <AppShell />
@@ -49,6 +66,22 @@ export const router = createBrowserRouter([
       },
       {
         path: 'c/:id',
+        element: (
+          <S>
+            <LegacyCourse />
+          </S>
+        ),
+      },
+      {
+        path: 'knowledge',
+        element: (
+          <S>
+            <Libraries />
+          </S>
+        ),
+      },
+      {
+        path: 'knowledge/:id',
         element: (
           <S>
             <KnowledgeBase />

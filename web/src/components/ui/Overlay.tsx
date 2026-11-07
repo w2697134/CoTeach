@@ -197,7 +197,7 @@ export const useConfirm = () => useContext(ConfirmCtx);
 
 export function ConfirmProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<(ConfirmOptions & { resolve: (v: boolean) => void }) | null>(null);
-  const confirm = useCallback((o: ConfirmOptions) => new Promise<boolean>(resolve => setState({ ...o, resolve })), []);
+  const confirm = useCallback((o: ConfirmOptions) => new Promise<boolean>((resolve) => setState({ ...o, resolve })), []);
   const close = (v: boolean) => {
     state?.resolve(v);
     setState(null);
@@ -384,9 +384,9 @@ export function Toaster() {
     warning: <AlertTriangle className="size-5 text-warn" />,
   };
   return createPortal(
-    <div className="pointer-events-none fixed inset-x-0 top-4 z-[100] flex flex-col items-center gap-2 px-4 sm:inset-x-auto sm:right-5 sm:top-5 sm:items-end">
+    <div className="pointer-events-none fixed inset-x-0 top-16 z-[100] flex flex-col items-center gap-2 px-4 sm:top-5" aria-live="polite">
       <AnimatePresence initial={false}>
-        {items.map(t => (
+        {items.map((t) => (
           <motion.div
             key={t.id}
             layout
@@ -400,7 +400,11 @@ export function Toaster() {
               <p className="text-sm font-medium text-ink">{t.title}</p>
               {t.desc && <p className="mt-0.5 text-[14px] leading-snug text-ink-3">{t.desc}</p>}
             </div>
-            <button className="shrink-0 rounded p-0.5 text-ink-3 hover:bg-surface-3 hover:text-ink" onClick={() => dismiss(t.id)} aria-label="关闭">
+            <button
+              className="shrink-0 rounded p-0.5 text-ink-3 hover:bg-surface-3 hover:text-ink"
+              onClick={() => dismiss(t.id)}
+              aria-label="关闭"
+            >
               <X className="size-4" />
             </button>
           </motion.div>

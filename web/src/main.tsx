@@ -8,12 +8,21 @@ import 'katex/dist/katex.min.css';
 import './styles/index.css';
 import { router } from './routes';
 import { ConfirmProvider, Toaster } from './components/ui';
-import { useAuth } from './lib/store';
+import { useAuth, useToasts } from './lib/store';
+import { resetPrivateSession } from './lib/api';
 
 export const queryClient = new QueryClient({
   defaultOptions: {
     queries: { refetchOnWindowFocus: false, retry: 1, staleTime: 15_000 },
   },
+});
+
+useAuth.subscribe((state, previous) => {
+  if (state.user?.id !== previous.user?.id || state.user?.role !== previous.user?.role) {
+    resetPrivateSession();
+    queryClient.clear();
+    useToasts.setState({ items: [] });
+  }
 });
 
 useAuth.getState().load();

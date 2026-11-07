@@ -60,6 +60,8 @@ export function loadUserById(id: number): User | null {
 }
 
 export function createSession(c: Context, userId: number) {
+  const previous = getCookie(c, COOKIE);
+  if (previous) db.run('DELETE FROM sessions WHERE id=?', sha256(previous));
   const token = randomToken(32);
   const t = now();
   db.insert('sessions', {
@@ -85,6 +87,20 @@ export function destroySession(c: Context) {
   const token = getCookie(c, COOKIE);
   if (token) db.run('DELETE FROM sessions WHERE id = ?', sha256(token));
   deleteCookie(c, COOKIE, { path: '/' });
+}
+
+export function sessionStillActive(c: Context<AppEnv>): boolean {
+  const current = c.get('user'),
+    token = getCookie(c, COOKIE);
+  if (!current || !token) return false;
+  return !!db.get(
+    'SELECT s.id FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.id=? AND u.id=? AND u.role=? AND u.status=? AND s.expires_at>?',
+    sha256(token),
+    current.id,
+    current.role,
+    'active',
+    now(),
+  );
 }
 
 const lastTouch = new Map<number, number>();

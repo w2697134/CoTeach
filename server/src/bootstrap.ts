@@ -2,7 +2,8 @@ import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { config } from './config.js';
 import { db, getSetting, now, setSetting } from './db/index.js';
-import { createCourse } from './kb/repo.js';
+import { ensureTeacherKb } from './kb/repo.js';
+import { migrateOwnership, recoverRepositoryRefs } from './kb/migrate.js';
 import { encrypt, hashPassword, randomToken } from './lib/crypto.js';
 
 /** 启动时补齐超级管理员、演示老师、演示课程和模型服务 */
@@ -10,6 +11,9 @@ export async function bootstrap() {
   ensureRoot();
   ensureProviderFromEnv();
   await ensureDemo();
+  await migrateOwnership();
+  for (const u of db.all<{ id: number; name: string }>("SELECT id,name FROM users WHERE role='teacher'")) await ensureTeacherKb(u.id, u.name);
+  recoverRepositoryRefs();
 }
 
 function ensureRoot() {
@@ -24,7 +28,9 @@ function ensureRoot() {
     created_at: now(),
   });
   const file = join(config.dataDir, 'root-password.txt');
-  writeFileSync(file, `超级管理员账号：root\n初始密码：${password}\n`, { mode: 0o600 });
+  writeFileSync(file, `超级管理员账号：root\n初始密码：${password}\n`, {
+    mode: 0o600,
+  });
   console.log(`[bootstrap] 已创建超级管理员，初始密码见 ${file}`);
 }
 
@@ -72,6 +78,12 @@ async function ensureDemo() {
     is_demo: 1,
     created_at: now(),
   });
-  await createCourse({ name: 'Python 程序设计', teacherId: tid, teacherName: '王建国' });
+  const kbId = await ensureTeacherKb(tid, '王建国');
+  db.insert('courses', {
+    name: 'Python 程序设计',
+    teacher_id: tid,
+    kb_id: kbId,
+    created_at: now(),
+  });
   console.log('[bootstrap] 已创建演示老师和演示课程');
 }

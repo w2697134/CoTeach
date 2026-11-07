@@ -8,7 +8,9 @@ import urllib.request
 import uuid
 
 sys.stdout.reconfigure(encoding='utf-8')
-B = 'http://127.0.0.1:18660/api'
+B = os.environ.get('CT_MEASURE_URL', 'http://127.0.0.1:18660/api').rstrip('/')
+if not B.startswith(('http://127.0.0.1:', 'http://localhost:')):
+    raise RuntimeError('测量只允许连接本机测试服务')
 
 
 class Client:
@@ -18,6 +20,8 @@ class Client:
         self.call('/auth/demo', {'role': 'teacher'})
 
     def call(self, path, data=None, method=None):
+        if os.environ.get('CT_MEASURE_ROUTE') == 'knowledge':
+            path = path.replace('/courses/', '/knowledge/')
         body = json.dumps(data, ensure_ascii=False).encode() if data is not None else None
         req = urllib.request.Request(B + path, data=body, method=method or ('POST' if data is not None else 'GET'),
                                      headers={'x-tv2': '1', 'Content-Type': 'application/json'})
@@ -33,7 +37,8 @@ class Client:
             name = os.path.basename(p)
             parts.append(f'--{boundary}\r\nContent-Disposition: form-data; name="file"; filename="{name}"\r\nContent-Type: application/octet-stream\r\n\r\n'.encode() + open(p, 'rb').read() + b'\r\n')
         data = b''.join(parts) + f'--{boundary}--\r\n'.encode()
-        req = urllib.request.Request(f'{B}/courses/{cid}/kb/upload', data=data, method='POST',
+        route = 'knowledge' if os.environ.get('CT_MEASURE_ROUTE') == 'knowledge' else 'courses'
+        req = urllib.request.Request(f'{B}/{route}/{cid}/kb/upload', data=data, method='POST',
                                      headers={'x-tv2': '1', 'Content-Type': f'multipart/form-data; boundary={boundary}'})
         return json.loads(self.op.open(req, timeout=300).read().decode())
 
