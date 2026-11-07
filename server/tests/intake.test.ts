@@ -334,3 +334,61 @@ test('老的一次性上传方式和长内容：照常收下、读好再回答�
   assert.ok(['digesting', 'paused', 'done'].includes(row.status));
   assert.ok(repo.readText(kb, doc.path!)?.includes('这一段讲循环的写法'));
 });
+
+test('知识库搜索：按名字（不含扩展名）和内容找，附上下文；别的老师搜不了', async () => {
+  const put = await req(`/knowledge/${kb}/kb/file`, { method: 'PUT', json: { path: '笔记/搜索测试 递归讲法.md', content: '# 递归讲法\n\n先讲基例，再讲递归例。汉诺塔放在最后讲，用三根小棒演示。\n', base: null } });
+  assert.equal(put.status, 200);
+  const find = async (q: string, who?: 'other') => req(`/knowledge/${kb}/kb/search?q=${encodeURIComponent(q)}`, { who });
+  const byName = (await (await find('递归讲法')).json()) as any;
+  assert.ok(byName.results.some((r: any) => r.path === '笔记/搜索测试 递归讲法.md'));
+  const byText = (await (await find('三根小棒')).json()) as any;
+  const hit = byText.results.find((r: any) => r.path === '笔记/搜索测试 递归讲法.md');
+  assert.ok(hit && hit.snippet.includes('三根小棒') && !hit.snippet.includes('\n'), JSON.stringify(byText));
+  assert.equal(((await (await find('md')).json()) as any).results.length, 0, '扩展名不算名字');
+  assert.deepEqual(((await (await find('   ')).json()) as any).results, []);
+  assert.equal((await find('递归', 'other')).status, 403);
+});
+
+test('长期库交了带学生信息的资料：标出哪个班几个人，整理完能改交到那个班；两个班的不给改交', async () => {
+  const cls = await repo.createKnowledgeBase({ teacherId: teacher, name: '演练2401班', className: '演练2401班', term: '2026秋' });
+  const cls2 = await repo.createKnowledgeBase({ teacherId: teacher, name: '演练2402班', className: '演练2402班', term: '2026秋' });
+  db.insert('kb_students', { kb_id: cls, name: '林小雨', student_no: '2401001', aliases: '[]', created_at: Date.now() });
+  db.insert('kb_students', { kb_id: cls, name: '周明', student_no: '2401002', aliases: '[]', created_at: Date.now() });
+  db.insert('kb_students', { kb_id: cls2, name: '吴桐', student_no: '2402001', aliases: '[]', created_at: Date.now() });
+  const hand = async (name: string, text: string) => {
+    const data = Buffer.from(text);
+    const c = (await (await req(`/knowledge/${kb}/intakes`, { json: { files: [{ name, size: data.length }] } })).json()) as any;
+    await req(`/knowledge/${kb}/intakes/${c.intake.id}/items/${c.uploads[0].itemId}?offset=0`, { raw: data, method: 'PUT' });
+    await settle(c.intake.id);
+    return c.intake.id as number;
+  };
+  const move = (id: number, item: number, classId: number, who?: 'other') => req(`/knowledge/${kb}/intakes/${id}/items/${item}/to-class`, { who, json: { classId } });
+  const one = await hand('递归作业成绩.csv', '学号,姓名,分数\n2401001,林小雨,92\n2401002,周明,58\n');
+  let view = ((await (await req(`/knowledge/${kb}/intakes/${one}`)).json()) as any).intake;
+  assert.equal(view.students.length, 1);
+  assert.deepEqual(
+    view.students[0].classes.map((c: any) => [c.kbId, c.name, c.count, c.active]),
+    [[cls, '演练2401班', 2, true]],
+  );
+  const item = view.students[0];
+  // 还在整理（没有模型时停在「已停下」）就不能挪
+  assert.equal((await move(one, item.itemId, cls)).status, 409);
+  await req(`/knowledge/${kb}/intakes/${one}/finish`, { json: {} });
+  const moved = await move(one, item.itemId, cls);
+  assert.equal(moved.status, 200);
+  const res = (await moved.json()) as any;
+  assert.equal(res.intake.students.length, 0);
+  assert.ok(res.intake.items.find((i: any) => i.id === item.itemId).notes.includes('已改交到演练2401班'));
+  assert.ok(!repo.manifest(kb).some((e) => e.path === item.path), '长期库里还留着原件');
+  await settle(res.moved.id);
+  const classItem = store.intakeItems(res.moved.id).find((i) => i.method !== 'archive')!;
+  assert.ok(classItem.path && repo.manifest(cls).some((e) => e.path === classItem.path), '班级库没收到');
+  assert.ok((await move(one, item.itemId, cls)).status >= 400, '同一份不能改交两次');
+  // 两个班的学生都有：标出来，但不给改交；别的老师也动不了
+  const two = await hand('两个班的名单.csv', '姓名\n林小雨\n吴桐\n');
+  await req(`/knowledge/${kb}/intakes/${two}/finish`, { json: {} });
+  view = ((await (await req(`/knowledge/${kb}/intakes/${two}`)).json()) as any).intake;
+  assert.equal(view.students[0].classes.length, 2);
+  assert.equal((await move(two, view.students[0].itemId, cls)).status, 400);
+  assert.ok((await move(two, view.students[0].itemId, cls, 'other')).status >= 400);
+});

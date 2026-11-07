@@ -10,6 +10,7 @@ import {
   KIND_LABEL,
   cancelIntake,
   finishIntake,
+  moveToClass,
   putIntake,
   resumeIntake,
   uploadingHere,
@@ -207,6 +208,33 @@ export function IntakeCard({ cid, intake }: { cid: number; intake: Intake }) {
         {intake.status === 'done' && !intake.changeId && c.same > 0 && !c.done && (
           <p className="mt-2 text-[13px] text-ink-3">都和以前交的一样，知识库没有变</p>
         )}
+        {/* 长期库不留学生身份：只有一个班的学生、整理完了，就能一键改交到那个班 */}
+        {intake.students?.map((s) => {
+          const target = s.classes.length === 1 && s.classes[0].active ? s.classes[0] : null;
+          const settled = intake.status === 'done' || intake.status === 'failed' || intake.status === 'canceled';
+          return (
+            <div key={s.itemId} className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1.5 text-[13px] text-ink-2">
+              <span className="min-w-0 break-all">
+                「{fileTitle(s.name)}」里有{s.classes.map((k) => `${k.name} ${k.count} 名`).join('、')}学生的信息
+              </span>
+              {target && settled && (
+                <Button
+                  size="sm"
+                  loading={busy === `move:${s.itemId}`}
+                  onClick={() =>
+                    act(`move:${s.itemId}`, async () => {
+                      const r = await moveToClass(cid, intake.id, s.itemId, target.kbId);
+                      toast.success(`已改交到${target.name}`);
+                      return r;
+                    })
+                  }
+                >
+                  改交到这个班
+                </Button>
+              )}
+            </div>
+          );
+        })}
 
         {!pasted && intake.total > 0 && (
           <button

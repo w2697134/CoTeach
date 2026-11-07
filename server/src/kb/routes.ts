@@ -18,7 +18,7 @@ import {
   teacherAuthor,
   type ChangeRow,
 } from './changes.js';
-import { cancelIntake, createIntake, finishIntake, intakeFromBuffers, receiveChunk, resumeIntake, CHUNK_SIZE } from './intake/service.js';
+import { cancelIntake, createIntake, finishIntake, intakeFromBuffers, moveToClass, receiveChunk, resumeIntake, CHUNK_SIZE } from './intake/service.js';
 import { blobPath, publicIntake } from './intake/store.js';
 import { existsSync, readFileSync } from 'node:fs';
 import { activeRun, cancelRun, cancelForArchive, publicRun, startRun, enqueueTask, drainInbox, taskSubject } from './keeper.js';
@@ -34,6 +34,7 @@ import {
   listFiles,
   manifest,
   readBinary,
+  readEntry,
   readText,
   saveSource,
   withRepo,
@@ -252,6 +253,32 @@ kbRoutes.get('/:id/kb/tree', async (c) => {
   const kb = owned(c);
   return c.json({ files: await listFiles(kb.id) });
 });
+// 老师在自己的知识库里找东西：名字（不含扩展名）或文字内容里有这几个字就算，附一小段上下文
+kbRoutes.get('/:id/kb/search', (c) => {
+  const kb = owned(c),
+    q = (c.req.query('q') || '').trim().slice(0, 100),
+    needle = q.toLowerCase();
+  const results: { path: string; protected: boolean; snippet: string }[] = [];
+  if (!needle) return c.json({ results });
+  for (const e of manifest(kb.id)) {
+    if (results.length >= 50) break;
+    const nameHit = e.path.replace(/\.[^./]+$/, '').toLowerCase().includes(needle);
+    let snippet = '';
+    if (isTextEntry(e)) {
+      const text = readEntry(kb.id, e).toString('utf8'),
+        at = text.toLowerCase().indexOf(needle);
+      // 截取时不留下半个表情符号
+      if (at >= 0)
+        snippet = text
+          .slice(Math.max(0, at - 30), at + needle.length + 60)
+          .replace(/^[\uDC00-\uDFFF]|[\uD800-\uDBFF]$/g, '')
+          .replace(/\s+/g, ' ')
+          .trim();
+    }
+    if (nameHit || snippet) results.push({ path: e.path, protected: !!e.sourceId, snippet });
+  }
+  return c.json({ results });
+});
 kbRoutes.get('/:id/kb/file', async (c) => {
   const kb = owned(c),
     path = cleanPath(c.req.query('path') || ''),
@@ -446,6 +473,13 @@ kbRoutes.post('/:id/intakes/:iid/finish', async (c) => {
   const u = teacher(c);
   const { kb, row } = intakeOf(c);
   return c.json({ intake: await finishIntake(kb.id, row.id, u) });
+});
+// 交到长期库的资料里只有一个班的学生：改交到那个班
+kbRoutes.post('/:id/intakes/:iid/items/:item/to-class', async (c) => {
+  const u = teacher(c);
+  const { kb, row } = intakeOf(c);
+  const d = await body(c, z.object({ classId: z.number().int().positive() }));
+  return c.json(await moveToClass(kb.id, row.id, intParam(c, 'item'), d.classId, u));
 });
 kbRoutes.get('/:id/intakes/:iid/items/:item/raw', (c) => {
   const { row } = intakeOf(c);

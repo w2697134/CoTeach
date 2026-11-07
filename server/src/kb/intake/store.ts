@@ -46,6 +46,8 @@ export interface ItemRow {
   notes: string | null;
   path: string | null;
   source_id: string | null;
+  /** 交到长期库的资料里出现了哪些班的已登记学生：[{ kbId, name, count }] */
+  students: string | null;
   created_at: number;
   updated_at: number;
 }
@@ -185,6 +187,18 @@ export function publicIntake(row: IntakeRow, full = true) {
     current: reading ? { name: reading.name, progress: j<{ done: number; total: number } | null>(reading.progress, null) } : null,
     items: shown.map(publicItem),
     complete: shown.length === items.length,
+    // 交到长期库、里面有学生信息的资料：卡片上不展开也看得到；班级封存了就不能再改交
+    students: items
+      .filter((i) => i.students && i.path)
+      .map((i) => ({
+        itemId: i.id,
+        name: i.name,
+        path: i.path,
+        classes: j<{ kbId: number; name: string; count: number }[]>(i.students, []).map((c) => ({
+          ...c,
+          active: db.value<string>('SELECT status FROM knowledge_bases WHERE id=?', c.kbId) === 'active',
+        })),
+      })),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     finishedAt: row.finished_at,

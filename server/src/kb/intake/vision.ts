@@ -1,19 +1,32 @@
 import { db, now } from '../../db/index.js';
 import { HttpError } from '../../lib/http.js';
 import { chat } from '../../llm/index.js';
+import type { ToolSpec } from '../../llm/types.js';
 import type { VisionImage } from './images.js';
 
 /**
- * 图片、扫描件里的字请 DeepSeek V4.1 Flash 看图转写。
- * 2026-11-07 按「定目标」对照（各两遍，记录见 COLLABORATION_MEMORY）：这句对有字的图逐字正确、表格保留行列；
- * 已知两处毛病：界面截图转写前会加一句「以下是图片中所有文字的转写：」，没有字的图会写一段描述（被当成资料存下）。
- * 试过换成「只输出图片里的文字，原样照抄；图片里没有文字就什么都不输出。」：开场白没了，但表格被拆成一格一行、
- * 没字的图仍回一句「图片里没有文字。」，没有更好，未采用。
+ * 图片、扫描件里的字请 DeepSeek V4.1 Flash 看图转写，按两栏交：有没有字、字本身。
+ * 2026-11-07 对照过：只用这句话时有字的图逐字正确、表格保留行列，
+ * 但界面截图转写前会加一句「以下是图片中所有文字的转写：」，没有字的插画会写一段描述，被当成资料存下。
+ * 试过改这句话（「只输出图片里的文字…没有文字就什么都不输出」），表格被拆成一格一行、没字的图仍回一句话，没采用。
+ * 改成按两栏交以后，开场白和描述进不了正文；字那一栏的说明写了表格用 Markdown 表格，不写的话表格会变成一行行的。
  * 同一张图（按内容指纹）只认一次，中断后接着读、重交同一份资料都不再花钱。
  */
 export const VISION_PROMPT = '把图片里的文字原样转写出来。';
+export const VISION_TOOL: ToolSpec = {
+  name: 'transcribe',
+  description: '交回图片里的文字。',
+  parameters: {
+    type: 'object',
+    properties: {
+      has_text: { type: 'boolean', description: '图片里有没有文字' },
+      text: { type: 'string', description: '原样转写的文字，表格写成 Markdown 表格' },
+    },
+    required: ['has_text', 'text'],
+  },
+};
 /** 改了交代就换版本号，旧结果不再沿用 */
-export const VISION_METHOD = 'flash-v1';
+export const VISION_METHOD = 'flash-v2';
 
 export class VisionUnavailable extends Error {
   constructor(
@@ -67,11 +80,14 @@ export async function readImage(image: VisionImage, key: string, ctx: { userId: 
         ],
         temperature: 0,
         maxTokens: 8000,
+        tools: [VISION_TOOL],
         userId: ctx.userId,
         purpose: 'kb:read',
         signal: ctx.signal,
       });
-      text = r.text.trim();
+      // 说没有字就是空的；没按两栏交（直接回了正文）就照旧用正文
+      const call = r.toolCalls.find((t) => t.name === VISION_TOOL.name);
+      text = call ? (call.args.has_text === false ? '' : String(call.args.text ?? '').trim()) : r.text.trim();
     } catch (err) {
       if (ctx.signal?.aborted) throw err;
       const status = err instanceof HttpError ? err.status : 0;

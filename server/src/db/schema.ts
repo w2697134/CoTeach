@@ -332,3 +332,8 @@ ALTER TABLE kb_sources ADD COLUMN kind TEXT;
 ALTER TABLE kb_sources ADD COLUMN method TEXT;
 ALTER TABLE kb_sources ADD COLUMN notes TEXT;
 `);
+
+// 第 4 次：交到长期库的资料里有哪个班的学生（老师可以一键改交到那个班）
+migrations.push(`
+ALTER TABLE kb_intake_items ADD COLUMN students TEXT;
+`);

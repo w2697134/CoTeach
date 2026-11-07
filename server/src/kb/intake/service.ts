@@ -1,9 +1,9 @@
-import { closeSync, ftruncateSync, mkdirSync, openSync, rmSync, statfsSync, statSync, writeSync, existsSync, readdirSync } from 'node:fs';
+import { closeSync, ftruncateSync, mkdirSync, openSync, rmSync, statfsSync, statSync, writeSync, existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { config } from '../../config.js';
 import { db, j, now } from '../../db/index.js';
-import { bad, conflict, notFound } from '../../lib/http.js';
-import { loadKb, writableKb } from '../access.js';
+import { bad, conflict, forbidden, notFound } from '../../lib/http.js';
+import { identityHits, loadKb, writableKb } from '../access.js';
 import { createChange, teacherAuthor } from '../changes.js';
 import { enqueueTask, drainInbox, cancelIntakeRun, INTERRUPTED } from '../keeper.js';
 import { addSource, hashBytes, manifest, readEntry, type FileOp } from '../repo.js';
@@ -32,8 +32,8 @@ import {
 import { normalizeNewlines } from './textcodec.js';
 import { VisionUnavailable, readImage } from './vision.js';
 
-/** 读法改了就换版本号：同一份原件按新读法重读一次，其余照旧沿用。 */
-export const READER_VERSION = 'r1';
+/** 读法改了就换版本号：同一份原件按新读法重读一次，其余照旧沿用。r2：看图识字改成按两栏交。 */
+export const READER_VERSION = 'r2';
 export const CHUNK_SIZE = 8 * 1024 * 1024;
 /** 一批交给整理助手的量：同一文件夹的放一起，超过就分批，每批都能读完再整理。 */
 const BATCH_CHARS = 60_000;
@@ -265,7 +265,8 @@ async function readItem(item: ItemRow) {
       try {
         const text = await readImage(b.image, b.key, { userId: intake.created_by, signal: ctrl.signal, concurrency: config.intake.visionConcurrency });
         texts.set(k, text);
-        if (!meaningful(text) && b.label) notes.push(`${b.label}没有认出字`);
+        // 图里本来就没有字（装饰图、照片）是常事，不记；认出了一点又不成字才记
+        if (text.trim() && !meaningful(text) && b.label) notes.push(`${b.label}没有认出字`);
         setItem(item.id, { progress: JSON.stringify({ done: ++done, total: images.length }) });
         announce(intake.id);
       } catch (err) {
@@ -279,6 +280,9 @@ async function readItem(item: ItemRow) {
   if (missed) return fail(item, { reason: missed.reason, advice: missed.advice, kind: result.kind, retryable: true });
   const parts = result.blocks.map((b, k) => (b.t === 'md' ? b.text : texts.get(k) || '')).filter((s) => s.trim());
   const text = parts.join('\n\n').trim() + '\n';
+  // 每张图都说没有字：是插画、照片这类，不算没读成
+  if (!meaningful(text) && images.length && result.blocks.every((b, k) => b.t !== 'img' || !texts.get(k)) && !result.blocks.some((b) => b.t === 'md' && meaningful(b.text)))
+    return fail(item, { reason: '图片里没有文字', kind: result.kind, skip: true });
   if (!meaningful(text)) return fail(item, { reason: images.length ? '图片里没有认出字' : '里面没有能读出的文字', advice: images.length ? '请确认图片清晰后再交' : '', kind: result.kind });
   const method = !images.length ? 'text' : result.blocks.some((b) => b.t === 'md' && meaningful(b.text.replace(/^##[^\n]*$/gm, '')) > 0) ? 'mixed' : 'vision';
   const textHash = storeText(text);
@@ -419,7 +423,7 @@ async function publish(id: number) {
     new Set(entries.map((e) => e.path)),
   );
   const ops: FileOp[] = [];
-  const placed: { item: ItemRow; path: string; sourceId: string; updated: boolean }[] = [];
+  const placed: { item: ItemRow; path: string; sourceId: string; updated: boolean; students: ClassHit[] }[] = [];
   const same: ItemRow[] = [];
   for (const d of docs) {
     const text = readBlobText(d.text_hash!);
@@ -436,7 +440,7 @@ async function publish(id: number) {
     }
     const sourceId = addSource(kb.id, { name: d.name, originalHash: d.hash!, text, kind: d.kind, method: d.method, notes: j<string[]>(d.notes, []) });
     ops.push({ path, content: text, base, ...(prev ? { baseEntryId: prev.id } : {}), sourceId, sourcePart: 'text' });
-    placed.push({ item: d, path, sourceId, updated: !!prev });
+    placed.push({ item: d, path, sourceId, updated: !!prev, students: kb.kind === 'teacher' ? classesIn(kb.teacher_id, text) : [] });
   }
   for (const s of same) setItem(s.id, { status: 'same', path: match.get(s.id)!.path });
   if (!ops.length) {
@@ -462,6 +466,7 @@ async function publish(id: number) {
     setItem(p.item.id, {
       path: p.path,
       source_id: p.sourceId,
+      ...(p.students.length ? { students: JSON.stringify(p.students) } : {}),
       // 和知识库里已有的资料同名：替换了原来那份（历史里还能找回），让老师看得见，免得不小心撞名没察觉
       ...(p.updated ? { notes: JSON.stringify([...j<string[]>(p.item.notes, []), '替换了知识库里原来的同名资料']) } : {}),
     });
@@ -469,6 +474,53 @@ async function publish(id: number) {
   setIntake(id, { status: 'digesting', change_id: change.id, plan: JSON.stringify(plan), batch: 0, checkpoint: null, error: null });
   enqueueTask(kb.id, 'intake', `${id}:${change.id}`, title);
   queueMicrotask(() => drainInbox(kb.id));
+}
+
+type ClassHit = { kbId: number; name: string; count: number };
+/** 资料里出现了哪些班的已登记学生（姓名、学号或别名），每班几个人 */
+function classesIn(teacherId: number, text: string): ClassHit[] {
+  const count = new Map<number, number>();
+  for (const s of identityHits(teacherId, text)) count.set(s.kb_id, (count.get(s.kb_id) || 0) + 1);
+  return [...count].map(([kbId, n]) => {
+    const k = db.get<{ class_name: string | null; name: string }>('SELECT class_name,name FROM knowledge_bases WHERE id=?', kbId)!;
+    return { kbId, name: k.class_name || k.name, count: n };
+  });
+}
+
+/**
+ * 交到长期库的资料里只有一个班的学生：改交到那个班。
+ * 班级库收下这份原件重新读、交给它的整理助手；长期库里的这份原件移除（历史里还在）。
+ */
+export async function moveToClass(kbId: number, intakeId: number, itemId: number, classId: number, user: { id: number; name: string }) {
+  const kb = writableKb(kbId);
+  // 整理过程中挪走资料，后面几批会找不到它；整理完（或停了）再改交
+  if (!['done', 'failed', 'canceled'].includes(loadIntake(intakeId).status)) throw conflict('这次交的资料还在整理，整理完再改交');
+  const item = intakeItems(intakeId).find((i) => i.id === itemId);
+  if (!item || !item.path || !item.hash || !item.source_id) throw notFound('这份资料不存在');
+  const found = j<ClassHit[]>(item.students, []);
+  if (found.length !== 1 || found[0].kbId !== classId) throw bad('这份资料里不只有这个班的学生，请分开后再交');
+  const target = loadKb(classId);
+  if (target.kind !== 'class' || target.teacher_id !== kb.teacher_id) throw forbidden();
+  const entry = manifest(kb.id).find((e) => e.path === item.path && e.sourceId === item.source_id);
+  if (!entry) throw conflict('这份资料已经不在长期库里了');
+  if (!existsSync(blobPath(item.hash))) throw conflict('这份资料的原件已经清理掉了，请重新交给这个班');
+  const data = readFileSync(blobPath(item.hash));
+  // 班级封存了 createIntake 会拒绝；名字只取文件名，不把长期库里的文件夹带过去
+  const created = createIntake(classId, user, { files: [{ name: item.name.split('/').pop() || item.name, size: data.length }] });
+  const up = created.uploads[0];
+  if (up) await receiveChunk(classId, created.intake.id, up.itemId, 0, data);
+  await createChange({
+    kbId: kb.id,
+    title: `把「${documentName(item.path)}」改交到${found[0].name}`,
+    author: 'teacher',
+    authorName: user.name,
+    kind: 'teacher',
+    ops: [{ path: item.path, content: null, base: hashBytes(readEntry(kb.id, entry)), baseEntryId: entry.id }],
+    apply: { by: user.id, as: teacherAuthor(user) },
+  });
+  setItem(item.id, { students: null, notes: JSON.stringify([...j<string[]>(item.notes, []), `已改交到${found[0].name}`]) });
+  announce(intakeId, true);
+  return { intake: publicIntake(loadIntake(intakeId)), moved: publicIntake(loadIntake(created.intake.id)) };
 }
 
 /** 按文件夹分批：同一文件夹的资料尽量放在同一批，一批不超过 BATCH_CHARS 字、BATCH_DOCS 份。 */

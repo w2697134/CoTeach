@@ -5,7 +5,7 @@ import { FileStack, FilePlus, FolderOpen, FolderTree, Upload } from 'lucide-reac
 import { useAuth } from '../../lib/store';
 import { Badge, Button, Card, Drawer, Empty, ErrorState, MenuItem, PageLoading, Popover, Segmented, Skeleton, cn } from '../../components/ui';
 import { ChangesDrawer } from './Changes';
-import { FileTree } from './FileTree';
+import { TreeSearch } from './FileTree';
 import { FileViewer } from './FileViewer';
 import { KeeperPanel } from './KeeperPanel';
 import { useChanges, useCourse, useKbStream, useTree } from './data';
@@ -94,7 +94,7 @@ function KnowledgeBaseContent({ cid }: { cid: number }) {
   ) : !tree.data.files.length ? (
     <Empty compact title="还没有内容" />
   ) : (
-    <FileTree files={tree.data.files} selected={selected} onSelect={select} pending={pendingPaths} />
+    <TreeSearch cid={cid} files={tree.data.files} selected={selected} onSelect={select} pending={pendingPaths} />
   );
 
   return (

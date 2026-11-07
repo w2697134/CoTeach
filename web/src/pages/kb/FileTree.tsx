@@ -1,8 +1,111 @@
-import { useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { ChevronRight, File, FileText, Folder, FolderOpen } from 'lucide-react';
-import { cn } from '../../components/ui';
+import { get } from '../../lib/api';
+import { SearchInput, cn } from '../../components/ui';
 import type { TreeFile } from './data';
 import { fileTitle, plainPath } from './data';
+import { fileDir, plainText } from './presentation';
+
+type Hit = { path: string; protected: boolean; snippet: string };
+
+/** 把找到的那几个字标出来 */
+function Marked({ text, term }: { text: string; term: string }) {
+  const lower = text.toLowerCase(),
+    t = term.toLowerCase(),
+    parts: { s: string; hit: boolean }[] = [];
+  let at = 0;
+  for (let i = lower.indexOf(t); t && i >= 0; i = lower.indexOf(t, i + t.length)) {
+    if (i > at) parts.push({ s: text.slice(at, i), hit: false });
+    parts.push({ s: text.slice(i, i + t.length), hit: true });
+    at = i + t.length;
+  }
+  if (at < text.length) parts.push({ s: text.slice(at), hit: false });
+  return (
+    <>
+      {parts.map((p, i) =>
+        p.hit ? (
+          <mark key={i} className="rounded-sm bg-brand-soft px-0.5 text-brand-ink">
+            {p.s}
+          </mark>
+        ) : (
+          <Fragment key={i}>{p.s}</Fragment>
+        ),
+      )}
+    </>
+  );
+}
+
+/** 目录上方的搜索：输入几个字就按名字和内容找，清空回到目录 */
+export function TreeSearch({
+  cid,
+  files,
+  selected,
+  onSelect,
+  pending,
+}: {
+  cid: number;
+  files: TreeFile[];
+  selected: string | null;
+  onSelect: (path: string) => void;
+  pending: Set<string>;
+}) {
+  const [q, setQ] = useState('');
+  const [term, setTerm] = useState('');
+  useEffect(() => {
+    const t = setTimeout(() => setTerm(q.trim()), 250);
+    return () => clearTimeout(t);
+  }, [q]);
+  const found = useQuery({
+    queryKey: ['kb-search', cid, term],
+    queryFn: () => get<{ results: Hit[] }>(`/knowledge/${cid}/kb/search?q=${encodeURIComponent(term)}`),
+    enabled: !!term,
+  });
+  return (
+    <div>
+      <div className="sticky top-0 z-10 bg-surface p-2 pb-1">
+        <SearchInput value={q} onChange={setQ} />
+      </div>
+      {!term ? (
+        <FileTree files={files} selected={selected} onSelect={onSelect} pending={pending} />
+      ) : found.data && !found.data.results.length ? (
+        <p className="px-4 py-3 text-[13px] text-ink-3">没找到</p>
+      ) : (
+        <div className="space-y-px p-2 pt-1">
+          {(found.data?.results || []).map((r) => {
+            const dir = fileDir(r.path);
+            const snippet = plainText(r.snippet).replace(/[#*`>|]+/g, ' ').replace(/\s+/g, ' ').trim();
+            return (
+              <button
+                key={r.path}
+                type="button"
+                onClick={() => onSelect(r.path)}
+                className={cn(
+                  'flex w-full flex-col gap-0.5 rounded-md px-2.5 py-2 text-left transition-colors',
+                  selected === r.path ? 'bg-brand-soft' : 'hover:bg-surface-3',
+                )}
+              >
+                <span className="flex w-full items-center gap-1.5 text-[14px] text-ink">
+                  <FileText className="size-4 shrink-0 text-ink-3" />
+                  <span className="min-w-0 flex-1 truncate">
+                    <Marked text={fileTitle(r.path)} term={term} />
+                  </span>
+                  {r.protected && <span className="shrink-0 text-[11px] text-ink-3">原文</span>}
+                </span>
+                {dir && <span className="w-full truncate pl-[22px] text-[12px] text-ink-3">{plainPath(dir)}</span>}
+                {snippet && (
+                  <span className="line-clamp-2 w-full pl-[22px] text-[12.5px] leading-5 text-ink-2">
+                    <Marked text={snippet} term={term} />
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
 
 interface Node {
   name: string;

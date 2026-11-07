@@ -39,6 +39,8 @@ export interface Intake {
   current: { name: string; progress: { done: number; total: number } | null } | null;
   items: IntakeItem[];
   complete: boolean;
+  /** 交到长期库、里面有学生信息的资料 */
+  students?: { itemId: number; name: string; path: string | null; classes: { kbId: number; name: string; count: number; active: boolean }[] }[];
   createdAt: number;
   updatedAt: number;
   finishedAt: number | null;
@@ -217,3 +219,5 @@ export function pastedFiles(list: FileList): Picked[] {
 export const resumeIntake = (cid: number, id: number) => post<{ intake: Intake }>(`/knowledge/${cid}/intakes/${id}/resume`, {});
 export const cancelIntake = (cid: number, id: number) => post<{ intake: Intake }>(`/knowledge/${cid}/intakes/${id}/cancel`, {});
 export const finishIntake = (cid: number, id: number) => post<{ intake: Intake }>(`/knowledge/${cid}/intakes/${id}/finish`, {});
+export const moveToClass = (cid: number, id: number, itemId: number, classId: number) =>
+  post<{ intake: Intake }>(`/knowledge/${cid}/intakes/${id}/items/${itemId}/to-class`, { classId });
