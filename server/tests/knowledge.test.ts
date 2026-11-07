@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
+import { gunzipSync } from 'node:zlib';
 import type { FileOp } from '../src/kb/repo.js';
 
 const dir = mkdtempSync(join(tmpdir(), 'coteach-knowledge-test-'));
@@ -410,6 +411,17 @@ test('知识库归属、系统隔离与变更生命周期', async (t) => {
     const next = stream.read();
     bus.publish(`kb:${long}`, 'delta', { text: 'must-not-arrive' });
     assert.equal((await next).done, true);
+  });
+  await t.test('接口的 JSON 压缩了再发，事件流不压', async () => {
+    const headers = { cookie: cookies.teacher, 'x-tv2': '1', 'Accept-Encoding': 'gzip, deflate' };
+    const tree = await app.request(`/api/knowledge/${long}/kb/tree`, { headers });
+    assert.equal(tree.status, 200);
+    assert.equal(tree.headers.get('content-encoding'), 'gzip');
+    assert.ok(Array.isArray(JSON.parse(gunzipSync(Buffer.from(await tree.arrayBuffer())).toString()).files));
+    const stream = await app.request(`/api/knowledge/${long}/kb/stream`, { headers });
+    assert.match(stream.headers.get('content-type') || '', /text\/event-stream/);
+    assert.equal(stream.headers.get('content-encoding'), null);
+    await stream.body?.cancel();
   });
   await t.test('同一浏览器重新登录后撤销上一枚会话', async () => {
     const { Hono } = await import('hono'),

@@ -49,7 +49,8 @@ function KnowledgeBaseContent({ cid }: { cid: number }) {
 
   const files = tree.data?.files || [];
   const directoryPath = files.some((f) => f.path === DIRECTORY) ? DIRECTORY : null;
-  const directoryFile = useFile(cid, directoryPath);
+  // 「目录」这一页和目录一起要，不等目录回来再要；目录里没有这一页就不要了
+  const directoryFile = useFile(cid, tree.data && !directoryPath ? null : DIRECTORY);
   // 目录还没取到时先不排，免得列表先按名字排一遍再跳成目录的顺序
   const directory = !directoryPath || directoryFile.isError ? '' : (directoryFile.data?.text ?? null);
   const selected = params.get('f') || directoryPath || files.find((f) => !isMaterial(f))?.path || files[0]?.path || null;

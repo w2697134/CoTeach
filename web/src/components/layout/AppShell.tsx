@@ -7,7 +7,8 @@ import { get } from '../../lib/api';
 import { APP_NAME, APP_SHORT_NAME } from '../../lib/brand';
 import { useAuth, useTheme, useUi } from '../../lib/store';
 import { Avatar, IconButton, MenuItem, MenuLabel, Popover, cn } from '../ui';
-import { useKnowledgeBases } from '../../pages/kb/data';
+import { useKnowledgeBases, usePrefetchKb } from '../../pages/kb/data';
+import { whenIdle } from '../../lib/idle';
 
 export function Logo({ size = 32, className }: { size?: number; className?: string }) {
   return (
@@ -26,6 +27,7 @@ export interface CourseItem {
   id: number;
   name: string;
   description: string | null;
+  kbId: number;
   pending: number;
 }
 
@@ -37,6 +39,7 @@ export const useCourses = () =>
 
 function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const courses = (useKnowledgeBases().data?.knowledgeBases || []).filter((k) => k.kind === 'class');
+  const prefetch = usePrefetchKb();
   const item = (active: boolean) =>
     cn(
       'group relative flex h-9 items-center gap-3 rounded-md px-3 text-[14.5px] font-medium transition-colors',
@@ -71,6 +74,8 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
                   key={c.id}
                   to={`/knowledge/${c.id}`}
                   onClick={onNavigate}
+                  onPointerEnter={() => prefetch(c.id)}
+                  onFocus={() => prefetch(c.id)}
                   className={({ isActive }) => cn(item(isActive), 'h-auto min-h-12 py-2')}
                 >
                   {({ isActive }) => (
@@ -165,6 +170,10 @@ export function AppShell() {
   const { mobileNav, setMobileNav } = useUi();
   const location = useLocation();
   useEffect(() => setMobileNav(false), [location.pathname, setMobileNav]);
+  // 长期知识库最常去：这页画好后，在后台把它头一眼要看的取好
+  const teacherKb = useKnowledgeBases().data?.knowledgeBases.find((k) => k.kind === 'teacher')?.id;
+  const prefetchKb = usePrefetchKb();
+  useEffect(() => (teacherKb ? whenIdle(() => prefetchKb(teacherKb)) : undefined), [teacherKb, prefetchKb]);
   // 知识库页面要占满整屏高度，自己管滚动
   const full = location.pathname.startsWith('/c/') || /^\/knowledge\/\d+/.test(location.pathname);
   return (

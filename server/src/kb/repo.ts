@@ -18,7 +18,6 @@ export interface Entry {
   origin?: { courseId: number; path: string };
 }
 export interface TreeFile extends Entry {
-  size: number;
   text: boolean;
   protected: boolean;
 }
@@ -125,10 +124,21 @@ export function gitAt(dir: string, args: string[], input?: Buffer | string, env:
 export async function git(id: number, args: string[]): Promise<string> {
   return gitAt(repoDir(id), args).toString('utf8');
 }
+// 同一个版本的清单不会变，按版本记下原文，翻目录、打开每一页不用每次都起一次 git；每次都重新解析，调用方改了也不影响
+const manifestCache = new Map<string, string>();
 export function manifest(id: number, sha?: string | null): Entry[] {
   const rev = sha === undefined ? loadKb(id).head_sha : sha;
   if (!rev) return [];
-  return JSON.parse(gitAt(repoDir(id), ['show', `${rev}:${MANIFEST}`]).toString('utf8')) as Entry[];
+  const key = `${id}:${rev}`;
+  let text = manifestCache.get(key);
+  if (text === undefined) {
+    text = gitAt(repoDir(id), ['show', `${rev}:${MANIFEST}`]).toString('utf8');
+    if (/^[0-9a-f]{40,64}$/.test(rev)) {
+      manifestCache.set(key, text);
+      if (manifestCache.size > 200) manifestCache.delete(manifestCache.keys().next().value!);
+    }
+  }
+  return JSON.parse(text) as Entry[];
 }
 function entryAt(id: number, path: string, sha?: string | null) {
   return manifest(id, sha).find((e) => e.path === cleanPath(path));
@@ -157,12 +167,7 @@ export function readText(id: number, path: string, sha?: string | null): string 
   return b === null ? null : b.toString('utf8');
 }
 export async function listFiles(id: number): Promise<TreeFile[]> {
-  return manifest(id).map((e) => ({
-    ...e,
-    size: readEntry(id, e).length,
-    text: isTextEntry(e),
-    protected: !!e.sourceId,
-  }));
+  return manifest(id).map((e) => ({ ...e, text: isTextEntry(e), protected: !!e.sourceId }));
 }
 export function saveSource(id: number, name: string, original: Buffer, text: string, sourceClass: string | null = null): string {
   const originalHash = hashBytes(original),

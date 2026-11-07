@@ -16,8 +16,20 @@ export function RouteError() {
   );
 }
 
-const page = <P extends object = {}>(loader: () => Promise<any>, name: string) =>
-  lazy<ComponentType<P>>(() => loader().then((m) => ({ default: m[name] })));
+const loaders: (() => Promise<unknown>)[] = [];
+const page = <P extends object = {}>(loader: () => Promise<any>, name: string) => {
+  // 同一页的代码只下载一次，没下成的下回再下
+  let loading: Promise<any> | null = null;
+  const load = () =>
+    (loading ??= loader().catch((err) => {
+      loading = null;
+      throw err;
+    }));
+  loaders.push(load);
+  return lazy<ComponentType<P>>(() => load().then((m) => ({ default: m[name] })));
+};
+/** 各页的代码先在后台下载好，点过去不用再等 */
+export const preloadPages = () => loaders.forEach((load) => load().catch(() => {}));
 
 const Login = page(() => import('./pages/Login'), 'LoginPage');
 const Courses = page(() => import('./pages/Courses'), 'CoursesPage');

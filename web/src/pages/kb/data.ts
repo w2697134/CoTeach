@@ -1,15 +1,14 @@
-import { useEffect, useState, useRef } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useCallback, useEffect, useState, useRef } from 'react';
+import { queryOptions, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { get, subscribe } from '../../lib/api';
 import { useAuth } from '../../lib/store';
-import { putIntake, type Intake } from './intake';
+import { intakesQuery, putIntake, type Intake } from './intake';
 
 export interface TreeFile {
   id: string;
   protected?: boolean;
   studentId?: number;
   path: string;
-  size: number;
   text: boolean;
   /** 老师交的原件：名字、类型、哪天交的 */
   source?: { name: string; kind: string; createdAt: number };
@@ -79,7 +78,7 @@ export interface FileDiff {
 
 /* 老师看到的文件名不带 .md：笔记都是 .md 文件，扩展名对老师没用 */
 export { fileTitle, fileDir, plainPath, plainText } from './presentation';
-import { plainText } from './presentation';
+import { DIRECTORY, plainText } from './presentation';
 
 /** 整理助手的话里提到文件名时也去掉 .md */
 /** 显示知识库文档时，正文里提到的文件名也去掉 .md；代码里的不动。编辑时看到的还是原文 */
@@ -133,8 +132,8 @@ export const STATUS_TONE: Record<ChangeStatus, 'brand' | 'ok' | 'gray' | 'warn'>
   canceled: 'gray',
 };
 
-export const useCourse = (cid: number) =>
-  useQuery({
+const courseQuery = (cid: number) =>
+  queryOptions({
     queryKey: ['course', cid],
     queryFn: () =>
       get<{
@@ -144,6 +143,7 @@ export const useCourse = (cid: number) =>
         activeRunId: number | null;
       }>(`/knowledge/${cid}`),
   });
+export const useCourse = (cid: number) => useQuery(courseQuery(cid));
 export interface KnowledgeBase {
   id: number;
   name: string;
@@ -160,27 +160,54 @@ export const useKnowledgeBases = () =>
     queryFn: () => get<{ knowledgeBases: KnowledgeBase[] }>('/knowledge'),
     refetchInterval: 15000,
   });
-export const useTree = (cid: number) =>
-  useQuery({
+const treeQuery = (cid: number) =>
+  queryOptions({
     queryKey: ['kb-tree', cid],
     queryFn: () => get<{ files: TreeFile[] }>(`/knowledge/${cid}/kb/tree`),
   });
-export const useFile = (cid: number, path: string | null) =>
-  useQuery({
+export const useTree = (cid: number) => useQuery(treeQuery(cid));
+const fileQuery = (cid: number, path: string | null) =>
+  queryOptions({
     queryKey: ['kb-file', cid, path],
     queryFn: () => get<FileData>(`/knowledge/${cid}/kb/file?path=${encodeURIComponent(path!)}`),
     enabled: !!path,
   });
-export const useRuns = (cid: number) =>
-  useQuery({
+export const useFile = (cid: number, path: string | null) => useQuery(fileQuery(cid, path));
+const runsQuery = (cid: number) =>
+  queryOptions({
     queryKey: ['kb-runs', cid],
     queryFn: () => get<{ runs: Run[]; activeRunId: number | null }>(`/knowledge/${cid}/kb/runs`),
   });
-export const useChanges = (cid: number, status?: 'pending') =>
-  useQuery({
+export const useRuns = (cid: number) => useQuery(runsQuery(cid));
+const changesQuery = (cid: number, status?: 'pending') =>
+  queryOptions({
     queryKey: ['kb-changes', cid, status || 'all'],
     queryFn: () => get<{ changes: Change[] }>(`/knowledge/${cid}/kb/changes${status ? '?status=pending' : ''}`),
   });
+export const useChanges = (cid: number, status?: 'pending') => useQuery(changesQuery(cid, status));
+
+let keeperAvatar: HTMLImageElement | null = null;
+/**
+ * 打开一个知识库头一眼要看的（名字、目录、「目录」这一页、整理助手的记录和头像）先在后台取好。
+ * 服务器远，来回一次要零点几秒，等点了再取就要干等。
+ */
+export function prefetchKb(qc: QueryClient, cid: number) {
+  keeperAvatar ??= Object.assign(new Image(), { src: '/agents/keeper.webp' });
+  void qc.prefetchQuery(courseQuery(cid));
+  void qc.prefetchQuery(runsQuery(cid));
+  void qc.prefetchQuery(intakesQuery(cid));
+  void qc.prefetchQuery(changesQuery(cid));
+  void qc.prefetchQuery(changesQuery(cid, 'pending'));
+  qc.fetchQuery(treeQuery(cid))
+    .then((tree) => {
+      if (tree.files.some((f) => f.path === DIRECTORY)) return qc.prefetchQuery(fileQuery(cid, DIRECTORY));
+    })
+    .catch(() => {});
+}
+export function usePrefetchKb() {
+  const qc = useQueryClient();
+  return useCallback((cid: number) => prefetchKb(qc, cid), [qc]);
+}
 export const useChange = (cid: number, id: number | null) =>
   useQuery({
     queryKey: ['kb-change', cid, id],

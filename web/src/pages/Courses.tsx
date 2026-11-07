@@ -64,7 +64,7 @@ export function CoursesPage() {
       ) : (
         <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
           {courses.map((c, i) => (
-            <Card key={c.id} padded={false} hover className="cursor-pointer overflow-hidden" onClick={() => navigate(`/c/${c.id}`)}>
+            <Card key={c.id} padded={false} hover className="cursor-pointer overflow-hidden" onClick={() => navigate(`/knowledge/${c.kbId}`)}>
               <div className={`relative h-24 bg-gradient-to-br ${GRADIENTS[i % GRADIENTS.length]} px-5 py-4`}>
                 <div className="absolute -right-6 -top-8 size-32 rounded-full bg-white/10" />
                 <p className="relative text-[19px] font-semibold tracking-tight text-white">{c.name}</p>

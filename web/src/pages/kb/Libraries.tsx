@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { BookOpen, Plus, Users, Archive } from 'lucide-react';
 import { get, post } from '../../lib/api';
 import { Badge, Button, Card, Empty, ErrorState, Input, Modal, PageHeader, PageLoading } from '../../components/ui';
-import { useKnowledgeBases } from './data';
+import { useKnowledgeBases, usePrefetchKb } from './data';
 
 export function LegacyCoursePage() {
   const id = Number(useParams().id),
@@ -22,7 +22,8 @@ export function LegacyCoursePage() {
 export function LibrariesPage() {
   const q = useKnowledgeBases(),
     qc = useQueryClient(),
-    navigate = useNavigate();
+    navigate = useNavigate(),
+    prefetch = usePrefetchKb();
   const [open, setOpen] = useState(false),
     [name, setName] = useState(''),
     [term, setTerm] = useState(''),
@@ -57,6 +58,8 @@ export function LibrariesPage() {
         <Card padded={false}>
           <button
             onClick={() => navigate(`/knowledge/${personal.id}`)}
+            onPointerEnter={() => prefetch(personal.id)}
+            onFocus={() => prefetch(personal.id)}
             className="flex w-full items-center gap-4 p-6 text-left transition-colors hover:bg-surface-2"
           >
             <span className="flex size-12 items-center justify-center rounded-xl bg-brand-soft text-brand">
@@ -103,6 +106,8 @@ export function LibrariesPage() {
             <Card key={k.id} padded={false}>
               <button
                 onClick={() => navigate(`/knowledge/${k.id}`)}
+                onPointerEnter={() => prefetch(k.id)}
+                onFocus={() => prefetch(k.id)}
                 className="flex w-full items-start gap-3 p-5 text-left transition-colors hover:bg-surface-2"
               >
                 {k.status === 'archived' ? <Archive className="mt-1 size-5 text-ink-3" /> : <Users className="mt-1 size-5 text-brand" />}

@@ -2,7 +2,7 @@
  * 交资料：选文件、选文件夹、拖进来、跟整理助手说话时带上文件、贴很长的一段。
  * 先登记要交的文件（带文件夹里的相对位置），再分块上传；收齐后服务器自己读、自己整理。
  */
-import { useQuery, type QueryClient } from '@tanstack/react-query';
+import { queryOptions, useQuery, type QueryClient } from '@tanstack/react-query';
 import { ApiError, api, get, post } from '../../lib/api';
 import { toast } from '../../lib/store';
 
@@ -76,8 +76,9 @@ export const KIND_LABEL: Record<string, string> = {
   database: '数据库',
 };
 
-export const useIntakes = (cid: number) =>
-  useQuery({ queryKey: ['kb-intakes', cid], queryFn: () => get<{ intakes: Intake[] }>(`/knowledge/${cid}/intakes`) });
+export const intakesQuery = (cid: number) =>
+  queryOptions({ queryKey: ['kb-intakes', cid], queryFn: () => get<{ intakes: Intake[] }>(`/knowledge/${cid}/intakes`) });
+export const useIntakes = (cid: number) => useQuery(intakesQuery(cid));
 
 /**
  * 推送或操作返回的状态放进列表。只收比手上新的：按「停下」时接口先回当时的状态，

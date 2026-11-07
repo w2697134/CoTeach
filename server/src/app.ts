@@ -20,6 +20,8 @@ export function createApp() {
     await next();
   });
 
+  // 接口返回的 JSON 压缩了再发；推送和原件下载不压
+  app.use('/api/*', compress({ contentTypeFilter: /^application\/json/ }));
   app.use('/api/*', async (c, next) => {
     c.header('Cache-Control', 'no-store');
     const t0 = Date.now();
