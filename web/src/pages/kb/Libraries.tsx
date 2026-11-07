@@ -3,7 +3,6 @@ import { useNavigate, Navigate, useParams, useSearchParams } from 'react-router'
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { BookOpen, Plus, Users, Archive } from 'lucide-react';
 import { get, post } from '../../lib/api';
-import { toast } from '../../lib/store';
 import { Badge, Button, Card, Empty, ErrorState, Input, Modal, PageHeader, PageLoading } from '../../components/ui';
 import { useKnowledgeBases } from './data';
 

@@ -351,6 +351,16 @@
   color: color-mix(in srgb, var(--c-primary-ink) 80%, var(--c-text));
 }
 .md pre { margin: 0; }
+/* 知识库里翻开的一页：字大一点、行距松一点，读起来像文档 */
+.md-doc { font-size: 15.5px; line-height: 1.85; }
+.md-doc p { margin: 0.75em 0; }
+.md-doc h1 { font-size: 1.4em; }
+.md-doc h2 { font-size: 1.22em; margin-top: 1.8em; }
+.md-doc h3 { font-size: 1.07em; margin-top: 1.5em; }
+.md-doc li { margin: 0.35em 0; }
+/* 正文里提到的知识库位置，点了翻到那一页 */
+.md .kb-link { display: inline; padding: 0; border: 0; background: none; font: inherit; color: var(--c-primary-ink); text-decoration: underline dotted; text-decoration-color: color-mix(in srgb, var(--c-primary) 55%, transparent); text-underline-offset: 3px; cursor: pointer; }
+.md .kb-link:hover { color: var(--c-primary); text-decoration-style: solid; }
 .md .katex-display { overflow-x: auto; overflow-y: hidden; padding: 0.3em 0; }
 .md img { border-radius: 10px; }
 

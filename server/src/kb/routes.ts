@@ -20,6 +20,7 @@ import {
 } from './changes.js';
 import { cancelIntake, createIntake, finishIntake, intakeFromBuffers, moveToClass, receiveChunk, resumeIntake, CHUNK_SIZE } from './intake/service.js';
 import { blobPath, publicIntake } from './intake/store.js';
+import { baseName, extOf, kindFromExt } from './intake/kinds.js';
 import { existsSync, readFileSync } from 'node:fs';
 import { activeRun, cancelRun, cancelForArchive, publicRun, startRun, enqueueTask, drainInbox, taskSubject } from './keeper.js';
 import {
@@ -251,7 +252,13 @@ kbRoutes.post('/:id/summary', async (c) => {
 
 kbRoutes.get('/:id/kb/tree', async (c) => {
   const kb = owned(c);
-  return c.json({ files: await listFiles(kb.id) });
+  // 资料一栏要显示原件是什么类型、哪天交的
+  return c.json({
+    files: (await listFiles(kb.id)).map((f) => {
+      const s = f.sourceId ? db.get<any>('SELECT name,created_at FROM kb_sources WHERE id=?', f.sourceId) : null;
+      return s ? { ...f, source: { name: baseName(s.name), kind: kindFromExt(extOf(s.name)), createdAt: s.created_at } } : f;
+    }),
+  });
 });
 // 老师在自己的知识库里找东西：名字（不含扩展名）或文字内容里有这几个字就算，附一小段上下文
 kbRoutes.get('/:id/kb/search', (c) => {
@@ -287,7 +294,7 @@ kbRoutes.get('/:id/kb/file', async (c) => {
   const buf = readBinary(kb.id, path)!;
   const text = isTextEntry(e) ? buf.toString('utf8') : null;
   const [last] = await history(kb.id, { path, limit: 1 });
-  const source = e.sourceId ? db.get<any>('SELECT id,name,source_class,term FROM kb_sources WHERE id=?', e.sourceId) : null;
+  const source = e.sourceId ? db.get<any>('SELECT id,name,source_class,term,created_at FROM kb_sources WHERE id=?', e.sourceId) : null;
   return c.json({
     id: e.id,
     path,
@@ -302,6 +309,8 @@ kbRoutes.get('/:id/kb/file', async (c) => {
       ? {
           id: source.id,
           name: source.name,
+          kind: kindFromExt(extOf(source.name)),
+          createdAt: source.created_at,
           sourceClass: source.source_class,
           term: source.term,
         }

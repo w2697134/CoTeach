@@ -1,15 +1,15 @@
 import { useMemo, useRef, useState } from 'react';
 import { useParams, useSearchParams } from 'react-router';
-import { useQueryClient } from '@tanstack/react-query';
-import { FileStack, FilePlus, FolderOpen, FolderTree, Upload } from 'lucide-react';
+import { ListTree, Upload } from 'lucide-react';
 import { useAuth } from '../../lib/store';
-import { Badge, Button, Card, Drawer, Empty, ErrorState, MenuItem, PageLoading, Popover, Segmented, Skeleton, cn } from '../../components/ui';
-import { ChangesDrawer } from './Changes';
-import { TreeSearch } from './FileTree';
+import { Card, Drawer, ErrorState, IconButton, PageLoading, Segmented, Skeleton, cn } from '../../components/ui';
+import { ChangeDetail, ChangesList } from './Changes';
+import { Contents, isMaterial } from './Contents';
+import { DIRECTORY } from './presentation';
 import { FileViewer } from './FileViewer';
-import { KeeperPanel } from './KeeperPanel';
-import { useChanges, useCourse, useKbStream, useTree } from './data';
-import { handIn, pickedFromDrop, pickedFromList, type Picked } from './intake';
+import { HandInButton, KeeperPanel, type KeeperHandle } from './KeeperPanel';
+import { useChanges, useCourse, useFile, useKbStream, useTree } from './data';
+import { pickedFromDrop } from './intake';
 import { KnowledgeTools } from './Manage';
 
 export function KnowledgeBasePage() {
@@ -18,11 +18,16 @@ export function KnowledgeBasePage() {
   return <KnowledgeBaseContent key={`${userId}:${cid}`} cid={cid} />;
 }
 
+/**
+ * 一个知识库：左边目录（笔记、资料两栏），中间翻开的一页，右边整理助手。
+ * 交资料、跟它说话、它改了什么都在右边；看改动也在中间那一页上看。
+ */
 function KnowledgeBaseContent({ cid }: { cid: number }) {
   const [params, setParams] = useSearchParams();
   const course = useCourse(cid);
   const tree = useTree(cid);
   const pending = useChanges(cid, 'pending');
+  const keeper = useRef<KeeperHandle>(null);
   const live = useKbStream(cid, (operations) => {
     const current = params.get('f') || selected;
     const operation = operations.find((op) => op.from === current || (op.deleted && op.path === current));
@@ -37,64 +42,96 @@ function KnowledgeBaseContent({ cid }: { cid: number }) {
         { replace: true },
       );
   });
-  const qc = useQueryClient();
-  const fileInput = useRef<HTMLInputElement>(null);
-  const folderInput = useRef<HTMLInputElement>(null);
-  const [uploading, setUploading] = useState(false);
   const [dragging, setDragging] = useState(0);
-  const [drawer, setDrawer] = useState(false);
-  const [focus, setFocus] = useState<number | null>(null);
   // 手机上一次只放一栏
-  const [pane, setPane] = useState<'tree' | 'file' | 'keeper'>('keeper');
+  const [pane, setPane] = useState<'contents' | 'page' | 'keeper'>('keeper');
+  const [contentsOpen, setContentsOpen] = useState(false);
 
-  const [treeOpen, setTreeOpen] = useState(false);
-  const selected = params.get('f') || tree.data?.files.find((f) => f.path === '目录.md')?.path || tree.data?.files[0]?.path || null;
-  const select = (p: string) => {
+  const files = tree.data?.files || [];
+  const directoryPath = files.some((f) => f.path === DIRECTORY) ? DIRECTORY : null;
+  const directoryFile = useFile(cid, directoryPath);
+  // 目录还没取到时先不排，免得列表先按名字排一遍再跳成目录的顺序
+  const directory = !directoryPath || directoryFile.isError ? '' : (directoryFile.data?.text ?? null);
+  const selected = params.get('f') || directoryPath || files.find((f) => !isMaterial(f))?.path || files[0]?.path || null;
+  const changeId = Number(params.get('change')) || null;
+  const listing = params.get('v') === 'changes';
+
+  const update = (fn: (n: URLSearchParams) => void) =>
     setParams((prev) => {
       const n = new URLSearchParams(prev);
-      n.set('f', p);
+      fn(n);
       return n;
     });
-    setPane('file');
-    setTreeOpen(false);
+  const select = (p: string) => {
+    update((n) => {
+      n.set('f', p);
+      n.delete('v');
+      n.delete('change');
+    });
+    setPane('page');
+    setContentsOpen(false);
+  };
+  const openChange = (id: number) => {
+    update((n) => n.set('change', String(id)));
+    setPane('page');
+  };
+  const openChanges = () => {
+    update((n) => {
+      n.set('v', 'changes');
+      n.delete('change');
+    });
+    setPane('page');
   };
 
+  const paths = useMemo(() => (tree.data?.files || []).map((f) => f.path), [tree.data]);
   const pendingPaths = useMemo(() => new Set((pending.data?.changes || []).flatMap((c) => c.files.map((f) => f.path))), [pending.data]);
   const pendingHere = (pending.data?.changes || []).find((c) => c.files.some((f) => f.path === selected))?.id ?? null;
 
-  const openChange = (id: number | null) => {
-    setFocus(id);
-    setDrawer(true);
-  };
-
-  // 选的文件、选的文件夹、拖进来的都从这里交：登记好就切到整理助手看进度，上传在后台继续
-  const upload = async (files: Picked[]) => {
-    if (!files.length || uploading) return;
-    setUploading(true);
-    try {
-      await handIn(qc, cid, files);
-      setPane('keeper');
-    } finally {
-      setUploading(false);
-      if (fileInput.current) fileInput.current.value = '';
-      if (folderInput.current) folderInput.current.value = '';
-    }
-  };
-
   if (course.error) return <ErrorState error={course.error} onRetry={() => course.refetch()} />;
   if (!course.data) return <PageLoading />;
-  const pendingCount = pending.data?.changes.length ?? course.data.pending;
   const kb = course.data.knowledgeBase,
     archived = kb.status === 'archived';
   const filesDragged = (e: React.DragEvent) => !archived && e.dataTransfer.types.includes('Files');
-  const treeView = tree.error ? (
+
+  const contents = tree.error ? (
     <ErrorState error={tree.error} onRetry={() => tree.refetch()} />
-  ) : !tree.data ? (
-    <Skeleton className="m-4 h-48" />
-  ) : !tree.data.files.length ? (
-    <Empty compact title="还没有内容" />
+  ) : !tree.data || directory === null ? (
+    <Skeleton className="m-2 h-48" />
   ) : (
-    <TreeSearch cid={cid} files={tree.data.files} selected={selected} onSelect={select} pending={pendingPaths} />
+    <Contents
+      cid={cid}
+      files={files}
+      directory={directory}
+      selected={changeId || listing ? null : selected}
+      onSelect={select}
+      pending={pendingPaths}
+    />
+  );
+
+  const page = changeId ? (
+    <ChangeDetail cid={cid} id={changeId} backLabel={listing ? '全部改动' : '返回'} onBack={() => update((n) => n.delete('change'))} />
+  ) : listing ? (
+    <ChangesList
+      cid={cid}
+      onOpen={openChange}
+      onBack={() =>
+        update((n) => {
+          n.delete('v');
+          n.delete('change');
+        })
+      }
+    />
+  ) : tree.data && !files.length ? (
+    <div className="flex h-full flex-col items-center justify-center gap-6 p-8">
+      <img src="/agents/keeper.webp" alt="" className="size-32 animate-float rounded-full shadow-md" draggable={false} />
+      {archived ? (
+        <p className="text-[14px] text-ink-3">这个学期没有留下内容</p>
+      ) : (
+        <HandInButton size="md" variant="primary" onPick={(picked) => keeper.current?.handIn(picked)} />
+      )}
+    </div>
+  ) : (
+    <FileViewer key={cid} cid={cid} path={selected} paths={paths} onSelect={select} onOpenChange={openChange} pendingHere={pendingHere} />
   );
 
   return (
@@ -107,7 +144,8 @@ function KnowledgeBaseContent({ cid }: { cid: number }) {
         if (!filesDragged(e)) return;
         e.preventDefault();
         setDragging(0);
-        void pickedFromDrop(e.dataTransfer).then(upload);
+        setPane('keeper');
+        void pickedFromDrop(e.dataTransfer).then((picked) => keeper.current?.handIn(picked));
       }}
     >
       {dragging > 0 && (
@@ -118,90 +156,47 @@ function KnowledgeBaseContent({ cid }: { cid: number }) {
           </div>
         </div>
       )}
-      <div className="flex flex-wrap items-center gap-2 px-1">
-        <div className="min-w-0 basis-full sm:basis-auto sm:flex-1">
-          <h1 className="break-words text-[20px] font-semibold tracking-tight text-ink">
-            {kb.kind === 'teacher' ? '长期知识库' : kb.name}
-          </h1>
+      <div className="flex min-h-10 flex-wrap items-center gap-x-3 gap-y-2 px-1">
+        <IconButton label="目录" className="hidden lg:inline-flex min-[90rem]:hidden" onClick={() => setContentsOpen(true)}>
+          <ListTree className="size-[18px]" />
+        </IconButton>
+        <div className="flex min-w-0 flex-1 items-baseline gap-2.5">
+          <h1 className="min-w-0 truncate text-[20px] font-semibold tracking-tight text-ink">{kb.kind === 'teacher' ? '长期知识库' : kb.name}</h1>
           {kb.kind === 'class' && (
-            <p className="mt-0.5 text-[12.5px] text-ink-3">
+            <span className="shrink-0 text-[13px] text-ink-3">
               {kb.term}
               {archived ? ' · 已封存' : ''}
-            </p>
+            </span>
           )}
         </div>
         <KnowledgeTools key={cid} kb={kb} onSelect={select} />
-        <Button className="hidden lg:inline-flex 2xl:hidden" icon={<FolderTree className="size-4" />} onClick={() => setTreeOpen(true)}>
-          目录
-        </Button>
-        <Button icon={<FileStack className="size-4" />} onClick={() => openChange(null)}>
-          改动
-          {pendingCount > 0 && (
-            <Badge tone="brand" className="ml-1.5">
-              {pendingCount}
-            </Badge>
-          )}
-        </Button>
-        {!archived && (
-          <Popover
-            trigger={({ toggle }) => (
-              <Button variant="primary" icon={<Upload className="size-4" />} loading={uploading} onClick={toggle}>
-                交资料
-              </Button>
-            )}
-          >
-            {(close) => (
-              <div className="flex min-w-36 flex-col p-1.5" onClick={close}>
-                <MenuItem icon={<FilePlus />} onClick={() => fileInput.current?.click()}>
-                  选文件
-                </MenuItem>
-                <MenuItem icon={<FolderOpen />} onClick={() => folderInput.current?.click()}>
-                  选文件夹
-                </MenuItem>
-              </div>
-            )}
-          </Popover>
-        )}
-        <input ref={fileInput} type="file" multiple className="hidden" onChange={(e) => upload(pickedFromList(e.target.files || []))} />
-        <input
-          ref={(el) => {
-            // 选整个文件夹：React 不认识这个属性，直接设到元素上
-            folderInput.current = el;
-            el?.setAttribute('webkitdirectory', '');
-          }}
-          type="file"
-          multiple
-          className="hidden"
-          onChange={(e) => upload(pickedFromList(e.target.files || []))}
-        />
       </div>
       <div className="px-1 lg:hidden">
         <Segmented
           value={pane}
-          onChange={(v) => setPane(v as typeof pane)}
+          onChange={setPane}
           options={[
-            { value: 'tree', label: '目录' },
-            { value: 'file', label: '内容' },
+            { value: 'contents', label: '目录' },
+            { value: 'page', label: '内容' },
             { value: 'keeper', label: '整理助手' },
           ]}
         />
       </div>
-      {/* 宽屏三栏；中等宽度两栏，目录放进抽屉；手机一次一栏 */}
-      <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-[minmax(0,1fr)_340px] 2xl:grid-cols-[220px_minmax(0,1fr)_360px]">
-        <Card padded={false} className={cn('min-h-0 overflow-y-auto lg:hidden 2xl:block', pane !== 'tree' && 'hidden')}>
-          {treeView}
+      {/* 宽屏三栏；中等宽度两栏，目录收进抽屉；手机一次一栏 */}
+      <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-[minmax(0,1fr)_340px] min-[90rem]:grid-cols-[232px_minmax(0,1fr)_360px] min-[107.5rem]:grid-cols-[256px_minmax(0,1fr)_384px]">
+        <div className={cn('min-h-0 max-lg:rounded-lg max-lg:border max-lg:border-line max-lg:bg-surface max-lg:pt-2 lg:hidden min-[90rem]:block', pane !== 'contents' && 'max-lg:hidden')}>
+          {contents}
+        </div>
+        <Card padded={false} className={cn('min-h-0 overflow-hidden rounded-2xl lg:block', pane !== 'page' && 'max-lg:hidden')}>
+          {page}
         </Card>
-        <Card padded={false} className={cn('min-h-0 overflow-hidden lg:block', pane !== 'file' && 'hidden')}>
-          <FileViewer key={cid} cid={cid} path={selected} onOpenChange={openChange} pendingHere={pendingHere} />
-        </Card>
-        <Card padded={false} className={cn('min-h-0 overflow-hidden lg:block', pane !== 'keeper' && 'hidden')}>
-          <KeeperPanel key={cid} cid={cid} live={live} onOpenChange={openChange} onUpload={() => fileInput.current?.click()} />
+        <Card padded={false} className={cn('min-h-0 overflow-hidden rounded-2xl lg:block', pane !== 'keeper' && 'max-lg:hidden')}>
+          <KeeperPanel ref={keeper} key={cid} cid={cid} live={live} onOpenChange={openChange} onOpenChanges={openChanges} />
         </Card>
       </div>
-      <Drawer open={treeOpen} onClose={() => setTreeOpen(false)} title="目录" side="left" width={300}>
-        {treeView}
+      <Drawer open={contentsOpen} onClose={() => setContentsOpen(false)} title="目录" side="left" width={300}>
+        <div className="h-full pt-2">{contents}</div>
       </Drawer>
-      <ChangesDrawer cid={cid} open={drawer} onClose={() => setDrawer(false)} focus={focus} setFocus={setFocus} />
     </div>
   );
 }

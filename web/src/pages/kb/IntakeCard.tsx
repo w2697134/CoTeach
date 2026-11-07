@@ -4,7 +4,7 @@ import { Check, ChevronDown, CircleSlash, LoaderCircle, Minus, RotateCcw, X } fr
 import { get } from '../../lib/api';
 import { toast, useAuth } from '../../lib/store';
 import { Avatar, Badge, Button, Progress, cn, useConfirm } from '../../components/ui';
-import { readableError } from './presentation';
+import { readableError, when } from './presentation';
 import { fileTitle, plainPath, plainText } from './data';
 import {
   KIND_LABEL,
@@ -115,7 +115,8 @@ export function IntakeCard({ cid, intake }: { cid: number; intake: Intake }) {
   const handled = c.done + c.same + c.failed + c.skipped;
   const stalled = intake.status === 'uploading' && !uploadingHere(intake.id);
   const status = stalled ? { text: '上传中断', tone: 'warn' as const } : STATUS[intake.status];
-  const pasted = intake.total === 1 && intake.items.length === 1 && intake.items[0].kind === 'text' && !intake.items[0].name.includes('/');
+  // 只交了一份（选的一个文件或贴的一段）：写出它的名字，不用再展开清单
+  const single = intake.total === 1 && intake.items.length === 1;
 
   const act = async (key: string, fn: () => Promise<{ intake: Intake }>) => {
     setBusy(key);
@@ -166,8 +167,8 @@ export function IntakeCard({ cid, intake }: { cid: number; intake: Intake }) {
       <div className="rounded-xl border border-line bg-surface-2 px-3 py-2.5">
         <div className="flex items-start gap-2">
           <p className="min-w-0 flex-1 text-[13.5px] text-ink">
-            {pasted ? `贴来的「${fileTitle(intake.items[0].name)}」` : `交了 ${intake.total} 份资料`}
-            <span className="text-ink-3"> · {new Date(intake.createdAt).toLocaleString('zh-CN')}</span>
+            {single ? `交了「${fileTitle(intake.items[0].name)}」` : `交了 ${intake.total} 份资料`}
+            <span className="text-ink-3"> · {when(intake.createdAt)}</span>
           </p>
           <Badge tone={status.tone}>{status.text}</Badge>
         </div>
@@ -236,7 +237,7 @@ export function IntakeCard({ cid, intake }: { cid: number; intake: Intake }) {
           );
         })}
 
-        {!pasted && intake.total > 0 && (
+        {!single && intake.total > 0 && (
           <button
             type="button"
             onClick={() => setOpen(!open)}
@@ -254,7 +255,7 @@ export function IntakeCard({ cid, intake }: { cid: number; intake: Intake }) {
             {!intake.complete && full.isLoading && <li className="py-1.5 text-[13px] text-ink-3">加载中…</li>}
           </ul>
         )}
-        {pasted && intake.items[0].status === 'failed' && <ItemRow item={intake.items[0]} />}
+        {single && (['failed', 'skipped'].includes(intake.items[0].status) || intake.items[0].notes.length > 0) && <ItemRow item={intake.items[0]} />}
 
         <div className="mt-2.5 flex flex-wrap gap-2 empty:hidden">
           {intake.status === 'paused' && (

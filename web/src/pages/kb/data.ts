@@ -11,6 +11,8 @@ export interface TreeFile {
   path: string;
   size: number;
   text: boolean;
+  /** 老师交的原件：名字、类型、哪天交的 */
+  source?: { name: string; kind: string; createdAt: number };
 }
 
 export interface CommitInfo {
@@ -32,6 +34,8 @@ export interface FileData {
   source: {
     id: string;
     name: string;
+    kind: string;
+    createdAt: number;
     sourceClass: string | null;
     term: string | null;
   } | null;

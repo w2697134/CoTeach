@@ -205,6 +205,13 @@ test('交资料：分块上传、位置对不上不乱写、系统文件和空�
   const doc = items.find((i) => i.name === '第一章/讲义.md')!;
   assert.equal(doc.status, 'done');
   assert.equal(repo.readText(kb, doc.path!), content.toString('utf8'));
+  // 页面上「资料」一栏：原件的名字（不带扩展名）、类型、哪天交的随目录一起给，翻开那一页时也有
+  const listed = ((await (await req(`/knowledge/${kb}/kb/tree`)).json()) as any).files.find((f: any) => f.path === doc.path);
+  assert.equal(listed.protected, true);
+  assert.deepEqual([listed.source.name, listed.source.kind], ['讲义', 'text']);
+  assert.ok(listed.source.createdAt > 0);
+  const opened = (await (await req(`/knowledge/${kb}/kb/file?path=${encodeURIComponent(doc.path!)}`)).json()) as any;
+  assert.deepEqual([opened.source.kind, opened.source.createdAt], ['text', listed.source.createdAt]);
   assert.ok(!existsSync(store.stageDir(id)) || readdirSync(store.stageDir(id)).length === 0, '临时文件没清');
   assert.equal(row.message, '第一章的讲义');
 

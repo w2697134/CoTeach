@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Archive, FilePlus, Users, Sparkles, MoreHorizontal } from 'lucide-react';
 import { api, get, post } from '../../lib/api';
 import { toast } from '../../lib/store';
-import { Button, Empty, ErrorState, Input, Modal, Skeleton, Textarea, useConfirm, Popover } from '../../components/ui';
+import { Button, Empty, ErrorState, IconButton, Input, MenuItem, Modal, Skeleton, Textarea, useConfirm, Popover } from '../../components/ui';
 import type { KnowledgeBase } from './data';
 import { parseRoster } from './presentation';
 import { LocationField } from './LocationField';
@@ -150,55 +150,58 @@ export function KnowledgeTools({ kb, onSelect }: { kb: KnowledgeBase; onSelect: 
   };
   return (
     <>
-      <Popover
-        trigger={({ toggle }) => (
-          <Button onClick={toggle} aria-label="知识库操作" icon={<MoreHorizontal className="size-4" />}>
-            管理
-          </Button>
-        )}
-      >
-        {(close) => (
-          <div className="flex min-w-40 flex-col gap-1 p-2" onClick={close}>
-            {!archived && (
-              <Button
-                icon={<FilePlus className="size-4" />}
-                onClick={() => {
-                  setModal('file');
-                  setName('');
-                  setFolder('');
-                  setContent('');
-                  setStudentId('');
-                  setError('');
-                }}
-              >
-                新建笔记
-              </Button>
-            )}
-            {kb.kind === 'class' && (
-              <>
-                <Button
-                  icon={<Users className="size-4" />}
+      {(!archived || kb.kind === 'class') && (
+        <Popover
+          width={176}
+          trigger={({ toggle }) => (
+            <IconButton label="更多" onClick={toggle} disabled={busy}>
+              <MoreHorizontal className="size-[18px]" />
+            </IconButton>
+          )}
+        >
+          {(close) => (
+            <div onClick={close}>
+              {!archived && (
+                <MenuItem
+                  icon={<FilePlus />}
                   onClick={() => {
-                    setModal('students');
+                    setModal('file');
+                    setName('');
+                    setFolder('');
+                    setContent('');
+                    setStudentId('');
                     setError('');
                   }}
                 >
-                  班级名单
-                </Button>
-                {archived ? (
-                  <Button icon={<Sparkles className="size-4" />} loading={busy} onClick={summarize}>
-                    提炼教学经验
-                  </Button>
-                ) : (
-                  <Button icon={<Archive className="size-4" />} loading={busy} onClick={archive}>
-                    封存学期
-                  </Button>
-                )}
-              </>
-            )}
-          </div>
-        )}
-      </Popover>
+                  新建笔记
+                </MenuItem>
+              )}
+              {kb.kind === 'class' && (
+                <>
+                  <MenuItem
+                    icon={<Users />}
+                    onClick={() => {
+                      setModal('students');
+                      setError('');
+                    }}
+                  >
+                    班级名单
+                  </MenuItem>
+                  {archived ? (
+                    <MenuItem icon={<Sparkles />} onClick={summarize}>
+                      提炼教学经验
+                    </MenuItem>
+                  ) : (
+                    <MenuItem icon={<Archive />} onClick={archive}>
+                      封存学期
+                    </MenuItem>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+        </Popover>
+      )}
       <Modal
         open={modal === 'file'}
         onClose={() => !busy && setModal(null)}
