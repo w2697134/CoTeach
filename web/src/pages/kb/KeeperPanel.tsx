@@ -8,6 +8,7 @@ import {
   FolderSearch,
   MoveRight,
   OctagonX,
+  Paperclip,
   PenLine,
   Search,
   Send,
@@ -20,8 +21,10 @@ import { toast, useAuth } from '../../lib/store';
 import { Markdown } from '../../components/Markdown';
 import { AgentAvatar, Alert, Avatar, Badge, Button, IconButton, Skeleton, Textarea, cn } from '../../components/ui';
 import { useChangeActions } from './Changes';
+import { IntakeCard } from './IntakeCard';
+import { handIn, pastedFiles, pickedFromDrop, pickedFromList, useIntakes, type Picked } from './intake';
 import { readableError, toolPresentation } from './presentation';
-import { KEEPER, STATUS_TEXT, STATUS_TONE, plainText, useChanges, useRuns, useCourse, type Run, type RunEvent } from './data';
+import { KEEPER, STATUS_TEXT, STATUS_TONE, fileTitle, plainText, useChanges, useRuns, useCourse, type Run, type RunEvent } from './data';
 
 const TOOL_ICON: Record<string, typeof BookOpen> = {
   list_files: FolderSearch,
@@ -167,7 +170,7 @@ function RunBlock({ cid, run, live, onOpenChange }: { cid: number; run: Run; liv
           )}
           {changeId && <ChangeCard cid={cid} changeId={changeId} title={changeEvent?.data.title} onOpen={onOpenChange} />}
           {run.status === 'done' && !run.changeId && !run.reply && <p className="text-[13px] text-ink-3">这次没有改知识库</p>}
-          {(errorEvent || run.error) && (
+          {(errorEvent || run.error) && run.status !== 'canceled' && (
             <p role="alert" className="text-[13px] text-bad">
               {readableError(run.error || errorEvent?.data.message)}
             </p>
@@ -207,13 +210,23 @@ export function KeeperPanel({
     refetchInterval: 5000,
   });
   const qc = useQueryClient();
+  const intakes = useIntakes(cid);
   const [text, setText] = useState('');
+  const [attached, setAttached] = useState<Picked[]>([]);
   const [sending, setSending] = useState(false);
+  const attachInput = useRef<HTMLInputElement>(null);
   const scroller = useRef<HTMLDivElement>(null);
   const runs = q.data?.runs || [];
+  const intakeList = intakes.data?.intakes || [];
+  // 交资料和整理记录按时间排在一起
+  const timeline = [
+    ...runs.map((run) => ({ at: run.createdAt, key: `r${run.id}`, run })),
+    ...intakeList.map((intake) => ({ at: intake.createdAt, key: `i${intake.id}`, intake })),
+  ].sort((a, b) => a.at - b.at);
   const activeId = q.data?.activeRunId ?? null;
   const busy = !!activeId || runs.some((r) => r.status === 'running');
-  const lastLen = runs.reduce((n, r) => n + r.events.length, 0) + (live?.text.length || 0);
+  const lastLen =
+    runs.reduce((n, r) => n + r.events.length, 0) + (live?.text.length || 0) + intakeList.reduce((n, i) => n + i.items.length + 1, 0);
 
   useEffect(() => {
     const el = scroller.current;
@@ -225,18 +238,28 @@ export function KeeperPanel({
 
   const send = async () => {
     const msg = text.trim();
-    if (!msg || busy || archived) return;
+    if ((!msg && !attached.length) || archived || (busy && !attached.length)) return;
     setSending(true);
     try {
-      await post(`/knowledge/${cid}/kb/runs`, { message: msg });
-      setText('');
-      qc.invalidateQueries({ queryKey: ['kb-runs', cid] });
+      if (attached.length) {
+        // 带着文件说的话，和文件一起交给整理助手
+        const files = attached;
+        setAttached([]);
+        setText('');
+        await handIn(qc, cid, files, msg);
+      } else {
+        // 很长的一段（教案、讲稿）服务器会按一份资料收下再消化
+        const r = await post<{ runId?: number; intakeId?: number }>(`/knowledge/${cid}/kb/runs`, { message: msg });
+        setText('');
+        qc.invalidateQueries({ queryKey: [r.intakeId ? 'kb-intakes' : 'kb-runs', cid] });
+      }
     } catch (err) {
       toast.fromError(err);
     } finally {
       setSending(false);
     }
   };
+  const attach = (files: Picked[]) => files.length && setAttached((prev) => [...prev, ...files]);
 
   const stop = async () => {
     if (!activeId) return;
@@ -295,7 +318,7 @@ export function KeeperPanel({
           </Alert>
         )}
         {!q.data && !q.error && <Skeleton className="h-32" />}
-        {q.data && !runs.length && (
+        {q.data && intakes.data && !timeline.length && (
           <div className="flex h-full flex-col items-center justify-center gap-4">
             <AgentAvatar agent={KEEPER} size={88} />
             {!archived && (
@@ -306,18 +329,80 @@ export function KeeperPanel({
             {archived && <p className="text-[14px] text-ink-3">这个学期还没有整理记录</p>}
           </div>
         )}
-        {runs.map((r) => (
-          <RunBlock key={r.id} cid={cid} run={r} live={live && live.runId === r.id ? live.text : null} onOpenChange={onOpenChange} />
-        ))}
+        {timeline.map((t) =>
+          'run' in t && t.run ? (
+            <RunBlock key={t.key} cid={cid} run={t.run} live={live && live.runId === t.run.id ? live.text : null} onOpenChange={onOpenChange} />
+          ) : 'intake' in t && t.intake ? (
+            <IntakeCard key={t.key} cid={cid} intake={t.intake} />
+          ) : null,
+        )}
       </div>
-      <div className="shrink-0 border-t border-line p-3">
-        <div className="flex items-end gap-2 rounded-2xl border border-line bg-surface p-1.5 pl-3 focus-within:border-brand/50">
+      <div
+        className="shrink-0 border-t border-line p-3"
+        onDragOver={(e) => {
+          if (archived || !e.dataTransfer.types.includes('Files')) return;
+          e.preventDefault();
+          e.stopPropagation();
+        }}
+        onDrop={(e) => {
+          if (archived || !e.dataTransfer.types.includes('Files')) return;
+          // 拖到输入框上的文件先放着，和要说的话一起交
+          e.preventDefault();
+          e.stopPropagation();
+          void pickedFromDrop(e.dataTransfer).then(attach);
+        }}
+      >
+        {attached.length > 0 && (
+          <div className="mb-2 flex flex-wrap gap-1.5">
+            {attached.slice(0, attached.length > 6 ? 5 : 6).map((p, i) => (
+              <span key={i} className="inline-flex max-w-full items-center gap-1 rounded-lg bg-surface-3 py-1 pl-2 pr-1 text-[12.5px] text-ink-2">
+                <span className="truncate">{fileTitle(p.path) || '资料'}</span>
+                <button
+                  type="button"
+                  aria-label={`不交「${fileTitle(p.path)}」`}
+                  onClick={() => setAttached(attached.filter((_, j) => j !== i))}
+                  className="rounded p-0.5 text-ink-3 hover:bg-surface-2 hover:text-ink"
+                >
+                  <X className="size-3" />
+                </button>
+              </span>
+            ))}
+            {attached.length > 6 && (
+              <span className="inline-flex items-center gap-1 rounded-lg bg-surface-3 py-1 pl-2 pr-1 text-[12.5px] text-ink-2">
+                还有 {attached.length - 5} 份
+                <button type="button" aria-label="都不交" onClick={() => setAttached([])} className="rounded p-0.5 text-ink-3 hover:bg-surface-2 hover:text-ink">
+                  <X className="size-3" />
+                </button>
+              </span>
+            )}
+          </div>
+        )}
+        <div className="flex items-end gap-1 rounded-2xl border border-line bg-surface p-1.5 focus-within:border-brand/50">
+          <IconButton label="附件" onClick={() => attachInput.current?.click()} disabled={archived} className="shrink-0">
+            <Paperclip className="size-[18px]" />
+          </IconButton>
+          <input
+            ref={attachInput}
+            type="file"
+            multiple
+            className="hidden"
+            onChange={(e) => {
+              attach(pickedFromList(e.target.files || []));
+              e.target.value = '';
+            }}
+          />
           <Textarea
             autoGrow
             maxRows={6}
             rows={1}
             value={text}
             onChange={(e) => setText(e.target.value)}
+            onPaste={(e) => {
+              // 截图、复制的文件直接粘贴进来，当附件
+              if (archived || !e.clipboardData.files.length) return;
+              e.preventDefault();
+              attach(pastedFiles(e.clipboardData.files));
+            }}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
                 e.preventDefault();
@@ -326,12 +411,12 @@ export function KeeperPanel({
             }}
             placeholder={archived ? '学期已封存，只能查阅' : busy ? '整理助手正在忙…' : '跟整理助手说'}
             disabled={busy || archived}
-            className="min-h-0 flex-1 resize-none border-0 bg-transparent px-0 py-1.5 shadow-none! focus:ring-0"
+            className="min-h-0 flex-1 resize-none border-0 bg-transparent px-1 py-1.5 shadow-none! focus:ring-0"
           />
           <button
             type="button"
             onClick={send}
-            disabled={!text.trim() || busy || sending || archived}
+            disabled={(!text.trim() && !attached.length) || (busy && !attached.length) || sending || archived}
             aria-label="发送"
             className="inline-flex size-9 shrink-0 items-center justify-center rounded-xl bg-brand text-white transition-colors hover:bg-brand-hover disabled:opacity-50"
           >

@@ -55,6 +55,20 @@ export const config = {
   /** 每个用户每天调用模型的次数上限，0 为不限 */
   dailyCallLimit: Number(env.CT_DAILY_CALL_LIMIT || 400),
   sessionDays: Number(env.CT_SESSION_DAYS || 14),
+  /** 交资料：单个文件、一次交的总量、单份资料、压缩包里的文件数和解开后的总量 */
+  intake: {
+    maxFileBytes: Number(env.CT_INTAKE_MAX_FILE_MB || 500) * 1024 * 1024,
+    maxBatchBytes: Number(env.CT_INTAKE_MAX_BATCH_MB || 500) * 1024 * 1024,
+    maxDocBytes: Number(env.CT_INTAKE_MAX_DOC_MB || 200) * 1024 * 1024,
+    maxEntries: Number(env.CT_INTAKE_MAX_ENTRIES || 3000),
+    maxExpandBytes: Number(env.CT_INTAKE_MAX_EXPAND_MB || 4096) * 1024 * 1024,
+    /** 留给服务器其他服务的磁盘空间（服务器是共用的） */
+    reserveBytes: Number(env.CT_INTAKE_RESERVE_MB || 10240) * 1024 * 1024,
+    workers: Math.max(1, Number(env.CT_INTAKE_WORKERS || 2)),
+    workerMemoryMb: Number(env.CT_INTAKE_WORKER_MB || 1024),
+    readTimeoutMs: Number(env.CT_INTAKE_READ_TIMEOUT_S || 600) * 1000,
+    visionConcurrency: Math.max(1, Number(env.CT_INTAKE_VISION_CONCURRENCY || 3)),
+  },
 };
 
 if (!existsSync(config.kbDir)) mkdirSync(config.kbDir, { recursive: true });

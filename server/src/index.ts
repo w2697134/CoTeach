@@ -3,6 +3,7 @@ import { createApp } from './app.js';
 import { bootstrap } from './bootstrap.js';
 import { config } from './config.js';
 import { recoverRuns } from './kb/keeper.js';
+import { recoverIntakes } from './kb/intake/service.js';
 
 // 不显示 node:sqlite 的实验特性警告
 process.removeAllListeners('warning');
@@ -13,6 +14,7 @@ process.on('unhandledRejection', err => console.error('[unhandledRejection]', er
 
 await bootstrap();
 recoverRuns();
+recoverIntakes();
 
 const app = createApp();
 serve({ fetch: app.fetch, hostname: config.host, port: config.port }, info => {

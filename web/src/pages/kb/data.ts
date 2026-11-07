@@ -2,6 +2,7 @@ import { useEffect, useState, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { get, subscribe } from '../../lib/api';
 import { useAuth } from '../../lib/store';
+import { putIntake, type Intake } from './intake';
 
 export interface TreeFile {
   id: string;
@@ -232,6 +233,8 @@ export function useKbStream(cid: number, onFilesChanged?: (operations: FileOpera
           prev && prev.runId === d.runId ? { runId: d.runId, text: prev.text + d.text } : { runId: d.runId, text: d.text },
         ),
       change: refreshChanges,
+      // 交资料的进度：上传、读取、整理到第几批
+      intake: (intake: Intake) => putIntake(qc, cid, intake),
       tree: (event: { operations?: FileOperation[] }) => {
         const operations = event.operations || [];
         const removed = new Set(operations.flatMap((op) => (op.from ? [op.from] : op.deleted ? [op.path] : [])));

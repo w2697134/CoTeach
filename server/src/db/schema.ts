@@ -263,3 +263,72 @@ INSERT INTO kb_events SELECT * FROM kb_events_copy;
 DROP TABLE kb_events_copy;
 CREATE INDEX idx_kb_events_run ON kb_events(run_id,id);
 `);
+
+// v3 交资料：一次交的东西（文件、文件夹、压缩包、贴的长文）逐份记录读取状态，读好后一起进知识库，再分批交给整理助手。
+// 读过的原件按内容指纹记住结果，看图认字的结果按图片指纹记住，重交或中断后接着来都不重复花钱。
+migrations.push(`
+CREATE TABLE kb_intakes (
+  id INTEGER PRIMARY KEY,
+  kb_id INTEGER NOT NULL REFERENCES knowledge_bases(id),
+  created_by INTEGER NOT NULL REFERENCES users(id),
+  message TEXT,
+  status TEXT NOT NULL CHECK(status IN ('uploading','reading','digesting','paused','done','failed','canceled')),
+  error TEXT,
+  change_id INTEGER,
+  digest_change_id INTEGER,
+  plan TEXT,
+  batch INTEGER NOT NULL DEFAULT 0,
+  checkpoint TEXT,
+  resumes INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  finished_at INTEGER
+);
+CREATE INDEX idx_kb_intakes_kb ON kb_intakes(kb_id,id);
+CREATE TABLE kb_intake_items (
+  id INTEGER PRIMARY KEY,
+  intake_id INTEGER NOT NULL REFERENCES kb_intakes(id),
+  parent_id INTEGER REFERENCES kb_intake_items(id),
+  depth INTEGER NOT NULL DEFAULT 0,
+  name TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  size INTEGER NOT NULL,
+  received INTEGER NOT NULL DEFAULT 0,
+  hash TEXT,
+  status TEXT NOT NULL CHECK(status IN ('uploading','waiting','reading','done','same','failed','skipped')),
+  retryable INTEGER NOT NULL DEFAULT 0,
+  reason TEXT,
+  advice TEXT,
+  progress TEXT,
+  text_hash TEXT,
+  method TEXT,
+  notes TEXT,
+  path TEXT,
+  source_id TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE INDEX idx_kb_intake_items ON kb_intake_items(intake_id,id);
+CREATE INDEX idx_kb_intake_items_status ON kb_intake_items(status,intake_id);
+CREATE TABLE kb_conversions (
+  original_hash TEXT NOT NULL,
+  version TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  text_hash TEXT NOT NULL,
+  method TEXT NOT NULL,
+  notes TEXT,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY(original_hash,version)
+);
+CREATE TABLE kb_vision_cache (
+  image_hash TEXT NOT NULL,
+  method TEXT NOT NULL,
+  text TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY(image_hash,method)
+);
+ALTER TABLE kb_runs ADD COLUMN intake_id INTEGER REFERENCES kb_intakes(id);
+ALTER TABLE kb_sources ADD COLUMN kind TEXT;
+ALTER TABLE kb_sources ADD COLUMN method TEXT;
+ALTER TABLE kb_sources ADD COLUMN notes TEXT;
+`);

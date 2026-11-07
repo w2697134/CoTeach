@@ -1,6 +1,6 @@
 import { db, j, now } from '../db/index.js';
 import { bus } from '../lib/bus.js';
-import { bad, conflict, notFound } from '../lib/http.js';
+import { bad, conflict, notFound, HttpError } from '../lib/http.js';
 import { checkIdentity, loadKb, writableKb } from './access.js';
 import { fileDiff, type FileDiff } from './diff.js';
 import {
@@ -112,7 +112,13 @@ export function checkMetadata(kbId: number, title: string, reason: string | null
   const original = (op: FileOp) => (op.from || op.base !== null ? entries.find((e) => e.path === (op.from || op.path)) : undefined);
   if (ops.every((op) => op.sourceId || original(op)?.sourceId)) return;
   const ids = new Set(ops.map((op) => original(op)?.studentId ?? op.studentId ?? null));
-  checkIdentity(kbId, title + '\n' + (reason || ''), ids.size === 1 ? [...ids][0] : null);
+  try {
+    checkIdentity(kbId, title + '\n' + (reason || ''), ids.size === 1 ? [...ids][0] : null);
+  } catch (err) {
+    // 记下是改动的标题和依据，整理助手才知道不是文件内容的问题
+    if (err instanceof HttpError && err.code === 'student_identity') err.details = { ...err.details, field: '改动标题和依据' };
+    throw err;
+  }
 }
 function applyLocked(c: ChangeRow, by: number | null, as: Author, restore = false): ChangeRow {
   writableKb(c.kb_id);

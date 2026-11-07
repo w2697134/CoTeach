@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { bodyLimit } from 'hono/body-limit';
 import { streamSSE } from 'hono/streaming';
 import { z } from 'zod';
 import { me, requireRole, sessionStillActive, type AppEnv } from '../auth.js';
@@ -17,7 +18,9 @@ import {
   teacherAuthor,
   type ChangeRow,
 } from './changes.js';
-import { extractText } from './convert.js';
+import { cancelIntake, createIntake, finishIntake, intakeFromBuffers, receiveChunk, resumeIntake, CHUNK_SIZE } from './intake/service.js';
+import { blobPath, publicIntake } from './intake/store.js';
+import { existsSync, readFileSync } from 'node:fs';
 import { activeRun, cancelRun, cancelForArchive, publicRun, startRun, enqueueTask, drainInbox, taskSubject } from './keeper.js';
 import {
   cleanPath,
@@ -40,6 +43,8 @@ import { readKnowledge } from './reader.js';
 import { documentName } from './teacher-text.js';
 
 export const kbRoutes = new Hono<AppEnv>();
+/** 超过这么长的话按资料收（以前跟整理助手说话的上限也是这个长度） */
+export const LONG_PASTE = 4000;
 const teacher = (c: any) => requireRole(c, 'teacher', 'admin');
 const owned = (c: any) => ownKb(teacher(c), intParam(c));
 const pendingCount = (id: number) =>
@@ -191,6 +196,12 @@ kbRoutes.post('/:id/archive', async (c) => {
         kb.id,
       );
       db.run("UPDATE kb_inbox SET status='dismissed',error='学期已封存' WHERE kb_id=? AND status IN ('pending','error')", kb.id);
+      db.run(
+        "UPDATE kb_intakes SET status='canceled',error='学期已封存',finished_at=?,updated_at=? WHERE kb_id=? AND status IN ('uploading','reading','digesting','paused')",
+        now(),
+        now(),
+        kb.id,
+      );
       enqueueTask(
         tid,
         'term-summary',
@@ -380,70 +391,106 @@ kbRoutes.post('/:id/kb/move', async (c) => {
     });
   return c.json({ change: publicChange(change) });
 });
-const safeName = (s: string) =>
-  s
-    .replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_')
-    .replace(/^\.+/, '')
-    .trim()
-    .slice(0, 120) || '资料';
-kbRoutes.post('/:id/kb/upload', async (c) => {
+/**
+ * 交资料：先登记这次要交的文件（文件夹里的相对路径照带），再分块上传每个文件；
+ * 收齐后在后台读、解压、认图片里的字，读好的一起放进知识库，再分批交给整理助手。
+ */
+const intakeOf = (c: any) => {
+  const kb = owned(c),
+    row = db.get<any>('SELECT * FROM kb_intakes WHERE id=? AND kb_id=?', intParam(c, 'iid'), kb.id);
+  if (!row) throw notFound('这次交的资料不存在');
+  return { kb, row };
+};
+kbRoutes.get('/:id/intakes', (c) => {
+  const kb = owned(c);
+  return c.json({
+    intakes: db
+      .all<any>('SELECT * FROM kb_intakes WHERE kb_id=? ORDER BY id DESC LIMIT 50', kb.id)
+      .reverse()
+      .map((r) => publicIntake(r, false)),
+  });
+});
+kbRoutes.get('/:id/intakes/:iid', (c) => c.json({ intake: publicIntake(intakeOf(c).row, true) }));
+kbRoutes.post('/:id/intakes', async (c) => {
+  const u = teacher(c),
+    kb = ownKb(u, intParam(c));
+  const d = await body(
+    c,
+    z.object({
+      message: z.string().max(4000).nullable().optional(),
+      text: z.string().max(2_000_000).nullable().optional(),
+      files: z.array(z.object({ name: z.string().min(1).max(1000), size: z.number().int().min(0) })).max(1000),
+    }),
+  );
+  return c.json(createIntake(kb.id, u, d));
+});
+kbRoutes.put('/:id/intakes/:iid/items/:item', async (c) => {
+  const u = teacher(c),
+    kb = ownKb(u, intParam(c));
+  const offset = Number(c.req.query('offset'));
+  if (!Number.isSafeInteger(offset) || offset < 0) throw bad('上传的数据位置不对，请重新交');
+  const declared = Number(c.req.header('content-length') || 0);
+  if (declared > CHUNK_SIZE + 1024) throw bad('上传的数据块太大');
+  const chunk = new Uint8Array(await c.req.arrayBuffer());
+  return c.json(await receiveChunk(kb.id, intParam(c, 'iid'), intParam(c, 'item'), offset, chunk));
+});
+kbRoutes.post('/:id/intakes/:iid/resume', (c) => {
+  const { kb, row } = intakeOf(c);
+  return c.json({ intake: resumeIntake(kb.id, row.id) });
+});
+kbRoutes.post('/:id/intakes/:iid/cancel', (c) => {
+  const { kb, row } = intakeOf(c);
+  return c.json({ intake: cancelIntake(kb.id, row.id) });
+});
+kbRoutes.post('/:id/intakes/:iid/finish', async (c) => {
+  const u = teacher(c);
+  const { kb, row } = intakeOf(c);
+  return c.json({ intake: await finishIntake(kb.id, row.id, u) });
+});
+kbRoutes.get('/:id/intakes/:iid/items/:item/raw', (c) => {
+  const { row } = intakeOf(c);
+  const item = db.get<any>('SELECT * FROM kb_intake_items WHERE id=? AND intake_id=?', intParam(c, 'item'), row.id);
+  // 读不了的文件交完就清理了，原件不在时照实说
+  if (!item?.hash || !existsSync(blobPath(item.hash))) throw notFound('这份文件没有收到或已经清理');
+  c.header('Content-Type', 'application/octet-stream');
+  c.header('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(item.name.split('/').pop())}`);
+  return c.body(new Uint8Array(readFileSync(blobPath(item.hash))));
+});
+/** 旧页面一次性上传的方式仍然可用：收下后等读完，再告诉老师哪些读好了。 */
+// 这条老路整份读进内存，只留给小批量（和以前一样：最多 30 份、每份 30MB、一次 50MB）；大资料走分块上传
+kbRoutes.post(
+  '/:id/kb/upload',
+  bodyLimit({
+    maxSize: 50 * 1024 * 1024,
+    onError: () => {
+      throw bad('一次交的资料太大，请用「交资料」按钮分块上传');
+    },
+  }),
+  async (c) => {
   const u = teacher(c),
     kb = ownKb(u, intParam(c));
   writableKb(kb.id);
   const form = await c.req.parseBody({ all: true }),
     files = ([] as any[]).concat(form.file || []).filter((f) => f && typeof f === 'object' && 'arrayBuffer' in f);
   if (!files.length || files.length > 30) throw bad('每次请选择 1 至 30 份资料');
-  const done: { name: string; path: string; replaced: boolean }[] = [],
-    failed: { name: string; error: string }[] = [],
-    ops: FileOp[] = [];
-  for (const f of files) {
-    const name = safeName(f.name);
-    try {
-      if (f.size > 30 * 1024 * 1024) throw bad('超过 30MB');
-      const original = Buffer.from(await f.arrayBuffer()),
-        text = await extractText(original, name);
-      if (!text.trim()) throw bad('没有提取到文字，请提供可复制文字的文件');
-      const path = cleanPath(`资料/${name.replace(/\.[^.]+$/, '')}.md`);
-      if (ops.some((o) => o.path === path)) throw bad('本次上传中有同名资料，请分别上传');
-      const old = readText(kb.id, path),
-        sourceId = saveSource(kb.id, name, original, text);
-      ops.push({
-        path,
-        content: text,
-        base: old === null ? null : hashText(old),
-        sourceId,
-        sourcePart: 'text',
-      });
-      done.push({ name, path, replaced: old !== null });
-    } catch (err) {
-      const extension = name.split('.').pop()?.toLowerCase();
-      const error = err instanceof HttpError ? err.message :
-        extension === 'doc'
-          ? '请用文字编辑软件另存为新版文档后再交'
-          : extension === 'ppt'
-            ? '请用演示软件另存为新版幻灯片后再交'
-            : /暂不支持/.test((err as Error).message)
-              ? '请改交文档、幻灯片、便携文档或纯文本'
-              : '无法读取这份资料，请检查文件是否完整、是否有可复制的文字';
-      failed.push({ name, error });
-    }
-  }
-  if (!ops.length) return c.json({ done, failed, changeId: null, runId: null });
-  const change = await createChange({
-    kbId: kb.id,
-    title: `交了 ${done.length} 份资料`,
-    author: 'teacher',
-    authorName: u.name,
-    kind: 'upload',
-    ops,
-    apply: { by: u.id, as: teacherAuthor(u) },
+  if (files.some((f) => f.size > 30 * 1024 * 1024)) throw bad('有资料超过 30MB，请用「交资料」按钮分块上传');
+  const row = await intakeFromBuffers(
+    kb.id,
+    u,
+    await Promise.all(files.map(async (f) => ({ name: String(f.name || '资料'), data: new Uint8Array(await f.arrayBuffer()) }))),
+  );
+  const items = publicIntake(row, true).items.filter((i) => i.kind !== 'archive' || i.status === 'failed');
+  const runId = db.get<any>('SELECT id FROM kb_runs WHERE intake_id=? ORDER BY id DESC LIMIT 1', row.id)?.id || null;
+  return c.json({
+    intakeId: row.id,
+    done: items.filter((i) => i.status === 'done' || i.status === 'same').map((i) => ({ name: i.name, path: i.path, replaced: i.status === 'same' })),
+    failed: items.filter((i) => i.status === 'failed').map((i) => ({ name: i.name, error: [i.reason, i.advice].filter(Boolean).join('，') })),
+    changeId: row.change_id,
+    runId,
+    queued: !runId && row.status === 'digesting',
   });
-  const request = `我交了资料：\n${done.map((f) => f.path).join('\n')}\n请整理进当前知识库。`;
-  const jobId = enqueueTask(kb.id, 'teacher-upload', String(change.id), request);
-  drainInbox(kb.id);
-  const runId = db.get<any>('SELECT run_id FROM kb_inbox WHERE id=?', jobId)?.run_id || null;
-  return c.json({ done, failed, changeId: change.id, runId, queued: !runId });
-});
+  },
+);
 
 kbRoutes.get('/:id/kb/changes', (c) => {
   const kb = owned(c),
@@ -513,7 +560,9 @@ kbRoutes.get('/:id/kb/runs', (c) => {
 kbRoutes.post('/:id/kb/runs', async (c) => {
   const u = teacher(c),
     kb = ownKb(u, intParam(c)),
-    d = await body(c, z.object({ message: z.string().trim().min(1).max(4000) }));
+    d = await body(c, z.object({ message: z.string().trim().min(1).max(2_000_000) }));
+  // 很长的一段（教案、讲稿、整章内容）直接贴过来：原样存成一份资料，再交给整理助手消化
+  if (d.message.length > LONG_PASTE) return c.json({ intakeId: createIntake(kb.id, u, { text: d.message, files: [] }).intake.id });
   return c.json({ runId: startRun(kb.id, 'chat', d.message, u) });
 });
 kbRoutes.post('/:id/kb/runs/:rid/cancel', (c) => {
@@ -525,7 +574,7 @@ kbRoutes.get('/:id/inbox', (c) => {
   const kb = owned(c);
   return c.json({
     items: db
-      .all<any>("SELECT * FROM kb_inbox WHERE kb_id=? AND status IN ('pending','running','error') ORDER BY id", kb.id)
+      .all<any>("SELECT * FROM kb_inbox WHERE kb_id=? AND sender<>'intake' AND status IN ('pending','running','error') ORDER BY id", kb.id)
       .map((item) => ({ ...item, task: taskSubject(item) })),
   });
 });

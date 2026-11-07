@@ -13,6 +13,8 @@ interface FileState {
 /** 一次整理只读启动时的提交；暂存区按条目身份追踪移动、编辑和删除。 */
 export class Workspace {
   readonly baseSha: string | null;
+  /** 分批整理时，前几批已经暂存的改动；这一批是否另有改动以它为准 */
+  carried: string | null = null;
   private states = new Map<string, FileState>();
   private originals = new Map<string, Buffer>();
   constructor(
@@ -20,9 +22,32 @@ export class Workspace {
     readonly readOnly = false,
     readonly includeSources = true,
     readonly studentId?: number,
+    baseSha?: string | null,
   ) {
-    this.baseSha = loadKb(kbId).head_sha;
+    this.baseSha = baseSha === undefined ? loadKb(kbId).head_sha : baseSha;
     for (const entry of manifest(kbId, this.baseSha)) this.states.set(entry.id, { entry, original: true, path: entry.path });
+  }
+  /**
+   * 分批整理时，上一批暂存的改动按文件身份原样恢复（不重新校验路径，校验在最终提交时统一做）。
+   * 每条改动的依据指纹必须和起点版本一致，对不上说明记录有误，直接拒绝。
+   */
+  static restore(kbId: number, baseSha: string | null, ops: FileOp[]): Workspace {
+    const ws = new Workspace(kbId, false, true, undefined, baseSha);
+    for (const op of ops) {
+      if (op.baseEntryId) {
+        const s = ws.states.get(op.baseEntryId);
+        if (!s || hashBytes(ws.originalBytes(s)) !== op.base) throw conflict('暂存的整理记录和知识库对不上，请重新整理');
+        if (!op.from && op.content === null) s.path = null;
+        else {
+          s.path = op.path;
+          if (op.content !== null) s.content = op.content;
+        }
+      } else if (op.entryId && op.content !== null) {
+        const entry: Entry = { id: op.entryId, path: op.path, ...(op.studentId !== undefined ? { studentId: op.studentId } : {}) };
+        ws.states.set(entry.id, { entry, original: false, path: op.path, content: op.content });
+      }
+    }
+    return ws;
   }
   private find(path: string) {
     return [...this.states.values()].find((s) => s.path === path);

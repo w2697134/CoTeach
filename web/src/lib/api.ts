@@ -36,16 +36,21 @@ export function setUnauthorizedHandler(fn: () => void) {
 
 export async function api<T = any>(
   path: string,
-  opts: { method?: string; body?: Json | FormData; signal?: AbortSignal; keepalive?: boolean } = {},
+  opts: { method?: string; body?: Json | FormData | Blob; signal?: AbortSignal; keepalive?: boolean } = {},
 ): Promise<T> {
   const controller = path.startsWith('/auth/') ? null : new AbortController();
   if (controller) privateRequests.add(controller);
   try {
     const isForm = typeof FormData !== 'undefined' && opts.body instanceof FormData;
+    // 分块上传的文件内容原样发送
+    const isBlob = typeof Blob !== 'undefined' && opts.body instanceof Blob;
     const res = await fetch('/api' + path, {
       method: opts.method || (opts.body ? 'POST' : 'GET'),
-      headers: { 'x-tv2': '1', ...(opts.body && !isForm ? { 'Content-Type': 'application/json' } : {}) },
-      body: opts.body ? (isForm ? (opts.body as FormData) : JSON.stringify(opts.body)) : undefined,
+      headers: {
+        'x-tv2': '1',
+        ...(opts.body && !isForm ? { 'Content-Type': isBlob ? 'application/octet-stream' : 'application/json' } : {}),
+      },
+      body: opts.body ? (isForm || isBlob ? (opts.body as FormData | Blob) : JSON.stringify(opts.body)) : undefined,
       signal: controller ? (opts.signal ? AbortSignal.any([opts.signal, controller.signal]) : controller.signal) : opts.signal,
       keepalive: opts.keepalive,
       credentials: 'same-origin',

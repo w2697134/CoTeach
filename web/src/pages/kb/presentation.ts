@@ -1,4 +1,5 @@
-const EXT = /\.(?:md|markdown|txt|docx?|pptx?|pdf|py|c|cpp|h|java|js|ts|sql|go|json|csv)$/i;
+/** 文件名末尾的扩展名（.docx、.zip、.png……）老师都不需要看到；扩展名以字母开头，名字里的「3.2」这类不受影响 */
+const EXT = /\.[a-z][a-z0-9]{0,4}$/i;
 export const fileTitle = (path: unknown) => (typeof path === 'string' ? (path.split('/').pop() || '').replace(EXT, '') : '');
 export const fileDir = (path: string) => (path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '');
 export const plainPath = (path: unknown) => (typeof path === 'string' ? path.split('/').filter(Boolean).map(fileTitle).join(' · ') : '');

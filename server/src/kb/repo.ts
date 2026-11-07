@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node
 import { join } from 'node:path';
 import { config } from '../config.js';
 import { db, now } from '../db/index.js';
-import { bad, conflict, notFound } from '../lib/http.js';
+import { bad, conflict, notFound, HttpError } from '../lib/http.js';
 import { checkIdentity, loadKb, writableKb, registerSourceIdentities } from './access.js';
 import { fileDiff, type FileDiff } from './diff.js';
 
@@ -191,6 +191,34 @@ export function saveSource(id: number, name: string, original: Buffer, text: str
   registerSourceIdentities(id, text, sid);
   return sid;
 }
+/** 原件已按内容指纹收好（交资料时边收边存）时，只存转换文字并登记来源。 */
+export function addSource(
+  id: number,
+  d: { name: string; originalHash: string; text: string; kind?: string | null; method?: string | null; notes?: string[] | null },
+): string {
+  const dir = join(config.dataDir, 'sources');
+  if (!/^[a-f0-9]{64}$/.test(d.originalHash) || !existsSync(join(dir, d.originalHash))) throw new Error('原件不在存储里');
+  const textHash = hashBytes(d.text);
+  const p = join(dir, textHash);
+  if (!existsSync(p)) writeFileSync(p, d.text, { flag: 'wx' });
+  else if (hashBytes(readFileSync(p)) !== textHash) throw new Error('原始资料存储校验失败');
+  const sid = randomUUID();
+  db.insert('kb_sources', {
+    id: sid,
+    kb_id: id,
+    name: d.name,
+    original_hash: d.originalHash,
+    text_hash: textHash,
+    source_class: null,
+    term: null,
+    kind: d.kind ?? null,
+    method: d.method ?? null,
+    notes: d.notes?.length ? d.notes : null,
+    created_at: now(),
+  });
+  registerSourceIdentities(id, d.text, sid);
+  return sid;
+}
 export function checkOps(id: number, ops: FileOp[]): string[] {
   const entries = manifest(id);
   const vacated = new Set(ops.filter((op) => op.from || op.content === null).map((op) => op.from || op.path));
@@ -238,8 +266,14 @@ export function validateOps(id: number, ops: FileOp[], opts: { sourceUpload?: bo
     if (op.entryId && !opts.restore && !opts.sourceUpload && old && op.entryId !== old.id) throw bad('不能改变文件身份');
     if (old && op.studentId !== undefined && old.studentId !== op.studentId) throw bad('不能通过移动或编辑改变个人记录的归属');
     if (!op.sourceId && !old?.sourceId) {
-      checkIdentity(id, p, old?.studentId ?? op.studentId);
-      if (op.content !== null) checkIdentity(id, op.content, old?.studentId ?? op.studentId);
+      try {
+        checkIdentity(id, p, old?.studentId ?? op.studentId);
+        if (op.content !== null) checkIdentity(id, op.content, old?.studentId ?? op.studentId);
+      } catch (err) {
+        // 记下是哪份文件：整理助手据此知道该改哪里
+        if (err instanceof HttpError && err.code === 'student_identity') err.details = { ...err.details, path: p };
+        throw err;
+      }
       if (op.content !== null && !isTextPath(p)) throw bad('只能新建或编辑文字文件');
     }
   }

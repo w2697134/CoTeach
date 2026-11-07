@@ -1,6 +1,25 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { toolPresentation, plainPath, plainText, parseRoster, readableError } from '../../web/src/pages/kb/presentation.js';
+import { toolPresentation, plainPath, plainText, parseRoster, readableError, fileTitle } from '../../web/src/pages/kb/presentation.js';
+
+test('资料名去掉扩展名，名字本身一个字不吃', () => {
+  const cases: [string, string][] = [
+    ['课程资料包.zip', '课程资料包'],
+    ['第一章/讲义.docx', '讲义'],
+    ['题库.xlsx', '题库'],
+    ['板书照片.png', '板书照片'],
+    ['资料/第7章 递归.md', '第7章 递归'],
+    ['TCP', 'TCP'],
+    ['README', 'README'],
+    ['Unit1', 'Unit1'],
+    ['Week 3 notes', 'Week 3 notes'],
+    ['课程大纲v2', '课程大纲v2'],
+    ['第3.2节 小结', '第3.2节 小结'],
+    ['讲义v1.2', '讲义v1.2'],
+  ];
+  for (const [input, want] of cases) assert.equal(fileTitle(input), want, input);
+  assert.equal(plainPath('资料/课程资料包/第3章 函数/课件.pptx'), '资料 · 课程资料包 · 第3章 函数 · 课件');
+});
 
 test('旧失败步骤缺字段不崩溃，不暴露 undefined、工具纠错话或路径', () => {
   for (const name of ['write_file', 'move_file', 'finish', 'search', 'read_file', 'done']) {

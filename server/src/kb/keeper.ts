@@ -12,6 +12,7 @@ import { Workspace } from './workspace.js';
 import { documentName } from './teacher-text.js';
 import { collectEvidence, type EvidenceFinding } from './evidence.js';
 import { experienceTool, placeExperience } from './experience.js';
+import { announce, loadIntake, setIntake, type Batch, type Checkpoint } from './intake/store.js';
 export { Workspace } from './workspace.js';
 
 export const KEEPER_NAME = '整理助手';
@@ -276,7 +277,7 @@ export async function runTool(ws: Workspace, call: ToolCall, source?: Workspace)
       };
     }
     case 'finish':
-      if (!ws.ops().length) throw bad('没有实际改动，无需修改时请调用 done');
+      if (!ws.ops().length || JSON.stringify(ws.ops()) === ws.carried) throw bad('没有实际改动，无需修改时请调用 done');
       validateOps(ws.kbId, ws.ops());
       checkMetadata(ws.kbId, String(a.title || ''), String(a.reason || ''), ws.ops());
       return {
@@ -284,13 +285,13 @@ export async function runTool(ws: Workspace, call: ToolCall, source?: Workspace)
         event: { ...base, title: a.title, reason: a.reason },
       };
     case 'done':
-      if (ws.ops().length) throw bad('还有暂存修改，请提交改动，不能声称没有修改');
+      if (ws.ops().length && JSON.stringify(ws.ops()) !== ws.carried) throw bad('还有暂存修改，请提交改动，不能声称没有修改');
       return { content: '完成', event: base };
     default:
       throw bad('没有这个工具');
   }
 }
-const active = new Map<number, { runId: number; ctrl: AbortController }>();
+const active = new Map<number, { runId: number; ctrl: AbortController; intakeId?: number }>();
 export const activeRun = (kbId: number) => active.get(kbId)?.runId ?? null;
 export function startRun(
   kbId: number,
@@ -336,10 +337,11 @@ export function startRun(
     })
     .catch((err) => {
       const msg = ctrl.signal.aborted ? '这次整理已停止' : (err as Error).message;
-      record(kbId, runId, 'error', { message: msg });
+      // 老师自己让它停下不算出错：不记错误，页面显示「已停止」
+      if (!ctrl.signal.aborted) record(kbId, runId, 'error', { message: msg });
       db.update('kb_runs', runId, {
         status: ctrl.signal.aborted ? 'canceled' : 'error',
-        error: msg,
+        error: ctrl.signal.aborted ? null : msg,
         finished_at: now(),
       });
       if (inboxId) db.update('kb_inbox', inboxId, { status: 'error', error: msg });
@@ -375,6 +377,7 @@ export function drainInbox(kbId: number) {
   if (!job) return;
   const user = db.get<any>("SELECT id,name FROM users WHERE id=? AND status='active'", kb.teacher_id);
   if (!user) return;
+  if (job.sender === 'intake') return startIntakeDigest(kbId, job, user);
   try {
     startRun(
       kbId,
@@ -392,6 +395,151 @@ export function drainInbox(kbId: number) {
     });
   }
 }
+/**
+ * 交给整理助手的话：分批时每批和只交一批时说法完全一样。分批是内部做法，
+ * 告诉它「第几批」它会把批次写进目录和进度（2026-11-07 实测），所以不提。老师随资料说的话放在最前面。
+ */
+export function batchRequest(message: string | null, paths: string[]) {
+  return `${message?.trim() ? message.trim() + '\n\n' : ''}我交了资料：\n${paths.join('\n')}\n请整理进当前知识库。`;
+}
+
+/**
+ * 一次交的资料分批整理：每批重新开一段对话（上下文不会越堆越长），但共用同一个暂存区，
+ * 后面的批次看得到前面暂存的笔记。每批做完记下暂存，中断后从下一批接着来，做完的批次不重做。
+ * 全部做完才生成一次改动，长期库照旧等老师确认。
+ */
+function startIntakeDigest(kbId: number, job: any, user: { id: number; name: string }) {
+  const intakeId = Number(String(job.source_id).split(':')[0]);
+  let kb: KnowledgeBase;
+  try {
+    kb = writableKb(kbId);
+    loadIntake(intakeId);
+  } catch (err) {
+    db.update('kb_inbox', job.id, { status: 'error', error: (err as Error).message });
+    return;
+  }
+  const ctrl = new AbortController();
+  active.set(kbId, { runId: 0, ctrl, intakeId });
+  db.update('kb_inbox', job.id, { status: 'running', error: null });
+  setIntake(intakeId, { status: 'digesting', error: null });
+  announce(intakeId, true);
+  void digestIntake(kb, intakeId, job.id, user, ctrl)
+    .then(() => db.update('kb_inbox', job.id, { status: 'accepted', error: null }))
+    .catch((err) => {
+      const message = ctrl.signal.aborted ? '整理停下了，已整理好的部分都留着，可以接着整理' : readableKeeperError(err);
+      db.update('kb_inbox', job.id, { status: 'error', error: message });
+      if (loadIntake(intakeId).status === 'digesting') setIntake(intakeId, { status: 'paused', error: message });
+    })
+    .finally(() => {
+      active.delete(kbId);
+      announce(intakeId, true);
+      drainInbox(kbId);
+    });
+}
+
+function readableKeeperError(err: unknown) {
+  const msg = String((err as Error)?.message || '');
+  if (err instanceof HttpError && err.status === 409) return '整理期间知识库里的相关内容被改过，这次的整理需要重新核对';
+  return msg || '整理没有完成，可以接着整理';
+}
+
+async function digestIntake(kb: KnowledgeBase, intakeId: number, jobId: number, user: { id: number; name: string }, ctrl: AbortController) {
+  const first = loadIntake(intakeId);
+  const plan: Batch[] = first.plan ? JSON.parse(first.plan) : [];
+  const total = plan.length;
+  const docs = plan.reduce((n, b) => n + b.paths.length, 0);
+  if (!total) {
+    setIntake(intakeId, { status: 'done', finished_at: now() });
+    return;
+  }
+  for (let b = first.batch; b < total; b++) {
+    ctrl.signal.throwIfAborted();
+    const intake = loadIntake(intakeId);
+    const cp: Checkpoint | null = intake.checkpoint ? JSON.parse(intake.checkpoint) : null;
+    const ws = cp ? Workspace.restore(kb.id, cp.baseSha, cp.ops) : new Workspace(kb.id);
+    ws.carried = JSON.stringify(ws.ops());
+    const request = batchRequest(intake.message, plan[b].paths);
+    const runId = db.insert('kb_runs', {
+      kb_id: kb.id,
+      kind: 'materials',
+      status: 'running',
+      request,
+      created_by: user.id,
+      intake_id: intakeId,
+      created_at: now(),
+    });
+    active.get(kb.id)!.runId = runId;
+    db.update('kb_inbox', jobId, { run_id: runId });
+    publishRun(kb.id, runId);
+    announce(intakeId, true);
+    const last = b === total - 1;
+    try {
+      const notes = cp?.notes || [];
+      const r = await execute(kb, runId, 'materials', request, user, ctrl.signal, undefined, undefined, { sender: 'teacher-upload', source_id: String(intake.change_id) }, {
+        ws,
+        checkpoint: !last,
+        requestKey: last ? `intake:${intakeId}:${intake.change_id}:final` : undefined,
+        commitMeta:
+          total > 1
+            ? (finish) => ({
+                title: `整理了这次交的 ${docs} 份资料`,
+                reason: [...notes, ...(finish ? [finish] : [])].map((n) => n.reason.trim()).filter(Boolean).join('\n'),
+              })
+            : undefined,
+      });
+      if (!last)
+        setIntake(intakeId, {
+          batch: b + 1,
+          resumes: 0,
+          checkpoint: JSON.stringify({ baseSha: ws.baseSha, ops: ws.ops(), notes: [...notes, ...(r.finish ? [r.finish] : [])] } satisfies Checkpoint),
+        });
+      else setIntake(intakeId, { batch: total, status: 'done', digest_change_id: r.changeId, checkpoint: null, error: null, finished_at: now() });
+    } catch (err) {
+      const msg = ctrl.signal.aborted ? '这次整理已停止' : (err as Error).message;
+      // 老师自己让它停下不算出错：不记错误，页面显示「已停止」
+      if (!ctrl.signal.aborted) record(kb.id, runId, 'error', { message: msg });
+      db.update('kb_runs', runId, { status: ctrl.signal.aborted ? 'canceled' : 'error', error: ctrl.signal.aborted ? null : msg, finished_at: now() });
+      throw err;
+    } finally {
+      publishRun(kb.id, runId);
+    }
+  }
+}
+
+export function cancelIntakeRun(kbId: number, intakeId: number) {
+  const a = active.get(kbId);
+  if (!a || a.intakeId !== intakeId) throw notFound('这次整理已经结束');
+  a.ctrl.abort();
+}
+
+/** 整理停在中途时，老师选择「就整理到这里」：把已经暂存的部分作为一次改动交出来。 */
+export async function commitCheckpoint(kbId: number, intakeId: number, user: { id: number; name: string }) {
+  const kb = writableKb(kbId);
+  if (active.get(kbId)?.intakeId === intakeId) throw conflict('整理助手还在整理这批资料');
+  const intake = loadIntake(intakeId);
+  const cp: Checkpoint | null = intake.checkpoint ? JSON.parse(intake.checkpoint) : null;
+  let changeId: number | null = null;
+  if (cp?.ops.length) {
+    const tidy = isTidy(kbId, cp.ops);
+    const c = await createChange({
+      kbId,
+      title: '整理了这次交的一部分资料',
+      reason: cp.notes.map((n) => n.reason.trim()).filter(Boolean).join('\n'),
+      author: 'keeper',
+      authorName: KEEPER_NAME,
+      kind: tidy ? 'tidy' : 'keeper',
+      ops: cp.ops,
+      apply: kb.kind === 'class' || tidy ? { by: null, as: KEEPER_AUTHOR } : undefined,
+      requestKey: `intake:${intakeId}:${intake.change_id}:partial`,
+    });
+    changeId = c.id;
+  }
+  db.run("UPDATE kb_inbox SET status='dismissed' WHERE kb_id=? AND sender='intake' AND source_id LIKE ? AND status IN ('pending','error')", kbId, `${intakeId}:%`);
+  setIntake(intakeId, { status: 'done', digest_change_id: changeId, checkpoint: null, error: null, finished_at: now() });
+  announce(intakeId, true);
+  void user;
+}
+
 export function cancelRun(kbId: number, runId: number) {
   const a = active.get(kbId);
   if (!a || a.runId !== runId) throw notFound('这件事已经结束');
@@ -434,8 +582,18 @@ async function execute(
   sourceKbId?: number,
   studentId?: number,
   origin?: { sender: string; source_id: string } | null,
-) {
-  const ws = new Workspace(kb.id, false, !sourceKbId && studentId === undefined, studentId),
+  batch: {
+    /** 分批整理沿用同一个工作区 */
+    ws?: Workspace;
+    /** 不是最后一批：只暂存，不生成改动 */
+    checkpoint?: boolean;
+    /** 最后一批：改动的标题和依据汇总各批 */
+    commitMeta?: (finish: { title: string; reason: string } | null) => { title: string; reason: string };
+    /** 同一次交资料只生成一次改动：最后一批提交后、记下完成前断电，重启接着跑也不会再生成一份 */
+    requestKey?: string;
+  } = {},
+): Promise<{ finish: { title: string; reason: string } | null; changeId: number | null }> {
+  const ws = batch.ws ?? new Workspace(kb.id, false, !sourceKbId && studentId === undefined, studentId),
     source = sourceKbId ? new Workspace(sourceKbId, true) : undefined;
   const model = db.get<any>(
     "SELECT m.id FROM models m JOIN providers p ON p.id=m.provider_id WHERE m.model='deepseek-flash' AND m.enabled=1 AND p.enabled=1 ORDER BY m.id LIMIT 1",
@@ -466,7 +624,7 @@ async function execute(
     }
     if (!findings.length) {
       db.update('kb_runs', runId, { status: 'done', reply: '这次没有找到有依据的新教学经验，知识库未改动。', finished_at: now() });
-      return;
+      return { finish: null, changeId: null };
     }
   }
   const useGeneralSummary = process.env.CT_TEST_MODE === '1' && process.env.CT_EVAL_SUMMARY_PROMPT === 'keeper';
@@ -494,7 +652,7 @@ async function execute(
   const messages: Msg[] = [
     {
       role: 'system',
-      content: `${instruction}\n\n当前知识库：${kb.name}${kb.term ? '，学期：' + kb.term : ''}\n今天：${new Date().toLocaleDateString('zh-CN')}\n老师：${user.name}${sourceContext}${currentFiles ? '\n当前可读文件：' + JSON.stringify(currentFiles) : ''}${studentId !== undefined ? '\n本次记录对象（系统绑定）：' + JSON.stringify({ id: studentId, name: studentIn(kb.id, studentId).name }) : ''}${origin ? '\n本次来源记录：' + JSON.stringify({ 来源: origin.sender === 'grader' ? '批改助手' : origin.sender === 'tutor' ? '答疑助手' : origin.sender === 'term-summary' ? '学期封存任务' : origin.sender === 'teacher-upload' ? '老师上传资料' : origin.sender, 编号: origin.source_id }) : ''}`,
+      content: `${instruction}\n\n当前知识库：${kb.name}${kb.term ? '，学期：' + kb.term : ''}\n今天：${new Date().toLocaleDateString('zh-CN')}\n老师：${user.name}${sourceContext}${currentFiles ? '\n当前可读文件：' + JSON.stringify(currentFiles) : ''}${studentId !== undefined ? '\n本次记录对象（系统绑定）：' + JSON.stringify({ id: studentId, name: studentIn(kb.id, studentId).name }) : ''}${origin ? '\n本次来源记录：' + JSON.stringify({ 来源: origin.sender === 'grader' ? '批改助手' : origin.sender === 'tutor' ? '答疑助手' : origin.sender === 'term-summary' ? '学期封存任务' : origin.sender === 'teacher-upload' ? '老师上传资料' : origin.sender, 编号: origin.sender === 'teacher-upload' ? undefined : origin.source_id }) : ''}`,
     },
     ...(kind === 'chat' ? recentTalk(kb.id, runId) : []),
     ...(citedFindings
@@ -570,6 +728,12 @@ async function execute(
       } catch (err) {
         if (call.name === 'finish' && err instanceof HttpError && err.status === 409) throw err;
         content = (err as Error).message;
+        // 拦下学生身份时补上事实：哪份文件里出现了哪些已登记的身份（只说事实，不加做法）
+        const where = err instanceof HttpError && err.code === 'student_identity' ? err.details : null;
+        if (where && Array.isArray(where.terms) && where.terms.length) {
+          if (typeof where.path === 'string') content += `（出现在「${where.path}」：${where.terms.join('、')}）`;
+          else if (typeof where.field === 'string') content += `（出现在${where.field}里：${where.terms.join('、')}）`;
+        }
         record(kb.id, runId, 'tool', {
           name: call.name,
           label: LABEL[call.name],
@@ -593,19 +757,26 @@ async function execute(
   if (!finished) throw new Error('这次整理未完成，已保留工作记录，请重试');
   let changeId: number | null = null;
   const ops = ws.ops();
-  if (finish && ops.length) {
+  if (batch.checkpoint) {
+    db.update('kb_runs', runId, { status: 'done', reply: finish?.title || reply || null, finished_at: now() });
+    return { finish, changeId: null };
+  }
+  const carried = !!ws.carried && ws.carried !== '[]';
+  if (ops.length && (finish || carried)) {
+    const meta = batch.commitMeta ? batch.commitMeta(finish) : finish!;
     const tidy = isTidy(kb.id, ops),
       automatic = kb.kind === 'class' || tidy;
     const c = await createChange({
       kbId: kb.id,
-      title: finish.title,
-      reason: finish.reason,
+      title: meta.title.slice(0, 120),
+      reason: meta.reason,
       author: 'keeper',
       authorName: KEEPER_NAME,
       kind: tidy ? 'tidy' : 'keeper',
       ops,
       runId,
       apply: automatic ? { by: null, as: KEEPER_AUTHOR } : undefined,
+      requestKey: batch.requestKey,
     });
     changeId = c.id;
     record(kb.id, runId, 'change', {
@@ -622,10 +793,12 @@ async function execute(
     change_id: changeId,
     finished_at: now(),
   });
+  return { finish, changeId };
 }
 export function taskSubject(item: any) {
   const source = item.source_kb_id ? db.get<any>('SELECT name,term FROM knowledge_bases WHERE id=?', item.source_kb_id) : null;
   if (source) return { label: '学期提炼', detail: `${source.name} · ${source.term}` };
+  if (item.sender === 'intake') return { label: '整理这次交的资料', detail: item.content || '' };
   if (item.sender === 'teacher-upload') {
     const change = db.get<any>("SELECT ops FROM kb_changes WHERE id=? AND kb_id=? AND kind='upload'", Number(item.source_id), item.kb_id);
     return {
@@ -639,7 +812,12 @@ export function taskSubject(item: any) {
   };
 }
 export function publicRun(r: any) {
-  const origin = r.kind !== 'chat' ? db.get<any>('SELECT * FROM kb_inbox WHERE run_id=?', r.id) : null;
+  // 一次交资料分几批整理，排队记录只记着最后一批，前面几批按交资料找回来
+  const origin =
+    r.kind !== 'chat'
+      ? (db.get<any>('SELECT * FROM kb_inbox WHERE run_id=?', r.id) ??
+        (r.intake_id ? db.get<any>("SELECT * FROM kb_inbox WHERE sender='intake' AND source_id LIKE ? ORDER BY id DESC LIMIT 1", `${r.intake_id}:%`) : null))
+      : null;
   return {
     id: r.id,
     kind: r.kind,
@@ -653,12 +831,14 @@ export function publicRun(r: any) {
           ? taskSubject(r)
           : null,
     reply: r.reply,
+    intakeId: r.intake_id ?? null,
     changeId: r.change_id,
     error: r.error,
     createdAt: r.created_at,
     finishedAt: r.finished_at,
   };
 }
+export const INTERRUPTED = '服务中断，这次未完成，可以重试';
 export function recoverRuns() {
   db.tx(() => {
     for (const r of db.all<any>("SELECT * FROM kb_runs WHERE status='running'")) {
@@ -676,7 +856,7 @@ export function recoverRuns() {
             }
           : {
               status: 'error',
-              error: '服务中断，这次未完成，可以重试',
+              error: INTERRUPTED,
               finished_at: now(),
             },
       );

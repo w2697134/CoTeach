@@ -1,18 +1,16 @@
 import { useMemo, useRef, useState } from 'react';
 import { useParams, useSearchParams } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
-import { FileStack, FolderTree, Upload } from 'lucide-react';
-import { api } from '../../lib/api';
-import { toast, useAuth } from '../../lib/store';
-import { Alert, Badge, Button, Card, Drawer, Empty, ErrorState, PageLoading, Segmented, Skeleton, cn } from '../../components/ui';
+import { FileStack, FilePlus, FolderOpen, FolderTree, Upload } from 'lucide-react';
+import { useAuth } from '../../lib/store';
+import { Badge, Button, Card, Drawer, Empty, ErrorState, MenuItem, PageLoading, Popover, Segmented, Skeleton, cn } from '../../components/ui';
 import { ChangesDrawer } from './Changes';
 import { FileTree } from './FileTree';
 import { FileViewer } from './FileViewer';
 import { KeeperPanel } from './KeeperPanel';
-import { useChanges, useCourse, useKbStream, useTree, fileTitle } from './data';
+import { useChanges, useCourse, useKbStream, useTree } from './data';
+import { handIn, pickedFromDrop, pickedFromList, type Picked } from './intake';
 import { KnowledgeTools } from './Manage';
-
-const ACCEPT = '.md,.markdown,.txt,.doc,.docx,.ppt,.pptx,.pdf,.py,.c,.cpp,.java,.js,.sql';
 
 export function KnowledgeBasePage() {
   const cid = Number(useParams().id);
@@ -41,7 +39,9 @@ function KnowledgeBaseContent({ cid }: { cid: number }) {
   });
   const qc = useQueryClient();
   const fileInput = useRef<HTMLInputElement>(null);
+  const folderInput = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
+  const [dragging, setDragging] = useState(0);
   const [drawer, setDrawer] = useState(false);
   const [focus, setFocus] = useState<number | null>(null);
   // 手机上一次只放一栏
@@ -67,27 +67,17 @@ function KnowledgeBaseContent({ cid }: { cid: number }) {
     setDrawer(true);
   };
 
-  const upload = async (files: FileList | null) => {
-    if (!files?.length) return;
-    const fd = new FormData();
-    for (const f of Array.from(files)) fd.append('file', f);
+  // 选的文件、选的文件夹、拖进来的都从这里交：登记好就切到整理助手看进度，上传在后台继续
+  const upload = async (files: Picked[]) => {
+    if (!files.length || uploading) return;
     setUploading(true);
     try {
-      const r = await api<{
-        done: { name: string }[];
-        failed: { name: string; error: string }[];
-        runId: number | null;
-      }>(`/knowledge/${cid}/kb/upload`, { body: fd });
-      if (r.done.length) toast.success(`交了 ${r.done.length} 份资料`);
-      for (const f of r.failed) toast.error(`「${fileTitle(f.name)}」没交上`, f.error);
+      await handIn(qc, cid, files);
       setPane('keeper');
-      qc.invalidateQueries({ queryKey: ['kb-runs', cid] });
-      qc.invalidateQueries({ queryKey: ['kb-tree', cid] });
-    } catch (err) {
-      toast.fromError(err);
     } finally {
       setUploading(false);
       if (fileInput.current) fileInput.current.value = '';
+      if (folderInput.current) folderInput.current.value = '';
     }
   };
 
@@ -96,6 +86,7 @@ function KnowledgeBaseContent({ cid }: { cid: number }) {
   const pendingCount = pending.data?.changes.length ?? course.data.pending;
   const kb = course.data.knowledgeBase,
     archived = kb.status === 'archived';
+  const filesDragged = (e: React.DragEvent) => !archived && e.dataTransfer.types.includes('Files');
   const treeView = tree.error ? (
     <ErrorState error={tree.error} onRetry={() => tree.refetch()} />
   ) : !tree.data ? (
@@ -107,7 +98,26 @@ function KnowledgeBaseContent({ cid }: { cid: number }) {
   );
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-3">
+    <div
+      className="relative flex h-full min-h-0 flex-col gap-3"
+      onDragEnter={(e) => filesDragged(e) && setDragging((n) => n + 1)}
+      onDragLeave={(e) => filesDragged(e) && setDragging((n) => Math.max(0, n - 1))}
+      onDragOver={(e) => filesDragged(e) && e.preventDefault()}
+      onDrop={(e) => {
+        if (!filesDragged(e)) return;
+        e.preventDefault();
+        setDragging(0);
+        void pickedFromDrop(e.dataTransfer).then(upload);
+      }}
+    >
+      {dragging > 0 && (
+        <div className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center rounded-2xl border-2 border-dashed border-brand/60 bg-brand-soft/70 backdrop-blur-[1px]">
+          <div className="flex items-center gap-2 text-[16px] font-medium text-brand-ink">
+            <Upload className="size-5" />
+            交资料
+          </div>
+        </div>
+      )}
       <div className="flex flex-wrap items-center gap-2 px-1">
         <div className="min-w-0 basis-full sm:basis-auto sm:flex-1">
           <h1 className="break-words text-[20px] font-semibold tracking-tight text-ink">
@@ -133,11 +143,37 @@ function KnowledgeBaseContent({ cid }: { cid: number }) {
           )}
         </Button>
         {!archived && (
-          <Button variant="primary" icon={<Upload className="size-4" />} loading={uploading} onClick={() => fileInput.current?.click()}>
-            交资料
-          </Button>
+          <Popover
+            trigger={({ toggle }) => (
+              <Button variant="primary" icon={<Upload className="size-4" />} loading={uploading} onClick={toggle}>
+                交资料
+              </Button>
+            )}
+          >
+            {(close) => (
+              <div className="flex min-w-36 flex-col p-1.5" onClick={close}>
+                <MenuItem icon={<FilePlus />} onClick={() => fileInput.current?.click()}>
+                  选文件
+                </MenuItem>
+                <MenuItem icon={<FolderOpen />} onClick={() => folderInput.current?.click()}>
+                  选文件夹
+                </MenuItem>
+              </div>
+            )}
+          </Popover>
         )}
-        <input ref={fileInput} type="file" multiple accept={ACCEPT} className="hidden" onChange={(e) => upload(e.target.files)} />
+        <input ref={fileInput} type="file" multiple className="hidden" onChange={(e) => upload(pickedFromList(e.target.files || []))} />
+        <input
+          ref={(el) => {
+            // 选整个文件夹：React 不认识这个属性，直接设到元素上
+            folderInput.current = el;
+            el?.setAttribute('webkitdirectory', '');
+          }}
+          type="file"
+          multiple
+          className="hidden"
+          onChange={(e) => upload(pickedFromList(e.target.files || []))}
+        />
       </div>
       <div className="px-1 lg:hidden">
         <Segmented
