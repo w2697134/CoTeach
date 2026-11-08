@@ -417,10 +417,11 @@ export async function createKnowledgeBase(d: { teacherId: number; name: string; 
     throw err;
   }
 }
-export async function ensureTeacherKb(teacherId: number, name: string): Promise<number> {
+/** 老师最早建的那个知识库，一个都没有就建一个；登录后先打开它 */
+export async function ensureTeacherKb(teacherId: number, _name?: string): Promise<number> {
   return (
-    db.value<number>("SELECT id FROM knowledge_bases WHERE teacher_id=? AND kind='teacher'", teacherId) ??
-    (await createKnowledgeBase({ teacherId, name: `${name}的知识库` }))
+    db.value<number>("SELECT id FROM knowledge_bases WHERE teacher_id=? AND kind='teacher' AND deleted_at IS NULL ORDER BY id LIMIT 1", teacherId) ??
+    (await createKnowledgeBase({ teacherId, name: '我的知识库' }))
   );
 }
 

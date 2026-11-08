@@ -2,7 +2,7 @@ import { lazy, Suspense, type ComponentType, type ReactNode } from 'react';
 import { createBrowserRouter, Navigate, useLocation } from 'react-router';
 import { useAuth } from './lib/store';
 import { AppShell } from './components/layout/AppShell';
-import { PageLoading } from './components/ui';
+import { Empty, PageLoading } from './components/ui';
 
 export function RouteError() {
   return (
@@ -32,13 +32,18 @@ const page = <P extends object = {}>(loader: () => Promise<any>, name: string) =
 export const preloadPages = () => loaders.forEach((load) => load().catch(() => {}));
 
 const Login = page(() => import('./pages/Login'), 'LoginPage');
-const Courses = page(() => import('./pages/Courses'), 'CoursesPage');
 const KnowledgeBase = page(() => import('./pages/kb/KnowledgeBase'), 'KnowledgeBasePage');
-const Libraries = page(() => import('./pages/kb/Libraries'), 'LibrariesPage');
-const LegacyCourse = page(() => import('./pages/kb/Libraries'), 'LegacyCoursePage');
+const LegacyCourse = page(() => import('./pages/kb/LegacyCourse'), 'LegacyCoursePage');
 
 function S({ children }: { children: ReactNode }) {
   return <Suspense fallback={<PageLoading />}>{children}</Suspense>;
+}
+
+/** 进来直接打开老师最早的那个知识库，不经过中间页 */
+function MyKnowledgeBase() {
+  const kbId = useAuth((s) => s.user?.kbId);
+  if (!kbId) return <Empty title="这个账号没有知识库" />;
+  return <Navigate replace to={`/knowledge/${kbId}`} />;
 }
 
 function RequireUser({ children }: { children: ReactNode }) {
@@ -68,14 +73,7 @@ export const router = createBrowserRouter([
       </RequireUser>
     ),
     children: [
-      {
-        index: true,
-        element: (
-          <S>
-            <Courses />
-          </S>
-        ),
-      },
+      { index: true, element: <MyKnowledgeBase /> },
       {
         path: 'c/:id',
         element: (
@@ -84,14 +82,7 @@ export const router = createBrowserRouter([
           </S>
         ),
       },
-      {
-        path: 'knowledge',
-        element: (
-          <S>
-            <Libraries />
-          </S>
-        ),
-      },
+      { path: 'knowledge', element: <MyKnowledgeBase /> },
       {
         path: 'knowledge/:id',
         element: (

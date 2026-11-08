@@ -162,7 +162,7 @@ function KnowledgeBaseContent({ cid }: { cid: number }) {
           <ListTree className="size-[18px]" />
         </IconButton>
         <div className="flex min-w-0 flex-1 items-baseline gap-2.5">
-          <h1 className="min-w-0 truncate text-[20px] font-semibold tracking-tight text-ink">{kb.kind === 'teacher' ? '长期知识库' : kb.name}</h1>
+          <h1 className="min-w-0 truncate text-[20px] font-semibold tracking-tight text-ink">{kb.name}</h1>
           {kb.kind === 'class' && (
             <span className="shrink-0 text-[13px] text-ink-3">
               {kb.term}

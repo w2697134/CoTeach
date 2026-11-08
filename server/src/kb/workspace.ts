@@ -15,6 +15,8 @@ export class Workspace {
   readonly baseSha: string | null;
   /** 分批整理时，前几批已经暂存的改动；这一批是否另有改动以它为准 */
   carried: string | null = null;
+  /** 这次已经直接改过知识库本身（新建、改名、挪走文件、删除），没有暂存改动也算做了事 */
+  structural = false;
   private states = new Map<string, FileState>();
   private originals = new Map<string, Buffer>();
   constructor(
@@ -131,6 +133,19 @@ export class Workspace {
       throw conflict('目标位置已有文件');
     if (!s.entry.sourceId) checkIdentity(this.kbId, to, s.entry.studentId);
     s.path = to;
+  }
+  /** 这个文件（或文件夹里的文件）这次有没有还没提交的改动 */
+  touched(path: string) {
+    path = cleanPath(path);
+    const under = (p: string | null) => !!p && (p === path || p.startsWith(path + '/'));
+    return [...this.states.values()].some(
+      (s) => (under(s.entry.path) || under(s.path)) && (!s.original || s.path !== s.entry.path || s.content !== undefined),
+    );
+  }
+  /** 文件已经挪到别的知识库：这次不再看到它，提交时也不碰它 */
+  forget(paths: string[]) {
+    const gone = new Set(paths);
+    for (const [id, s] of this.states) if (s.original && gone.has(s.entry.path)) this.states.delete(id);
   }
   async list() {
     return [...this.states.values()]

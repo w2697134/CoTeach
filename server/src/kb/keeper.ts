@@ -7,7 +7,8 @@ import { bad, conflict, notFound, HttpError } from '../lib/http.js';
 import { streamChat, type Msg, type ToolCall, type ToolSpec } from '../llm/index.js';
 import { createChange, isTidy, KEEPER_AUTHOR, checkMetadata } from './changes.js';
 import { loadKb, studentIn, students, writableKb, type KnowledgeBase } from './access.js';
-import { cleanPath, isTextEntry, validateOps } from './repo.js';
+import { cleanPath, isTextEntry, manifest, validateOps } from './repo.js';
+import { createKb, deleteKb, findKb, listKbs, renameKb, transferFiles } from './bases.js';
 import { Workspace } from './workspace.js';
 import { documentName } from './teacher-text.js';
 import { collectEvidence, type EvidenceFinding } from './evidence.js';
@@ -114,7 +115,53 @@ const TOOLS: ToolSpec[] = [
     parameters: { type: 'object', properties: {} },
   },
 ];
+/** 操作知识库本身的工具：只在老师跟整理助手说话时给，交资料整理、学期提炼、其他助手的记录都不给 */
+const KB_TOOLS: ToolSpec[] = [
+  {
+    name: 'list_knowledge_bases',
+    description: '列出老师的全部知识库和各自的文件。',
+    parameters: { type: 'object', properties: {} },
+  },
+  {
+    name: 'create_knowledge_base',
+    description: '新建一个空的知识库，立即生效。',
+    parameters: { type: 'object', properties: { name: { type: 'string' } }, required: ['name'] },
+  },
+  {
+    name: 'rename_knowledge_base',
+    description: '给老师的一个知识库改名，立即生效。',
+    parameters: {
+      type: 'object',
+      properties: { name: { type: 'string', description: '现在的名字' }, new_name: { type: 'string' } },
+      required: ['name', 'new_name'],
+    },
+  },
+  {
+    name: 'move_to_knowledge_base',
+    description: '把已生效的文件或整个文件夹挪到老师的另一个知识库，路径、内容和保护状态不变。立即生效，两边都留有记录，可以撤回。',
+    parameters: {
+      type: 'object',
+      properties: {
+        paths: { type: 'array', items: { type: 'string' } },
+        to: { type: 'string', description: '目标知识库的名字' },
+        from: { type: 'string', description: '来源知识库的名字，默认是当前知识库' },
+      },
+      required: ['paths', 'to'],
+    },
+  },
+  {
+    name: 'delete_knowledge_base',
+    description: '删除老师的一个已经清空的知识库，当前知识库不能删。',
+    parameters: { type: 'object', properties: { name: { type: 'string' } }, required: ['name'] },
+  },
+];
+const KB_TOOL_NAMES = new Set(KB_TOOLS.map((t) => t.name));
 const LABEL: Record<string, string> = {
+  list_knowledge_bases: '看全部知识库',
+  create_knowledge_base: '新建知识库',
+  rename_knowledge_base: '知识库改名',
+  move_to_knowledge_base: '挪到别的知识库',
+  delete_knowledge_base: '删除知识库',
   list_files: '看目录',
   read_file: '读',
   search: '查找',
@@ -276,17 +323,79 @@ export async function runTool(ws: Workspace, call: ToolCall, source?: Workspace)
         event: { ...base, count: list.length },
       };
     }
-    case 'finish':
-      if (!ws.ops().length || JSON.stringify(ws.ops()) === ws.carried) throw bad('没有实际改动，无需修改时请调用 done');
-      validateOps(ws.kbId, ws.ops());
-      checkMetadata(ws.kbId, String(a.title || ''), String(a.reason || ''), ws.ops());
+    case 'finish': {
+      const staged = ws.ops().length > 0 && JSON.stringify(ws.ops()) !== ws.carried;
+      // 只改了知识库本身（新建、改名、挪走、删除）时这些已经生效，没有要再提交的
+      if (!staged && !ws.structural) throw bad('没有实际改动，无需修改时请调用 done');
+      if (staged) {
+        validateOps(ws.kbId, ws.ops());
+        checkMetadata(ws.kbId, String(a.title || ''), String(a.reason || ''), ws.ops());
+      }
       return {
-        content: '准备提交',
+        content: staged ? '准备提交' : '完成',
         event: { ...base, title: a.title, reason: a.reason },
       };
+    }
     case 'done':
       if (ws.ops().length && JSON.stringify(ws.ops()) !== ws.carried) throw bad('还有暂存修改，请提交改动，不能声称没有修改');
       return { content: '完成', event: base };
+    default:
+      throw bad('没有这个工具');
+  }
+}
+/** 知识库本身的操作直接生效；用名字指代知识库，不把编号给模型 */
+export async function runKbTool(kb: KnowledgeBase, ws: Workspace, call: ToolCall, runId: number): Promise<{ content: string; event: Record<string, any> }> {
+  const a = call.args as Record<string, any>,
+    base = { name: call.name, label: LABEL[call.name] || call.name };
+  switch (call.name) {
+    case 'list_knowledge_bases': {
+      const list = listKbs(kb.teacher_id).map((k) => {
+        const files = manifest(k.id).map((e) => e.path);
+        return { name: k.name, ...(k.id === kb.id ? { current: true } : {}), files: files.slice(0, 200), ...(files.length > 200 ? { more: files.length - 200 } : {}) };
+      });
+      return { content: JSON.stringify(list), event: { ...base, count: list.length } };
+    }
+    case 'create_knowledge_base': {
+      const id = await createKb(kb.teacher_id, a.name);
+      ws.structural = true;
+      const name = loadKb(id).name;
+      return { content: `已建好「${name}」`, event: { ...base, base: name } };
+    }
+    case 'rename_knowledge_base': {
+      const target = findKb(kb.teacher_id, a.name);
+      renameKb(target.id, a.new_name);
+      ws.structural = true;
+      const name = loadKb(target.id).name;
+      return { content: `已改名为「${name}」`, event: { ...base, from: target.name, to: name } };
+    }
+    case 'move_to_knowledge_base': {
+      const from = a.from === undefined || a.from === null || a.from === '' ? kb : findKb(kb.teacher_id, a.from),
+        to = findKb(kb.teacher_id, a.to),
+        paths = (Array.isArray(a.paths) ? a.paths : [a.paths]).map((p: unknown) => String(p ?? ''));
+      const here = from.id === kb.id;
+      if (here) for (const p of paths) if (p && ws.touched(p)) throw bad(`「${p}」这次有还没提交的改动，提交后才能挪`);
+      const r = await transferFiles(from.id, to.id, paths, { author: 'keeper', authorName: KEEPER_NAME, as: KEEPER_AUTHOR, by: null, runId: here ? runId : null });
+      if (here) ws.forget(r.moved);
+      ws.structural = true;
+      return {
+        content: JSON.stringify({ 已挪到: to.name, 文件: r.moved }),
+        event: {
+          ...base,
+          to: to.name,
+          ...(here ? {} : { from: from.name }),
+          count: r.moved.length,
+          ...(r.moved.length === 1 ? { path: r.moved[0] } : {}),
+          paths: r.moved.slice(0, 30),
+        },
+      };
+    }
+    case 'delete_knowledge_base': {
+      const target = findKb(kb.teacher_id, a.name);
+      if (target.id === kb.id) throw bad('当前知识库不能删');
+      deleteKb(target, { onlyEmpty: true, busy: active.has(target.id) });
+      ws.structural = true;
+      return { content: `已删除「${target.name}」`, event: { ...base, base: target.name } };
+    }
     default:
       throw bad('没有这个工具');
   }
@@ -567,9 +676,32 @@ function recentTalk(kbId: number, runId: number): Msg[] {
         { role: 'user' as const, content: r.request },
         {
           role: 'assistant' as const,
-          content: `${r.reply || ''}\n（系统记录：${c ? OUTCOME[c.status] : '未修改知识库'}）`,
+          content: `${r.reply || ''}\n（系统记录：${outcome(r.id, c)}）`,
         },
       ];
+    });
+  function outcome(runId: number, c: { status: string } | null) {
+    const done = basesDone(runId);
+    if (!done.length) return c ? OUTCOME[c.status] : '未修改知识库';
+    return `已生效：${done.join('；')}。${c ? `改动${OUTCOME[c.status]}` : ''}`;
+  }
+}
+/** 这次直接动过的知识库本身（新建、改名、挪走、删除）：这些不进改动记录，要另外记清楚，不能记成「未修改」 */
+function basesDone(runId: number): string[] {
+  return db
+    .all<{ data: string }>("SELECT data FROM kb_events WHERE run_id=? AND type='tool'", runId)
+    .map((e) => JSON.parse(e.data))
+    .filter((d) => !d.error)
+    .flatMap((d) => {
+      if (d.name === 'create_knowledge_base') return [`新建知识库「${d.base}」`];
+      if (d.name === 'rename_knowledge_base') return [`「${d.from}」改名为「${d.to}」`];
+      if (d.name === 'move_to_knowledge_base') {
+        const paths: string[] = Array.isArray(d.paths) ? d.paths : [];
+        const list = paths.length ? `：${paths.join('、')}${d.count > paths.length ? ' 等' : ''}` : '';
+        return [`${d.from ? `从「${d.from}」` : ''}${d.count} 份挪到「${d.to}」${list}`];
+      }
+      if (d.name === 'delete_knowledge_base') return [`删除知识库「${d.base}」`];
+      return [];
     });
 }
 async function execute(
@@ -648,6 +780,9 @@ async function execute(
   }));
   const placement = !!findings && !(process.env.CT_TEST_MODE === '1' && process.env.CT_EVAL_SUMMARY_PLACEMENT === '0');
   const placed = new Set<number>();
+  // 老师跟整理助手说话时才能动知识库本身；隔离对照时可以关掉
+  const kbTools =
+    kind === 'chat' && !source && studentId === undefined && !placement && !(process.env.CT_TEST_MODE === '1' && process.env.CT_EVAL_KB_TOOLS === '0');
   const currentFiles = kind === 'chat' ? (await ws.list()).map((file) => ({ path: file.path, protected: file.protected })) : null;
   const messages: Msg[] = [
     {
@@ -683,6 +818,7 @@ async function execute(
         ),
         ...(source ? sourceTools : []),
         ...(placement ? [experienceTool] : []),
+        ...(kbTools ? KB_TOOLS : []),
       ],
       temperature: 0.3,
       maxTokens: 8192,
@@ -711,10 +847,13 @@ async function execute(
         signal.throwIfAborted();
         if (finished) throw bad('本次已经结束，后续操作不执行');
         if (placement && ['write_file', 'delete_file'].includes(call.name)) throw bad('请把核对后的经验放入选定文档');
+        if (KB_TOOL_NAMES.has(call.name) && !kbTools) throw bad('没有这个工具');
         const out =
           placement && call.name === 'place_experience'
             ? placeExperience(ws, findings!, sourceInfo!, call.args, placed)
-            : await runTool(ws, call, source);
+            : KB_TOOL_NAMES.has(call.name)
+              ? await runKbTool(kb, ws, call, runId)
+              : await runTool(ws, call, source);
         content = out.content;
         record(kb.id, runId, 'tool', out.event);
         if (call.name === 'finish') {
@@ -743,6 +882,8 @@ async function execute(
               .filter((key) => typeof call.args?.[key] === 'string')
               .map((key) => [key, String(call.args[key]).slice(0, 400)]),
           ),
+          // 知识库的名字另放，不能顶掉工具名
+          ...(KB_TOOL_NAMES.has(call.name) && typeof call.args?.name === 'string' ? { base: String(call.args.name).slice(0, 80) } : {}),
         });
       }
       messages.push({
@@ -766,9 +907,12 @@ async function execute(
     const meta = batch.commitMeta ? batch.commitMeta(finish) : finish!;
     const tidy = isTidy(kb.id, ops),
       automatic = kb.kind === 'class' || tidy;
+    // 这次还直接新建、挪动过知识库，那些已经生效：改动的标题只写这份改动里的几页，免得老师以为点「不要」能把新建、挪动也撤掉
+    const pages = [...new Set(ops.map((op) => documentName(op.path)))];
+    const title = ws.structural ? `改了${pages.slice(0, 3).map((p) => `「${p}」`).join('、')}${pages.length > 3 ? ` 等 ${pages.length} 份` : ''}` : meta.title;
     const c = await createChange({
       kbId: kb.id,
-      title: meta.title.slice(0, 120),
+      title: title.slice(0, 120),
       reason: meta.reason,
       author: 'keeper',
       authorName: KEEPER_NAME,
@@ -786,7 +930,7 @@ async function execute(
       files: ops.length,
     });
     reply = `${c.title}（${c.status === 'applied' ? '已生效' : '待你确认'}）`;
-  }
+  } else if (finish && ws.structural) reply = `${finish.title}（已生效）`;
   db.update('kb_runs', runId, {
     status: 'done',
     reply: reply || null,

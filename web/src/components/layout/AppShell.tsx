@@ -1,14 +1,12 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router';
 import { AnimatePresence, motion } from 'motion/react';
-import { useQuery } from '@tanstack/react-query';
-import { BookOpen, LayoutGrid, LogOut, Menu, Monitor, Moon, Sun } from 'lucide-react';
-import { get } from '../../lib/api';
+import { BookOpen, LogOut, Menu, Monitor, Moon, Plus, Sun } from 'lucide-react';
 import { APP_NAME, APP_SHORT_NAME } from '../../lib/brand';
 import { useAuth, useTheme, useUi } from '../../lib/store';
 import { Avatar, IconButton, MenuItem, MenuLabel, Popover, cn } from '../ui';
 import { useKnowledgeBases, usePrefetchKb } from '../../pages/kb/data';
-import { whenIdle } from '../../lib/idle';
+import { NewKnowledgeBaseModal } from '../../pages/kb/NewKnowledgeBase';
 
 export function Logo({ size = 32, className }: { size?: number; className?: string }) {
   return (
@@ -23,23 +21,11 @@ export function Logo({ size = 32, className }: { size?: number; className?: stri
   );
 }
 
-export interface CourseItem {
-  id: number;
-  name: string;
-  description: string | null;
-  kbId: number;
-  pending: number;
-}
-
-export const useCourses = () =>
-  useQuery({
-    queryKey: ['courses'],
-    queryFn: () => get<{ courses: CourseItem[] }>('/courses'),
-  });
-
 function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
-  const courses = (useKnowledgeBases().data?.knowledgeBases || []).filter((k) => k.kind === 'class');
+  const bases = useKnowledgeBases().data?.knowledgeBases || [];
   const prefetch = usePrefetchKb();
+  const navigate = useNavigate();
+  const [creating, setCreating] = useState(false);
   const item = (active: boolean) =>
     cn(
       'group relative flex h-9 items-center gap-3 rounded-md px-3 text-[14.5px] font-medium transition-colors',
@@ -56,49 +42,47 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
           <p className="mt-0.5 text-[12.5px] text-ink-3">教师工作台</p>
         </div>
       </div>
-      <nav className="no-scrollbar min-h-0 flex-1 space-y-5 overflow-y-auto px-3 pb-4 pt-2">
-        <NavLink to="/" end onClick={onNavigate} className={({ isActive }) => item(isActive)}>
-          <LayoutGrid className="size-[18px] shrink-0 text-ink-3" />
-          我的课程
-        </NavLink>
-        <NavLink to="/knowledge" end onClick={onNavigate} className={({ isActive }) => item(isActive)}>
-          <BookOpen className="size-[18px] shrink-0 text-ink-3" />
-          我的知识库
-        </NavLink>
-        {courses.length > 0 && (
-          <div>
-            <p className="mb-1.5 px-3 text-[12.5px] font-medium tracking-wider text-ink-3">班级</p>
-            <div className="space-y-0.5">
-              {courses.map((c) => (
-                <NavLink
-                  key={c.id}
-                  to={`/knowledge/${c.id}`}
-                  onClick={onNavigate}
-                  onPointerEnter={() => prefetch(c.id)}
-                  onFocus={() => prefetch(c.id)}
-                  className={({ isActive }) => cn(item(isActive), 'h-auto min-h-12 py-2')}
-                >
-                  {({ isActive }) => (
-                    <>
-                      {isActive && (
-                        <motion.span layoutId="nav-indicator" className="absolute -left-3 top-1.5 h-6 w-[3px] rounded-r-full bg-brand" />
-                      )}
-                      <BookOpen className={cn('size-[18px] shrink-0', isActive ? 'text-brand' : 'text-ink-3')} />
-                      <span className="min-w-0 flex-1 break-words">
-                        <span className="block">{c.name}</span>
-                        <span className="mt-0.5 block text-[12px] font-normal text-ink-3">{c.term}</span>
-                      </span>
-                      {c.pending > 0 && (
-                        <span className="rounded-full bg-brand px-1.5 text-[11.5px] font-semibold text-white">{c.pending}</span>
-                      )}
-                    </>
-                  )}
-                </NavLink>
-              ))}
-            </div>
-          </div>
-        )}
+      <nav className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-3 pb-4 pt-2">
+        <div className="mb-1 flex items-center justify-between pl-3">
+          <p className="text-[12.5px] font-medium tracking-wider text-ink-3">知识库</p>
+          <IconButton label="新建知识库" size="sm" onClick={() => setCreating(true)}>
+            <Plus className="size-4" />
+          </IconButton>
+        </div>
+        <div className="space-y-0.5">
+          {bases.map((k) => (
+            <NavLink
+              key={k.id}
+              to={`/knowledge/${k.id}`}
+              onClick={onNavigate}
+              onPointerEnter={() => prefetch(k.id)}
+              onFocus={() => prefetch(k.id)}
+              className={({ isActive }) => cn(item(isActive), 'h-auto min-h-9 py-2')}
+            >
+              {({ isActive }) => (
+                <>
+                  {isActive && <motion.span layoutId="nav-indicator" className="absolute -left-3 top-1.5 h-6 w-[3px] rounded-r-full bg-brand" />}
+                  <BookOpen className={cn('size-[18px] shrink-0', isActive ? 'text-brand' : 'text-ink-3')} />
+                  <span className="min-w-0 flex-1 break-words">
+                    <span className="block">{k.name}</span>
+                    {k.term && <span className="mt-0.5 block text-[12px] font-normal text-ink-3">{k.term}</span>}
+                  </span>
+                  {k.pending > 0 && <span className="rounded-full bg-brand px-1.5 text-[11.5px] font-semibold text-white">{k.pending}</span>}
+                </>
+              )}
+            </NavLink>
+          ))}
+        </div>
       </nav>
+      <NewKnowledgeBaseModal
+        open={creating}
+        onClose={() => setCreating(false)}
+        onCreated={(id) => {
+          setCreating(false);
+          onNavigate?.();
+          navigate(`/knowledge/${id}`);
+        }}
+      />
     </div>
   );
 }
@@ -170,10 +154,6 @@ export function AppShell() {
   const { mobileNav, setMobileNav } = useUi();
   const location = useLocation();
   useEffect(() => setMobileNav(false), [location.pathname, setMobileNav]);
-  // 长期知识库最常去：这页画好后，在后台把它头一眼要看的取好
-  const teacherKb = useKnowledgeBases().data?.knowledgeBases.find((k) => k.kind === 'teacher')?.id;
-  const prefetchKb = usePrefetchKb();
-  useEffect(() => (teacherKb ? whenIdle(() => prefetchKb(teacherKb)) : undefined), [teacherKb, prefetchKb]);
   // 知识库页面要占满整屏高度，自己管滚动
   const full = location.pathname.startsWith('/c/') || /^\/knowledge\/\d+/.test(location.pathname);
   return (

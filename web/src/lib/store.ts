@@ -18,6 +18,8 @@ export interface User {
   isDemo: boolean;
   isSuper: boolean;
   settings: Record<string, any>;
+  /** 登录后先打开的知识库（老师最早的那个） */
+  kbId?: number | null;
 }
 
 interface AuthState {

@@ -423,6 +423,12 @@ test('知识库归属、系统隔离与变更生命周期', async (t) => {
     assert.equal(stream.headers.get('content-encoding'), null);
     await stream.body?.cancel();
   });
+  await t.test('老师进来就拿到自己的知识库', async () => {
+    const me = await app.request('/api/auth/me', { headers: { cookie: cookies.teacher, 'x-tv2': '1' } });
+    assert.equal(((await me.json()) as any).user.kbId, long);
+    const anon = await app.request('/api/auth/me', { headers: { 'x-tv2': '1' } });
+    assert.equal(((await anon.json()) as any).user, null);
+  });
   await t.test('同一浏览器重新登录后撤销上一枚会话', async () => {
     const { Hono } = await import('hono'),
       { createSession } = await import('../src/auth.js');

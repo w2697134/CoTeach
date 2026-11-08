@@ -12,6 +12,8 @@ export interface KnowledgeBase {
   head_sha: string | null;
   created_at: number;
   archived_at: number | null;
+  /** 老师删掉的知识库只做记号，内容和记录都还在 */
+  deleted_at: number | null;
 }
 export interface Student {
   id: number;
@@ -37,10 +39,12 @@ export function loadKb(id: number): KnowledgeBase {
 export function ownKb(user: Principal, id: number): KnowledgeBase {
   const kb = loadKb(id);
   if (!['teacher', 'admin'].includes(user.role) || kb.teacher_id !== user.id) throw forbidden('你没有这个知识库的访问权限');
+  if (kb.deleted_at) throw notFound('这个知识库已经删掉了');
   return kb;
 }
 export function writableKb(id: number): KnowledgeBase {
   const kb = loadKb(id);
+  if (kb.deleted_at) throw notFound('这个知识库已经删掉了');
   if (kb.status === 'archived') throw conflict('这个学期已封存，只能查阅');
   return kb;
 }
@@ -60,7 +64,7 @@ export function studentIn(kbId: number, id: number): Student {
 }
 export function authorizeReader(kbId: number, reader: Reader) {
   const kb = loadKb(kbId);
-  if (kb.teacher_id !== reader.teacherId) throw forbidden();
+  if (kb.teacher_id !== reader.teacherId || kb.deleted_at) throw forbidden();
   if (reader.role === 'student' && (kb.kind !== 'class' || reader.studentId === undefined)) throw forbidden();
   if (kb.kind === 'class' && reader.classId !== kb.id) throw forbidden('请先进入对应班级');
   if (reader.studentId !== undefined) {

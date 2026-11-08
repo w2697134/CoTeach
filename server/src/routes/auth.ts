@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { audit, createSession, destroySession, loadUserById, publicUser, type AppEnv } from '../auth.js';
 import { config } from '../config.js';
 import { db } from '../db/index.js';
+import { ensureTeacherKb } from '../kb/repo.js';
 import { verifyPassword } from '../lib/crypto.js';
 import { bad, body, clientIp, forbidden, rateLimit, unauthorized } from '../lib/http.js';
 
@@ -50,7 +51,10 @@ authRoutes.post('/logout', c => {
   return c.json({ ok: true });
 });
 
-authRoutes.get('/me', c => {
+authRoutes.get('/me', async c => {
   const u = c.get('user');
-  return c.json({ user: u ? publicUser(u) : null });
+  if (!u) return c.json({ user: null });
+  // 登录后直接打开老师最早的那个知识库，不用再多要一次
+  const kbId = u.role === 'teacher' || u.role === 'admin' ? await ensureTeacherKb(u.id, u.name) : null;
+  return c.json({ user: { ...publicUser(u), kbId } });
 });

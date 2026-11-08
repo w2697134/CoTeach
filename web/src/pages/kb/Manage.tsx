@@ -1,11 +1,11 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Archive, FilePlus, Users, Sparkles, MoreHorizontal } from 'lucide-react';
+import { Archive, FilePlus, Users, Sparkles, MoreHorizontal, PenLine, Trash2 } from 'lucide-react';
 import { api, get, post } from '../../lib/api';
 import { toast } from '../../lib/store';
 import { Button, Empty, ErrorState, IconButton, Input, MenuItem, Modal, Skeleton, Textarea, useConfirm, Popover } from '../../components/ui';
-import type { KnowledgeBase } from './data';
+import { useKnowledgeBases, type KnowledgeBase } from './data';
 import { parseRoster } from './presentation';
 import { LocationField } from './LocationField';
 
@@ -40,6 +40,40 @@ export function KnowledgeTools({ kb, onSelect }: { kb: KnowledgeBase; onSelect: 
     [studentName, setStudentName] = useState(''),
     [aliases, setAliases] = useState('');
   const archived = kb.status === 'archived';
+  const [renaming, setRenaming] = useState(false),
+    [newName, setNewName] = useState('');
+  const all = useKnowledgeBases().data?.knowledgeBases || [];
+  // 最后一个知识库不能删
+  const canDelete = kb.kind !== 'teacher' || all.filter((k) => k.kind === 'teacher').length > 1;
+  const rename = async () => {
+    if (!newName.trim() || busy) return;
+    setBusy(true);
+    setError('');
+    try {
+      await api(`/knowledge/${kb.id}`, { method: 'PATCH', body: { name: newName } });
+      qc.invalidateQueries({ queryKey: ['knowledge-bases'] });
+      qc.invalidateQueries({ queryKey: ['course', kb.id] });
+      setRenaming(false);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const removeKb = async () => {
+    if (!(await confirm({ title: `删除「${kb.name}」？`, desc: '里面的笔记和资料会一起删掉。', okText: '删除', danger: true }))) return;
+    setBusy(true);
+    try {
+      const r = await api<{ next: number }>(`/knowledge/${kb.id}`, { method: 'DELETE' });
+      await qc.invalidateQueries({ queryKey: ['knowledge-bases'] });
+      navigate(`/knowledge/${r.next}`, { replace: true });
+      toast.success('已删除');
+    } catch (e) {
+      toast.fromError(e);
+    } finally {
+      setBusy(false);
+    }
+  };
   const refresh = () => {
     for (const key of ['kb-tree', 'kb-file', 'kb-changes', 'course', 'kb-students']) qc.invalidateQueries({ queryKey: [key, kb.id] });
     qc.invalidateQueries({ queryKey: ['knowledge-bases'] });
@@ -176,6 +210,23 @@ export function KnowledgeTools({ kb, onSelect }: { kb: KnowledgeBase; onSelect: 
                   新建笔记
                 </MenuItem>
               )}
+              {!archived && (
+                <MenuItem
+                  icon={<PenLine />}
+                  onClick={() => {
+                    setNewName(kb.name);
+                    setError('');
+                    setRenaming(true);
+                  }}
+                >
+                  改名
+                </MenuItem>
+              )}
+              {canDelete && (
+                <MenuItem icon={<Trash2 />} danger onClick={removeKb}>
+                  删除这个知识库
+                </MenuItem>
+              )}
               {kb.kind === 'class' && (
                 <>
                   <MenuItem
@@ -202,6 +253,31 @@ export function KnowledgeTools({ kb, onSelect }: { kb: KnowledgeBase; onSelect: 
           )}
         </Popover>
       )}
+      <Modal
+        open={renaming}
+        onClose={() => !busy && setRenaming(false)}
+        title="改名"
+        footer={
+          <>
+            <Button disabled={busy} onClick={() => setRenaming(false)}>
+              取消
+            </Button>
+            <Button variant="primary" loading={busy} disabled={!newName.trim() || newName.trim() === kb.name} onClick={rename}>
+              保存
+            </Button>
+          </>
+        }
+      >
+        <label className="block text-[14px] text-ink">
+          名称
+          <Input autoFocus className="mt-1.5" value={newName} maxLength={40} onChange={(e) => setNewName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && rename()} />
+        </label>
+        {error && (
+          <p role="alert" className="mt-3 text-[14px] text-bad">
+            {error}
+          </p>
+        )}
+      </Modal>
       <Modal
         open={modal === 'file'}
         onClose={() => !busy && setModal(null)}

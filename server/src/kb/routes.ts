@@ -42,6 +42,7 @@ import {
   type FileOp,
 } from './repo.js';
 import { readKnowledge } from './reader.js';
+import { createKb, deleteKb, listKbs, renameKb, teacherActor, transferFiles } from './bases.js';
 import { documentName } from './teacher-text.js';
 
 export const kbRoutes = new Hono<AppEnv>();
@@ -73,9 +74,24 @@ const publicKb = (r: any) => ({
 kbRoutes.get('/', async (c) => {
   const u = teacher(c);
   await ensureTeacherKb(u.id, u.name);
-  return c.json({
-    knowledgeBases: db.all<any>('SELECT * FROM knowledge_bases WHERE teacher_id=? ORDER BY kind DESC,status,id', u.id).map(publicKb),
-  });
+  return c.json({ knowledgeBases: listKbs(u.id).map(publicKb) });
+});
+/** 老师想建几个就建几个，只要一个名字 */
+kbRoutes.post('/', async (c) => {
+  const u = teacher(c),
+    d = await body(c, z.object({ name: z.string().max(200) }));
+  return c.json({ id: await createKb(u.id, d.name) });
+});
+kbRoutes.patch('/:id', async (c) => {
+  const kb = owned(c),
+    d = await body(c, z.object({ name: z.string().max(200) }));
+  renameKb(kb.id, d.name);
+  return c.json({ knowledgeBase: publicKb(loadKb(kb.id)) });
+});
+kbRoutes.delete('/:id', async (c) => {
+  const kb = owned(c);
+  deleteKb(kb, { onlyEmpty: false, busy: activeRun(kb.id) !== null });
+  return c.json({ ok: true, next: await ensureTeacherKb(kb.teacher_id) });
 });
 kbRoutes.post('/classes', async (c) => {
   const u = teacher(c),
@@ -392,6 +408,14 @@ kbRoutes.delete('/:id/kb/file', async (c) => {
     apply: { by: u.id, as: teacherAuthor(u) },
   });
   return c.json({ change: publicChange(change) });
+});
+/** 把文件或文件夹挪到老师的另一个知识库 */
+kbRoutes.post('/:id/kb/transfer', async (c) => {
+  const u = teacher(c),
+    kb = ownKb(u, intParam(c)),
+    d = await body(c, z.object({ paths: z.array(z.string().min(1)).min(1).max(500), to: z.number().int().positive() }));
+  const to = ownKb(u, d.to);
+  return c.json(await transferFiles(kb.id, to.id, d.paths, teacherActor(u)));
 });
 kbRoutes.post('/:id/kb/move', async (c) => {
   const u = teacher(c),

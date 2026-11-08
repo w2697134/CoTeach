@@ -47,13 +47,25 @@ const LABELS: Record<string, string> = {
   finish: '提交改动',
   done: '完成',
   list_students: '查看名单',
+  list_knowledge_bases: '看全部知识库',
+  create_knowledge_base: '新建知识库',
+  rename_knowledge_base: '知识库改名',
+  move_to_knowledge_base: '挪到别的知识库',
+  delete_knowledge_base: '删除知识库',
 };
+const quoted = (v: unknown) => (typeof v === 'string' && v ? `「${plainText(v)}」` : '');
 export function toolPresentation(data: Record<string, unknown> = {}) {
   const name = typeof data.name === 'string' ? data.name : '';
   let target = fileTitle(data.path);
   if (name === 'move_file') target = [fileTitle(data.from), fileTitle(data.to)].filter(Boolean).join('，移到');
   if (name === 'finish') target = plainText(data.title);
   if (name === 'search') target = typeof data.text === 'string' ? `「${plainText(data.text)}」` : '';
+  if (name === 'create_knowledge_base' || name === 'delete_knowledge_base') target = quoted(data.base);
+  if (name === 'rename_knowledge_base') target = data.to ? `${quoted(data.from)}改成${quoted(data.to)}` : quoted(data.base);
+  if (name === 'move_to_knowledge_base') {
+    const what = typeof data.path === 'string' ? `「${fileTitle(data.path)}」` : typeof data.count === 'number' ? `${data.count} 份` : '';
+    target = data.to ? `${data.from ? `从${quoted(data.from)}` : ''}${what}挪到${quoted(data.to)}` : '';
+  }
   return { label: Object.hasOwn(LABELS, name) ? LABELS[name] : '整理', target, error: data.error ? readableError(data.error) : '' };
 }
 

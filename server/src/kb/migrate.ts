@@ -86,7 +86,7 @@ export async function migrateOwnership(): Promise<ImportPlan[]> {
   db.tx(() => {
     for (const teacherId of new Set(plans.filter((p) => !p.imported).map((p) => p.teacherId))) {
       const teacher = db.get<any>('SELECT name FROM users WHERE id=?', teacherId)!;
-      let id = db.value<number>("SELECT id FROM knowledge_bases WHERE teacher_id=? AND kind='teacher'", teacherId);
+      let id = db.value<number>("SELECT id FROM knowledge_bases WHERE teacher_id=? AND kind='teacher' ORDER BY id LIMIT 1", teacherId);
       if (!id)
         id = db.insert('knowledge_bases', {
           teacher_id: teacherId,

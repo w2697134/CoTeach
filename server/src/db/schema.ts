@@ -337,3 +337,9 @@ ALTER TABLE kb_sources ADD COLUMN notes TEXT;
 migrations.push(`
 ALTER TABLE kb_intake_items ADD COLUMN students TEXT;
 `);
+
+// 第 5 次：知识库不分种类，老师想建几个建几个；删掉的知识库只做记号，原件和记录都还在
+migrations.push(`
+DROP INDEX kb_one_teacher;
+ALTER TABLE knowledge_bases ADD COLUMN deleted_at INTEGER;
+`);

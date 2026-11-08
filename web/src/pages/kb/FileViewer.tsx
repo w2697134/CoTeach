@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useBlocker, useSearchParams } from 'react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Download, FileText, FolderInput, History, MoreHorizontal, Pencil, Save, Trash2, X } from 'lucide-react';
+import { BookOpen, Download, FileText, FolderInput, History, MoreHorizontal, MoveRight, Pencil, Save, Trash2, X } from 'lucide-react';
 import { api, download, get } from '../../lib/api';
 import { fromNow, fmtSize } from '../../lib/format';
 import { toast } from '../../lib/store';
 import { Markdown } from '../../components/Markdown';
 import { Alert, Button, Empty, Input, MenuItem, Modal, Popover, Skeleton, Textarea, cn, useConfirm } from '../../components/ui';
-import { PLAIN_NAMES, plainText, fileTitle, fileDir, rehypePlainNames, useFile, useCourse, type CommitInfo } from './data';
+import { PLAIN_NAMES, plainText, fileTitle, fileDir, rehypePlainNames, useFile, useCourse, useKnowledgeBases, type CommitInfo } from './data';
 import { kbTarget, rehypeKbLinks, splitTitle, withoutFrontMatter } from './presentation';
 import { LocationField } from './LocationField';
 import { MaterialIcon } from './Contents';
@@ -117,6 +117,11 @@ export function FileViewer({
   const [saveError, setSaveError] = useState('');
   const [latestOpen, setLatestOpen] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+  // 挪到老师的另一个知识库
+  const others = (useKnowledgeBases().data?.knowledgeBases || []).filter((k) => k.id !== cid && k.status === 'active');
+  const [transferring, setTransferring] = useState(false),
+    [transferTo, setTransferTo] = useState<number | null>(null),
+    [transferError, setTransferError] = useState('');
   const dirty = editing && draft !== editBase?.text;
   const blocker = useBlocker(dirty);
   useEffect(() => {
@@ -210,6 +215,29 @@ export function FileViewer({
       setSaving(false);
     }
   };
+  const transfer = async () => {
+    const target = others.find((k) => k.id === transferTo);
+    if (!f || !target) return;
+    setSaving(true);
+    setTransferError('');
+    try {
+      await api(`/knowledge/${cid}/kb/transfer`, { method: 'POST', body: { paths: [path], to: target.id } });
+      setTransferring(false);
+      setParams((prev) => {
+        const n = new URLSearchParams(prev);
+        n.delete('f');
+        return n;
+      });
+      refresh(path);
+      qc.invalidateQueries({ queryKey: ['kb-tree', target.id] });
+      qc.invalidateQueries({ queryKey: ['knowledge-bases'] });
+      toast.success(`已挪到「${target.name}」`);
+    } catch (e) {
+      setTransferError((e as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  };
   const save = async () => {
     if (!f || !editBase) return;
     setSaving(true);
@@ -298,6 +326,19 @@ export function FileViewer({
                       >
                         改名或移动
                       </MenuItem>
+                      {others.length > 0 && (
+                        <MenuItem
+                          icon={<MoveRight />}
+                          disabled={saving}
+                          onClick={() => {
+                            setTransferTo(others.length === 1 ? others[0].id : null);
+                            setTransferError('');
+                            setTransferring(true);
+                          }}
+                        >
+                          挪到别的知识库
+                        </MenuItem>
+                      )}
                       <MenuItem icon={<Trash2 />} danger disabled={saving} onClick={remove}>
                         移除
                       </MenuItem>
@@ -380,7 +421,8 @@ export function FileViewer({
                   {f.source && <span>· {fmtDay(f.source.createdAt)}交的</span>}
                   {f.source?.sourceClass && (
                     <span>
-                      · 来源：{f.source.sourceClass} · {f.source.term || '学期待指定'}
+                      · 来源：{f.source.sourceClass}
+                      {f.source.term ? ` · ${f.source.term}` : ''}
                     </span>
                   )}
                   {f.text === null && <span>· {fmtSize(f.size)}</span>}
@@ -439,6 +481,45 @@ export function FileViewer({
         {moveError && (
           <p role="alert" className="mt-3 text-[14px] text-bad">
             {moveError}
+          </p>
+        )}
+      </Modal>
+      <Modal
+        open={transferring}
+        onClose={() => !saving && setTransferring(false)}
+        title={`把「${fileTitle(path)}」挪到`}
+        footer={
+          <>
+            <Button disabled={saving} onClick={() => setTransferring(false)}>
+              取消
+            </Button>
+            <Button variant="primary" loading={saving} disabled={transferTo === null} onClick={transfer}>
+              挪过去
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-1.5" role="radiogroup">
+          {others.map((k) => (
+            <button
+              key={k.id}
+              type="button"
+              role="radio"
+              aria-checked={transferTo === k.id}
+              onClick={() => setTransferTo(k.id)}
+              className={cn(
+                'flex w-full items-center gap-2.5 rounded-lg border px-3 py-2.5 text-left text-[14.5px] transition-colors',
+                transferTo === k.id ? 'border-brand bg-brand-soft text-brand-ink' : 'border-line text-ink hover:bg-surface-2',
+              )}
+            >
+              <BookOpen className={cn('size-4 shrink-0', transferTo === k.id ? 'text-brand' : 'text-ink-3')} />
+              <span className="min-w-0 flex-1 break-words">{k.name}</span>
+            </button>
+          ))}
+        </div>
+        {transferError && (
+          <p role="alert" className="mt-3 text-[14px] text-bad">
+            {transferError}
           </p>
         )}
       </Modal>

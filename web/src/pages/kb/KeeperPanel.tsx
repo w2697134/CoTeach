@@ -20,6 +20,11 @@ const TOOL_ICON: Record<string, typeof BookOpen> = {
   move_file: MoveRight,
   finish: Send,
   done: Check,
+  list_knowledge_bases: FolderSearch,
+  create_knowledge_base: FilePlus,
+  rename_knowledge_base: PenLine,
+  move_to_knowledge_base: MoveRight,
+  delete_knowledge_base: Trash2,
 };
 
 function ToolLine({ e }: { e: RunEvent }) {

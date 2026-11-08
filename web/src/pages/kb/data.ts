@@ -217,6 +217,7 @@ export const useChange = (cid: number, id: number | null) =>
 
 /** 订阅这门课的实时消息：整理助手的每一步、改动和文件的变化 */
 export type FileOperation = { path: string; from?: string; deleted: boolean };
+const KB_LEVEL_TOOLS = new Set(['create_knowledge_base', 'rename_knowledge_base', 'move_to_knowledge_base', 'delete_knowledge_base']);
 export function useKbStream(cid: number, onFilesChanged?: (operations: FileOperation[]) => void) {
   const qc = useQueryClient();
   const userId = useAuth((s) => s.user?.id);
@@ -258,6 +259,12 @@ export function useKbStream(cid: number, onFilesChanged?: (operations: FileOpera
         // 一步结束：这一步说的话已经记下来了，实时文字清空，等下一步
         setLive(null);
         if (e.type === 'change') refreshChanges();
+        // 整理助手新建、改名、删了知识库或把文件挪去别的库：左边的列表和别的库的目录跟着变
+        if (e.type === 'tool' && !e.data?.error && KB_LEVEL_TOOLS.has(String(e.data?.name))) {
+          qc.invalidateQueries({ queryKey: ['knowledge-bases'] });
+          qc.invalidateQueries({ queryKey: ['course'] });
+          qc.invalidateQueries({ queryKey: ['kb-tree'] });
+        }
       },
       delta: (d: { runId: number; text: string }) =>
         setLive((prev) =>
