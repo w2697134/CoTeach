@@ -57,17 +57,23 @@ export function useChangeActions(cid: number) {
   return { act, busy };
 }
 
+export function BackButton({ label, onClick }: { label: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="inline-flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1 text-[13.5px] text-ink-2 hover:bg-surface-3 hover:text-ink"
+    >
+      <ArrowLeft className="size-4" />
+      {label}
+    </button>
+  );
+}
+
 function Back({ label, onClick }: { label: string; onClick: () => void }) {
   return (
     <div className="flex h-12 shrink-0 items-center border-b border-line px-3 sm:px-4">
-      <button
-        type="button"
-        onClick={onClick}
-        className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[13.5px] text-ink-2 hover:bg-surface-3 hover:text-ink"
-      >
-        <ArrowLeft className="size-4" />
-        {label}
-      </button>
+      <BackButton label={label} onClick={onClick} />
     </div>
   );
 }

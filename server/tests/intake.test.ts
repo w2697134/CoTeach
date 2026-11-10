@@ -262,7 +262,7 @@ test('交资料：和已有资料同名但内容不同，替换原来那份，�
     const notes = JSON.parse(item.notes || '[]');
     assert.equal(notes.includes('替换了知识库里原来的同名资料'), i === 1, `第 ${i + 1} 次`);
   }
-  assert.ok(repo.readText(kb, '资料/同名/讲义.md')?.includes('第二版'));
+  assert.ok(repo.readText(kb, '同名/讲义.md')?.includes('第二版'));
 });
 
 test('交资料：上传中途取消，没传完的不进知识库，临时文件清掉；别的老师看不到也动不了', async () => {
@@ -278,7 +278,7 @@ test('交资料：上传中途取消，没传完的不进知识库，临时文�
   assert.ok(!existsSync(store.stageDir(id)));
   const late = await req(`/knowledge/${kb}/intakes/${id}/items/${created.uploads[1].itemId}?offset=0`, { raw: data, method: 'PUT' });
   assert.equal(late.status, 409);
-  assert.equal(repo.readText(kb, '资料/取消/一.md'), null);
+  assert.equal(repo.readText(kb, '取消/一.md'), null);
 });
 
 test('原件清理：读不了的、取消时收下的从存储里删掉，进了知识库的留着', async () => {

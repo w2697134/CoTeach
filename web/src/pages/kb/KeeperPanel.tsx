@@ -7,15 +7,16 @@ import { Markdown } from '../../components/Markdown';
 import { AgentAvatar, Alert, Avatar, Badge, Button, IconButton, MenuItem, Popover, Skeleton, Textarea, cn } from '../../components/ui';
 import { changedPages, useChangeActions } from './Changes';
 import { IntakeCard } from './IntakeCard';
-import { handIn, pastedFiles, pickedFromDrop, pickedFromList, uploadingHere, useIntakes, type Intake, type Picked } from './intake';
+import { handIn, pastedFiles, pickedFromDrop, pickedFromList, uploadingHere, useKeeperIntakes, type Intake, type Picked } from './intake';
 import { readableError, toolPresentation, when } from './presentation';
-import { KEEPER, STATUS_TEXT, STATUS_TONE, plainText, useChanges, useRuns, useCourse, type Run, type RunEvent } from './data';
+import { KEEPER, STATUS_TEXT, STATUS_TONE, plainText, useChanges, useKeeperRuns, useKeeperStream, useKnowledgeBases, type Run, type RunEvent } from './data';
 
 const TOOL_ICON: Record<string, typeof BookOpen> = {
   list_files: FolderSearch,
   read_file: BookOpen,
   search: Search,
   write_file: PenLine,
+  edit_file: PenLine,
   delete_file: Trash2,
   move_file: MoveRight,
   finish: Send,
@@ -43,7 +44,7 @@ function ToolLine({ e }: { e: RunEvent }) {
 }
 
 /** 整理助手交上来的一次改动：改了哪几页，看一眼再确认 */
-function ChangeCard({ cid, changeId, title, onOpen }: { cid: number; changeId: number; title?: string; onOpen: (id: number) => void }) {
+function ChangeCard({ cid, changeId, title, kbName, onOpen }: { cid: number; changeId: number; title?: string; kbName?: string; onOpen: (id: number) => void }) {
   const changes = useChanges(cid);
   const c = changes.data?.changes.find((x) => x.id === changeId);
   const { act, busy } = useChangeActions(cid);
@@ -52,6 +53,7 @@ function ChangeCard({ cid, changeId, title, onOpen }: { cid: number; changeId: n
   if (!c && changes.isPending) return <Skeleton className="h-[104px] rounded-2xl" />;
   return (
     <div className={cn('rounded-2xl border p-3.5', open ? 'border-brand/30 bg-brand-soft/50' : 'border-line bg-surface-2')}>
+      {kbName && <p className="mb-1 truncate text-[12px] text-ink-3">{kbName}</p>}
       <div className="flex items-start gap-2">
         <p className="min-w-0 flex-1 text-[14px] font-medium leading-snug text-ink">{plainText(c?.title || title || '')}</p>
         {status && <Badge tone={STATUS_TONE[status]}>{STATUS_TEXT[status]}</Badge>}
@@ -83,14 +85,37 @@ function ChangeCard({ cid, changeId, title, onOpen }: { cid: number; changeId: n
   );
 }
 
-function RunBlock({ cid, run, live, onOpenChange }: { cid: number; run: Run; live: string | null; onOpenChange: (id: number) => void }) {
+function RunBlock({
+  run,
+  live,
+  here,
+  names,
+  onOpenChange,
+}: {
+  run: Run;
+  live: string | null;
+  /** 老师现在在看的知识库（在最外层为空） */
+  here: number | null;
+  /** 知识库编号 → 名字；只有一个知识库时为空，卡片上不写库名 */
+  names: Map<number, string> | null;
+  onOpenChange: (kbId: number, id: number) => void;
+}) {
   const user = useAuth((s) => s.user);
   const running = run.status === 'running';
   const [expanded, setExpanded] = useState(false);
   const steps = run.events.filter((e) => e.type === 'tool' || e.type === 'say');
   const showAll = running || expanded;
-  const changeEvent = run.events.find((e) => e.type === 'change');
-  const changeId: number | null = changeEvent?.data.changeId ?? run.changeId;
+  // 交上来的改动：新的一轮服务器直接给；以前的从工作记录里找
+  const changeEvents = run.events.filter((e) => e.type === 'change');
+  const changes = run.changes?.length
+    ? run.changes.map((c) => ({ id: c.id, kbId: c.kbId, title: c.title }))
+    : changeEvents.length
+      ? changeEvents.map((e) => ({ id: Number(e.data.changeId), kbId: Number(e.data.kbId) || run.kbId || here || 0, title: String(e.data.title || '') }))
+      : run.changeId
+        ? [{ id: run.changeId, kbId: run.kbId || here || 0, title: '' }]
+        : [];
+  // 以前交了改动时回话就是改动的标题，卡片上已经有了
+  const echo = changes.length > 0 && !!run.reply && changes.some((c) => !!c.title && run.reply!.startsWith(c.title));
   const errorEvent = run.events.find((e) => e.type === 'error');
   return (
     <div className="space-y-3">
@@ -150,13 +175,24 @@ function RunBlock({ cid, run, live, onOpenChange }: { cid: number; run: Run; liv
               {live && <span className="min-w-0 whitespace-pre-wrap">{plainText(live)}</span>}
             </div>
           )}
-          {!running && run.reply && !run.changeId && (
+          {!running && run.reply && !echo && (
             <div className="rounded-2xl rounded-tl-md bg-surface-2 px-3.5 py-2.5">
               <Markdown compact>{plainText(run.reply)}</Markdown>
             </div>
           )}
-          {changeId && <ChangeCard cid={cid} changeId={changeId} title={changeEvent?.data.title} onOpen={onOpenChange} />}
-          {run.status === 'done' && !run.changeId && !run.reply && <p className="text-[13px] text-ink-3">这次没有改知识库</p>}
+          {changes
+            .filter((c) => c.kbId)
+            .map((c) => (
+              <ChangeCard
+                key={c.id}
+                cid={c.kbId}
+                changeId={c.id}
+                title={c.title}
+                kbName={names && c.kbId !== here ? names.get(c.kbId) : undefined}
+                onOpen={(id) => onOpenChange(c.kbId, id)}
+              />
+            ))}
+          {run.status === 'done' && !changes.length && !run.reply && <p className="text-[13px] text-ink-3">这次没有改知识库</p>}
           {(errorEvent || run.error) && run.status !== 'canceled' && (
             <p role="alert" className="text-[13px] text-bad">
               {readableError(run.error || errorEvent?.data.message)}
@@ -170,7 +206,20 @@ function RunBlock({ cid, run, live, onOpenChange }: { cid: number; run: Run; liv
 }
 
 /** 交资料的按钮：选文件或者选整个文件夹 */
-export function HandInButton({ onPick, disabled, size = 'sm', variant = 'ghost' }: { onPick: (files: Picked[]) => void; disabled?: boolean; size?: 'sm' | 'md'; variant?: 'ghost' | 'primary' }) {
+export function HandInButton({
+  onPick,
+  disabled,
+  size = 'sm',
+  variant = 'ghost',
+  compact = false,
+}: {
+  onPick: (files: Picked[]) => void;
+  disabled?: boolean;
+  size?: 'sm' | 'md';
+  variant?: 'ghost' | 'primary' | 'secondary';
+  /** 手机上只留图标，给旁边的路径腾地方 */
+  compact?: boolean;
+}) {
   const fileInput = useRef<HTMLInputElement>(null);
   const folderInput = useRef<HTMLInputElement>(null);
   const pick = (list: FileList | null, el: HTMLInputElement | null) => {
@@ -184,8 +233,8 @@ export function HandInButton({ onPick, disabled, size = 'sm', variant = 'ghost' 
         align="start"
         width={160}
         trigger={({ toggle }) => (
-          <Button size={size} variant={variant} icon={<Upload className="size-4" />} disabled={disabled} onClick={toggle}>
-            交资料
+          <Button size={size} variant={variant} icon={<Upload className="size-4" />} disabled={disabled} onClick={toggle} title="交资料">
+            <span className={compact ? 'max-sm:sr-only' : undefined}>交资料</span>
           </Button>
         )}
       >
@@ -237,28 +286,38 @@ export interface KeeperHandle {
   handIn: (files: Picked[]) => void;
 }
 
+/**
+ * 整理助手只有一个，管老师所有的知识库：在哪一页右边都是它、同一段对话。
+ * kbId 是老师现在在看的知识库（在最外层为空）：说的话带上它，在这里交的资料放进这个库，在最外层交的由整理助手决定放哪。
+ */
 export const KeeperPanel = forwardRef<
   KeeperHandle,
   {
-    cid: number;
-    live: { runId: number; text: string } | null;
-    onOpenChange: (id: number) => void;
-    onOpenChanges: () => void;
+    kbId: number | null;
+    /** 老师正翻开的那一页（说「这一页」时它知道是哪页） */
+    file?: string | null;
+    onOpenChange: (kbId: number, id: number) => void;
+    /** 在某个知识库里时：看这个库的全部改动 */
+    onOpenChanges?: () => void;
   }
->(function KeeperPanel({ cid, live, onOpenChange, onOpenChanges }, ref) {
-  const q = useRuns(cid);
-  const archived = useCourse(cid).data?.knowledgeBase.status === 'archived';
-  const pending = useChanges(cid, 'pending').data?.changes.length ?? 0;
+>(function KeeperPanel({ kbId, file, onOpenChange, onOpenChanges }, ref) {
+  const q = useKeeperRuns();
+  const live = useKeeperStream();
+  const list = useKnowledgeBases().data?.knowledgeBases || [];
+  const current = kbId === null ? null : list.find((k) => k.id === kbId);
+  const archived = current?.status === 'archived';
+  const pending = kbId === null ? list.reduce((n, k) => n + k.pending, 0) : (current?.pending ?? 0);
+  const names = list.length > 1 ? new Map(list.map((k) => [k.id, k.name])) : null;
   const inbox = useQuery({
-    queryKey: ['kb-inbox', cid],
+    queryKey: ['keeper-inbox'],
     queryFn: () =>
       get<{
-        items: { id: number; status: string; error: string | null; content: string; task?: { label: string; detail: string } }[];
-      }>(`/knowledge/${cid}/inbox`),
+        items: { id: number; kb_id: number; status: string; error: string | null; content: string; task?: { label: string; detail: string } }[];
+      }>('/keeper/inbox'),
     refetchInterval: 5000,
   });
   const qc = useQueryClient();
-  const intakes = useIntakes(cid);
+  const intakes = useKeeperIntakes();
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
   const scroller = useRef<HTMLDivElement>(null);
@@ -297,7 +356,7 @@ export const KeeperPanel = forwardRef<
     const message = text.trim();
     setText('');
     stick.current = true;
-    void handIn(qc, cid, files, message);
+    void handIn(qc, kbId, files, message);
   };
   useImperativeHandle(ref, () => ({ handIn: give }));
 
@@ -305,11 +364,13 @@ export const KeeperPanel = forwardRef<
     const msg = text.trim();
     if (!msg || archived || busy) return;
     setSending(true);
+    // 发了话就回到最新的一条，看得到自己说的和它的回答
+    stick.current = true;
     try {
       // 很长的一段（教案、讲稿）服务器会按一份资料收下再消化
-      const r = await post<{ runId?: number; intakeId?: number }>(`/knowledge/${cid}/kb/runs`, { message: msg });
+      const r = await post<{ runId?: number; intakeId?: number }>('/keeper/runs', { message: msg, kbId, file: file ?? null });
       setText('');
-      qc.invalidateQueries({ queryKey: [r.intakeId ? 'kb-intakes' : 'kb-runs', cid] });
+      qc.invalidateQueries({ queryKey: [r.intakeId ? 'keeper-intakes' : 'keeper-runs'] });
     } catch (err) {
       toast.fromError(err);
     } finally {
@@ -319,7 +380,7 @@ export const KeeperPanel = forwardRef<
 
   const stop = async () => {
     if (!activeId) return;
-    await post(`/knowledge/${cid}/kb/runs/${activeId}/cancel`, {}).catch((err) => toast.fromError(err));
+    await post(`/keeper/runs/${activeId}/cancel`, {}).catch((err) => toast.fromError(err));
   };
 
   return (
@@ -327,19 +388,21 @@ export const KeeperPanel = forwardRef<
       <div className="flex h-[60px] shrink-0 items-center gap-3 border-b border-line bg-gradient-to-r from-brand-soft/80 via-brand-soft/30 to-transparent px-4">
         <AgentAvatar agent={KEEPER} size={38} status={busy ? 'running' : null} />
         <div className="min-w-0 flex-1 leading-tight">
-          <p className="text-[15px] font-semibold text-ink">{KEEPER.name}</p>
+          <p className="truncate text-[15px] font-semibold text-ink">{KEEPER.name}</p>
           {status && (
             <p className={cn('mt-0.5 truncate text-[12.5px]', !busy && pending && !archived ? 'text-brand-ink' : 'text-ink-3')}>{status}</p>
           )}
         </div>
-        <Button size="sm" variant="ghost" onClick={onOpenChanges} className="shrink-0">
-          改动
-          {pending > 0 && (
-            <Badge tone="brand" className="ml-1">
-              {pending}
-            </Badge>
-          )}
-        </Button>
+        {onOpenChanges && (
+          <Button size="sm" variant="ghost" onClick={onOpenChanges} className="shrink-0">
+            改动
+            {pending > 0 && (
+              <Badge tone="brand" className="ml-1">
+                {pending}
+              </Badge>
+            )}
+          </Button>
+        )}
         {busy && activeId && (
           <IconButton label="让它停下" onClick={stop} className="shrink-0">
             <OctagonX className="size-[18px]" />
@@ -363,9 +426,9 @@ export const KeeperPanel = forwardRef<
                     className="mt-2"
                     onClick={async () => {
                       try {
-                        await post(`/knowledge/${cid}/inbox/${item.id}/process`, {});
+                        await post(`/knowledge/${item.kb_id}/inbox/${item.id}/process`, {});
                         await inbox.refetch();
-                        qc.invalidateQueries({ queryKey: ['kb-runs', cid] });
+                        qc.invalidateQueries({ queryKey: ['keeper-runs'] });
                       } catch (e) {
                         toast.fromError(e);
                       }
@@ -385,12 +448,18 @@ export const KeeperPanel = forwardRef<
             </Alert>
           )}
           {!q.data && !q.error && <Skeleton className="h-32" />}
-          {q.data && intakes.data && !timeline.length && archived && <p className="py-16 text-center text-[14px] text-ink-3">这个学期还没有整理记录</p>}
           {timeline.map((t) =>
             'run' in t && t.run ? (
-              <RunBlock key={t.key} cid={cid} run={t.run} live={live && live.runId === t.run.id ? live.text : null} onOpenChange={onOpenChange} />
+              <RunBlock
+                key={t.key}
+                run={t.run}
+                live={live && live.runId === t.run.id ? live.text : null}
+                here={kbId}
+                names={names}
+                onOpenChange={onOpenChange}
+              />
             ) : 'intake' in t && t.intake ? (
-              <IntakeCard key={t.key} cid={cid} intake={t.intake} />
+              <IntakeCard key={t.key} cid={t.intake.kbId} intake={t.intake} />
             ) : null,
           )}
         </div>

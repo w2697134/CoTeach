@@ -62,7 +62,11 @@ function ensureDisk(need: number) {
   if (freeBytes() - need < config.intake.reserveBytes) throw bad('服务器的存储空间不够了，这次交不了，请联系管理员');
 }
 
-export function createIntake(kbId: number, user: { id: number; name: string }, input: { message?: string | null; text?: string | null; files: NewFile[] }) {
+export function createIntake(
+  kbId: number,
+  user: { id: number; name: string },
+  input: { message?: string | null; text?: string | null; files: NewFile[]; route?: boolean },
+) {
   writableKb(kbId);
   // 系统文件要按原名认（.DS_Store、._讲义.docx），清理名字时会去掉开头的点，清理后就认不出来了
   const files = input.files
@@ -83,6 +87,8 @@ export function createIntake(kbId: number, user: { id: number; name: string }, i
       kb_id: kbId,
       created_by: user.id,
       message: input.message?.trim() || null,
+      // 在最外层交的：先放在这个库的最外层，整理助手看内容再放到合适的库
+      route: input.route ? 1 : 0,
       status: 'uploading',
       created_at: t,
       updated_at: t,
@@ -168,8 +174,14 @@ export async function receiveChunk(kbId: number, intakeId: number, itemId: numbe
 }
 
 /** 旧页面一次性上传的文件：直接收下，读完再回答哪些读好了、哪些没读出来。 */
-export async function intakeFromBuffers(kbId: number, user: { id: number; name: string }, files: { name: string; data: Uint8Array }[], message?: string) {
-  const created = createIntake(kbId, user, { message, files: files.map((f) => ({ name: f.name, size: f.data.length })) });
+export async function intakeFromBuffers(
+  kbId: number,
+  user: { id: number; name: string },
+  files: { name: string; data: Uint8Array }[],
+  message?: string,
+  route = false,
+) {
+  const created = createIntake(kbId, user, { message, files: files.map((f) => ({ name: f.name, size: f.data.length })), route });
   for (const u of created.uploads) {
     const f = files[u.index];
     if (f) await receiveChunk(kbId, created.intake.id, u.itemId, 0, f.data);

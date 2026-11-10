@@ -32,6 +32,7 @@ const page = <P extends object = {}>(loader: () => Promise<any>, name: string) =
 export const preloadPages = () => loaders.forEach((load) => load().catch(() => {}));
 
 const Login = page(() => import('./pages/Login'), 'LoginPage');
+const KnowledgeHome = page(() => import('./pages/kb/Home'), 'KnowledgeHomePage');
 const KnowledgeBase = page(() => import('./pages/kb/KnowledgeBase'), 'KnowledgeBasePage');
 const LegacyCourse = page(() => import('./pages/kb/LegacyCourse'), 'LegacyCoursePage');
 
@@ -39,11 +40,11 @@ function S({ children }: { children: ReactNode }) {
   return <Suspense fallback={<PageLoading />}>{children}</Suspense>;
 }
 
-/** 进来直接打开老师最早的那个知识库，不经过中间页 */
+/** 进来先看老师所有的知识库（最外层），像打开「此电脑」 */
 function MyKnowledgeBase() {
   const kbId = useAuth((s) => s.user?.kbId);
   if (!kbId) return <Empty title="这个账号没有知识库" />;
-  return <Navigate replace to={`/knowledge/${kbId}`} />;
+  return <Navigate replace to="/knowledge" />;
 }
 
 function RequireUser({ children }: { children: ReactNode }) {
@@ -82,7 +83,14 @@ export const router = createBrowserRouter([
           </S>
         ),
       },
-      { path: 'knowledge', element: <MyKnowledgeBase /> },
+      {
+        path: 'knowledge',
+        element: (
+          <S>
+            <KnowledgeHome />
+          </S>
+        ),
+      },
       {
         path: 'knowledge/:id',
         element: (

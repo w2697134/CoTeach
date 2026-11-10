@@ -5,7 +5,9 @@ import { Hono } from 'hono';
 import { compress } from 'hono/compress';
 import { csrfMiddleware, sessionMiddleware, type AppEnv } from './auth.js';
 import { config, isProd } from './config.js';
-import { kbRoutes, courseRoutes } from './kb/routes.js';
+import { kbRoutes, courseRoutes, keeperRoutes } from './kb/routes.js';
+import { lookupTurn } from './kb/keeper.js';
+import { runCommand } from './kb/agent/commands.js';
 import { HttpError } from './lib/http.js';
 import { teacherError } from './kb/teacher-text.js';
 import { authRoutes } from './routes/auth.js';
@@ -18,6 +20,17 @@ export function createApp() {
     c.header('X-Frame-Options', 'SAMEORIGIN');
     c.header('Referrer-Policy', 'strict-origin-when-cross-origin');
     await next();
+  });
+
+  // 整理助手干活时敲的 ct 命令从这里进来：只认本机，只认这一轮的口令
+  app.post('/internal/agent/cmd', async (c) => {
+    const addr = String((c.env as any)?.incoming?.socket?.remoteAddress || '');
+    if (!/^(127\.|::1$|::ffff:127\.)/.test(addr)) return c.json({ ok: false, text: '不允许' }, 403);
+    const turn = lookupTurn(c.req.header('x-agent-token') || '');
+    if (!turn) return c.json({ ok: false, text: '这一轮已经结束了' }, 403);
+    const d = await c.req.json().catch(() => ({}));
+    const args = Array.isArray(d?.args) ? d.args.slice(0, 20).map((a: unknown) => String(a ?? '').slice(0, 4000)) : [];
+    return c.json(await runCommand(turn, args));
   });
 
   // 接口返回的 JSON 压缩了再发；推送和原件下载不压
@@ -35,6 +48,7 @@ export function createApp() {
   app.route('/api/auth', authRoutes);
   app.route('/api/courses', courseRoutes);
   app.route('/api/knowledge', kbRoutes);
+  app.route('/api/keeper', keeperRoutes);
 
   app.get('/api/health', (c) => c.json({ ok: true, time: Date.now() }));
   app.all('/api/*', (c) => c.json({ error: '接口不存在' }, 404));

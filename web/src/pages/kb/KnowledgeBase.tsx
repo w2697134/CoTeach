@@ -1,16 +1,14 @@
 import { useMemo, useRef, useState } from 'react';
-import { useParams, useSearchParams } from 'react-router';
-import { ListTree, Upload } from 'lucide-react';
+import { useNavigate, useParams, useSearchParams } from 'react-router';
+import { Upload } from 'lucide-react';
 import { useAuth } from '../../lib/store';
-import { Card, Drawer, ErrorState, IconButton, PageLoading, Segmented, Skeleton, cn } from '../../components/ui';
+import { Card, ErrorState, PageLoading, Segmented, Skeleton, cn } from '../../components/ui';
 import { ChangeDetail, ChangesList } from './Changes';
-import { Contents, isMaterial } from './Contents';
-import { DIRECTORY } from './presentation';
+import { Files } from './Files';
 import { FileViewer } from './FileViewer';
 import { HandInButton, KeeperPanel, type KeeperHandle } from './KeeperPanel';
-import { useChanges, useCourse, useFile, useKbStream, useTree } from './data';
-import { pickedFromDrop } from './intake';
-import { KnowledgeTools } from './Manage';
+import { useChanges, useCourse, useKbStream, useTree } from './data';
+import { pickedFromDrop, type Picked } from './intake';
 
 export function KnowledgeBasePage() {
   const cid = Number(useParams().id);
@@ -19,18 +17,21 @@ export function KnowledgeBasePage() {
 }
 
 /**
- * 一个知识库：左边目录（笔记、资料两栏），中间翻开的一页，右边整理助手。
- * 交资料、跟它说话、它改了什么都在右边；看改动也在中间那一页上看。
+ * 点进一个知识库：中间像电脑文件夹那样一格一格摆着文件夹和文件，点文件夹进去、点文件翻开看；右边是这个知识库的整理助手。
+ * 怎么分文件夹由整理助手定。交资料、跟它说话、它改了什么都在右边；看改动在中间。
+ * 上面路径的「全部」回到最外层，所有知识库摆在一起，改名、删除在那里。
  */
 function KnowledgeBaseContent({ cid }: { cid: number }) {
   const [params, setParams] = useSearchParams();
+  const navigate = useNavigate();
+  const toTop = () => navigate('/knowledge');
   const course = useCourse(cid);
   const tree = useTree(cid);
   const pending = useChanges(cid, 'pending');
   const keeper = useRef<KeeperHandle>(null);
-  const live = useKbStream(cid, (operations) => {
-    const current = params.get('f') || selected;
-    const operation = operations.find((op) => op.from === current || (op.deleted && op.path === current));
+  const opened = params.get('f');
+  useKbStream(cid, (operations) => {
+    const operation = operations.find((op) => op.from === opened || (op.deleted && op.path === opened));
     if (operation)
       setParams(
         (prev) => {
@@ -44,16 +45,12 @@ function KnowledgeBaseContent({ cid }: { cid: number }) {
   });
   const [dragging, setDragging] = useState(0);
   // 手机上一次只放一栏
-  const [pane, setPane] = useState<'contents' | 'page' | 'keeper'>('keeper');
-  const [contentsOpen, setContentsOpen] = useState(false);
+  const [pane, setPane] = useState<'page' | 'keeper'>('keeper');
 
   const files = tree.data?.files || [];
-  const directoryPath = files.some((f) => f.path === DIRECTORY) ? DIRECTORY : null;
-  // 「目录」这一页和目录一起要，不等目录回来再要；目录里没有这一页就不要了
-  const directoryFile = useFile(cid, tree.data && !directoryPath ? null : DIRECTORY);
-  // 目录还没取到时先不排，免得列表先按名字排一遍再跳成目录的顺序
-  const directory = !directoryPath || directoryFile.isError ? '' : (directoryFile.data?.text ?? null);
-  const selected = params.get('f') || directoryPath || files.find((f) => !isMaterial(f))?.path || files[0]?.path || null;
+  const wanted = params.get('d') || '';
+  // 文件夹被整理助手挪走或清空了，就回到最外面
+  const dir = wanted && files.some((f) => f.path.startsWith(wanted + '/')) ? wanted : '';
   const changeId = Number(params.get('change')) || null;
   const listing = params.get('v') === 'changes';
 
@@ -63,6 +60,16 @@ function KnowledgeBaseContent({ cid }: { cid: number }) {
       fn(n);
       return n;
     });
+  const openDir = (p: string) => {
+    update((n) => {
+      if (p) n.set('d', p);
+      else n.delete('d');
+      n.delete('f');
+      n.delete('v');
+      n.delete('change');
+    });
+    setPane('page');
+  };
   const select = (p: string) => {
     update((n) => {
       n.set('f', p);
@@ -70,7 +77,6 @@ function KnowledgeBaseContent({ cid }: { cid: number }) {
       n.delete('change');
     });
     setPane('page');
-    setContentsOpen(false);
   };
   const openChange = (id: number) => {
     update((n) => n.set('change', String(id)));
@@ -83,10 +89,15 @@ function KnowledgeBaseContent({ cid }: { cid: number }) {
     });
     setPane('page');
   };
+  // 交的资料由整理助手接着读、分进文件夹；手机上切到它那一栏看进度
+  const handIn = (picked: Picked[]) => {
+    setPane('keeper');
+    keeper.current?.handIn(picked);
+  };
 
   const paths = useMemo(() => (tree.data?.files || []).map((f) => f.path), [tree.data]);
   const pendingPaths = useMemo(() => new Set((pending.data?.changes || []).flatMap((c) => c.files.map((f) => f.path))), [pending.data]);
-  const pendingHere = (pending.data?.changes || []).find((c) => c.files.some((f) => f.path === selected))?.id ?? null;
+  const pendingHere = (pending.data?.changes || []).find((c) => c.files.some((f) => f.path === opened))?.id ?? null;
 
   if (course.error) return <ErrorState error={course.error} onRetry={() => course.refetch()} />;
   if (!course.data) return <PageLoading />;
@@ -94,19 +105,15 @@ function KnowledgeBaseContent({ cid }: { cid: number }) {
     archived = kb.status === 'archived';
   const filesDragged = (e: React.DragEvent) => !archived && e.dataTransfer.types.includes('Files');
 
-  const contents = tree.error ? (
-    <ErrorState error={tree.error} onRetry={() => tree.refetch()} />
-  ) : !tree.data || directory === null ? (
-    <Skeleton className="m-2 h-48" />
-  ) : (
-    <Contents
-      cid={cid}
-      files={files}
-      directory={directory}
-      selected={changeId || listing ? null : selected}
-      onSelect={select}
-      pending={pendingPaths}
-    />
+  const empty = (
+    <div className="flex h-full flex-col items-center justify-center gap-6 p-8">
+      <img src="/agents/keeper.webp" alt="" className="size-32 animate-float rounded-full shadow-md" draggable={false} />
+      {archived ? (
+        <p className="text-[14px] text-ink-3">这个学期没有留下内容</p>
+      ) : (
+        <HandInButton size="md" variant="primary" onPick={handIn} />
+      )}
+    </div>
   );
 
   const page = changeId ? (
@@ -122,17 +129,37 @@ function KnowledgeBaseContent({ cid }: { cid: number }) {
         })
       }
     />
-  ) : tree.data && !files.length ? (
-    <div className="flex h-full flex-col items-center justify-center gap-6 p-8">
-      <img src="/agents/keeper.webp" alt="" className="size-32 animate-float rounded-full shadow-md" draggable={false} />
-      {archived ? (
-        <p className="text-[14px] text-ink-3">这个学期没有留下内容</p>
-      ) : (
-        <HandInButton size="md" variant="primary" onPick={(picked) => keeper.current?.handIn(picked)} />
-      )}
-    </div>
+  ) : opened ? (
+    <FileViewer
+      key={cid}
+      cid={cid}
+      kbName={kb.name}
+      path={opened}
+      paths={paths}
+      onSelect={select}
+      onBack={() => openDir(dir)}
+      onTop={toTop}
+      onOpenDir={openDir}
+      onOpenChange={openChange}
+      pendingHere={pendingHere}
+    />
+  ) : tree.error ? (
+    <ErrorState error={tree.error} onRetry={() => tree.refetch()} />
+  ) : !tree.data ? (
+    <Skeleton className="m-4 h-48" />
   ) : (
-    <FileViewer key={cid} cid={cid} path={selected} paths={paths} onSelect={select} onOpenChange={openChange} pendingHere={pendingHere} />
+    <Files
+      cid={cid}
+      kbName={kb.name}
+      files={files}
+      dir={dir}
+      onTop={toTop}
+      onOpenDir={openDir}
+      onOpenFile={select}
+      pending={pendingPaths}
+      empty={empty}
+      actions={!archived && <HandInButton variant="secondary" compact onPick={handIn} />}
+    />
   );
 
   return (
@@ -157,47 +184,31 @@ function KnowledgeBaseContent({ cid }: { cid: number }) {
           </div>
         </div>
       )}
-      <div className="flex min-h-10 flex-wrap items-center gap-x-3 gap-y-2 px-1">
-        <IconButton label="目录" className="hidden lg:inline-flex min-[90rem]:hidden" onClick={() => setContentsOpen(true)}>
-          <ListTree className="size-[18px]" />
-        </IconButton>
-        <div className="flex min-w-0 flex-1 items-baseline gap-2.5">
-          <h1 className="min-w-0 truncate text-[20px] font-semibold tracking-tight text-ink">{kb.name}</h1>
-          {kb.kind === 'class' && (
-            <span className="shrink-0 text-[13px] text-ink-3">
-              {kb.term}
-              {archived ? ' · 已封存' : ''}
-            </span>
-          )}
-        </div>
-        <KnowledgeTools key={cid} kb={kb} onSelect={select} />
-      </div>
       <div className="px-1 lg:hidden">
         <Segmented
           value={pane}
           onChange={setPane}
           options={[
-            { value: 'contents', label: '目录' },
-            { value: 'page', label: '内容' },
+            { value: 'page', label: '文件' },
             { value: 'keeper', label: '整理助手' },
           ]}
         />
       </div>
-      {/* 宽屏三栏；中等宽度两栏，目录收进抽屉；手机一次一栏 */}
-      <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-[minmax(0,1fr)_340px] min-[90rem]:grid-cols-[232px_minmax(0,1fr)_360px] min-[107.5rem]:grid-cols-[256px_minmax(0,1fr)_384px]">
-        <div className={cn('min-h-0 max-lg:rounded-lg max-lg:border max-lg:border-line max-lg:bg-surface max-lg:pt-2 lg:hidden min-[90rem]:block', pane !== 'contents' && 'max-lg:hidden')}>
-          {contents}
-        </div>
+      {/* 宽屏两栏：文件、整理助手；手机一次一栏 */}
+      <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-[minmax(0,1fr)_340px] min-[90rem]:grid-cols-[minmax(0,1fr)_360px] min-[107.5rem]:grid-cols-[minmax(0,1fr)_384px]">
         <Card padded={false} className={cn('min-h-0 overflow-hidden rounded-2xl lg:block', pane !== 'page' && 'max-lg:hidden')}>
           {page}
         </Card>
         <Card padded={false} className={cn('min-h-0 overflow-hidden rounded-2xl lg:block', pane !== 'keeper' && 'max-lg:hidden')}>
-          <KeeperPanel ref={keeper} key={cid} cid={cid} live={live} onOpenChange={openChange} onOpenChanges={openChanges} />
+          <KeeperPanel
+            ref={keeper}
+            kbId={cid}
+            file={opened}
+            onOpenChange={(kb, id) => (kb === cid ? openChange(id) : navigate(`/knowledge/${kb}?change=${id}`))}
+            onOpenChanges={openChanges}
+          />
         </Card>
       </div>
-      <Drawer open={contentsOpen} onClose={() => setContentsOpen(false)} title="目录" side="left" width={300}>
-        <div className="h-full pt-2">{contents}</div>
-      </Drawer>
     </div>
   );
 }

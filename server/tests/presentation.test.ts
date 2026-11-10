@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { toolPresentation, plainPath, plainText, parseRoster, readableError, fileTitle, outline, withoutFrontMatter, splitTitle, rehypeKbLinks, kbTarget, KB_LINK } from '../../web/src/pages/kb/presentation.js';
+import { toolPresentation, plainPath, plainText, parseRoster, readableError, fileTitle, folderItems, withoutFrontMatter, splitTitle, rehypeKbLinks, kbTarget, KB_LINK } from '../../web/src/pages/kb/presentation.js';
 
 test('资料名去掉扩展名，名字本身一个字不吃', () => {
   const cases: [string, string][] = [
@@ -54,22 +54,30 @@ test('文件夹名后面的斜杠不给老师看', () => {
   assert.equal(plainText('见 资料/第7章 递归.md'), '见 资料 · 第7章 递归');
 });
 
-test('目录的顺序跟着整理助手写的「目录」走，「第7章 递归」不算在「第7章 递归 教案」里提到', () => {
-  const directory = '# 目录\n- [进度](进度.md)：课讲到哪了\n- 规矩：全课通用的规矩\n- 笔记：整理好的内容\n  - 课程大纲：课程信息\n  - 第7章 递归 教案：教学过程\n  - 第6章 函数基础：定义与调用\n  - 第7章 递归：两要素\n';
-  const files = ['笔记/第7章 递归.md', '笔记/常见错误.md', '规矩.md', '目录.md', '笔记/第6章 函数基础.md', '进度.md', '笔记/课程大纲.md', '笔记/第7章 递归 教案.md'].map((path) => ({ path }));
-  // 「笔记」这一栏里不再套一层「笔记」文件夹；目录里没提到的排在最后
+test('一格一格的文件：文件夹在前、文件在后，各自按名字排，第2章在第10章前面', () => {
+  const files = ['第10章/讲义.md', '第2章/讲义.md', '第2章/课件.md', '第2章/练习/一.md', '规矩.md', '课程大纲.md', '第2章 小结.md'].map((path) => ({ path }));
+  const top = folderItems(files, '', new Set(['第2章/练习/一.md']));
   assert.deepEqual(
-    outline(files, directory, '笔记').map((n) => n.path),
-    ['目录.md', '进度.md', '规矩.md', '笔记/课程大纲.md', '笔记/第7章 递归 教案.md', '笔记/第6章 函数基础.md', '笔记/第7章 递归.md', '笔记/常见错误.md'],
+    top.map((i) => [i.kind, i.name, i.kind === 'folder' ? i.count : null, i.pending]),
+    [
+      ['folder', '第2章', 3, true],
+      ['folder', '第10章', 1, false],
+      ['file', '第2章 小结', null, false],
+      ['file', '规矩', null, false],
+      ['file', '课程大纲', null, false],
+    ],
   );
-  // 没有目录时按名字排，数字按大小
+  // 进到文件夹里：只列直接放着的，下一层的文件夹算一项
   assert.deepEqual(
-    outline([{ path: '第10章.md' }, { path: '第9章.md' }, { path: '目录.md' }], '', '笔记').map((n) => n.path),
-    ['目录.md', '第9章.md', '第10章.md'],
+    folderItems(files, '第2章').map((i) => [i.kind, i.name]),
+    [
+      ['folder', '练习'],
+      ['file', '讲义'],
+      ['file', '课件'],
+    ],
   );
-  // 子文件夹保留层级，按里面最早提到的那一页排
-  const nested = outline([{ path: '第二单元/讲义.md' }, { path: '第一单元/作业.md' }], '- 作业\n- 讲义', '笔记');
-  assert.deepEqual(nested.map((n) => [n.name, n.children.map((c) => c.name)]), [['第一单元', ['作业.md']], ['第二单元', ['讲义.md']]]);
+  // 名字前面一样的文件夹不算在里面
+  assert.deepEqual(folderItems([{ path: '第2章补充/a.md' }, { path: '第2章/b.md' }], '第2章').map((i) => i.name), ['b']);
 });
 
 test('笔记正文：开头的元信息块不显示，大标题单独拿出来', () => {

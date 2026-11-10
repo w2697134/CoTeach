@@ -42,6 +42,7 @@ const LABELS: Record<string, string> = {
   read_file: '阅读',
   search: '查找',
   write_file: '整理',
+  edit_file: '修改',
   delete_file: '移除',
   move_file: '移动',
   finish: '提交改动',
@@ -69,56 +70,30 @@ export function toolPresentation(data: Record<string, unknown> = {}) {
   return { label: Object.hasOwn(LABELS, name) ? LABELS[name] : '整理', target, error: data.error ? readableError(data.error) : '' };
 }
 
-/* ---------- 左边目录：跟着整理助手写的「目录」排顺序，目录里没提到的按名字排 ---------- */
-export const DIRECTORY = '目录.md';
-const BEFORE = /[\s\-*#>|[(（「『《“"'、，,：:;；/]/;
-const AFTER = /[\r\n\t：:，,、。；;）)」』》”"'\]*`.!！?？|]/;
-/** 名字在目录里第一次单独出现的位置；「第7章 递归」不算在「第7章 递归 教案」里出现 */
-function rankIn(text: string, title: string): number {
-  if (!text || !title) return Infinity;
-  for (let i = text.indexOf(title); i >= 0; i = text.indexOf(title, i + 1)) {
-    const next = text[i + title.length] ?? '';
-    if ((i === 0 || BEFORE.test(text[i - 1])) && (next === '' || AFTER.test(next))) return i;
-  }
-  return Infinity;
-}
-export interface OutlineNode<F extends { path: string }> {
-  name: string;
-  path: string;
-  file?: F;
-  children: OutlineNode<F>[];
-  rank: number;
-}
-/** 一栏的目录树：「目录」排第一，其余按目录里提到的先后；和这一栏同名的外层文件夹（「笔记」「资料」）不再套一层 */
-export function outline<F extends { path: string }>(files: F[], directory: string, unwrap: string): OutlineNode<F>[] {
-  const root: OutlineNode<F> = { name: '', path: '', children: [], rank: 0 };
+/* ---------- 中间一格一格摆着的文件夹和文件 ---------- */
+export type FolderItem<F extends { path: string }> =
+  | { kind: 'folder'; path: string; name: string; count: number; pending: boolean }
+  | { kind: 'file'; file: F; name: string; pending: boolean };
+/** 一个文件夹里直接放着的东西：文件夹在前、文件在后，各自按名字排（第2章排在第10章前面）；里面有改动等确认的文件夹也标出来 */
+export function folderItems<F extends { path: string }>(files: F[], dir: string, pending: Set<string> = new Set()): FolderItem<F>[] {
+  const prefix = dir ? dir + '/' : '';
+  const folders = new Map<string, { children: Set<string>; pending: boolean }>();
+  const list: FolderItem<F>[] = [];
   for (const f of files) {
-    const parts = f.path.split('/');
-    let cur = root;
-    parts.forEach((name, i) => {
-      const path = parts.slice(0, i + 1).join('/');
-      let next = cur.children.find((c) => c.path === path);
-      if (!next) {
-        next = { name, path, children: [], rank: Infinity };
-        cur.children.push(next);
-      }
-      if (i === parts.length - 1) next.file = f;
-      cur = next;
-    });
-  }
-  let top = root.children;
-  const wrapper = top.find((n) => !n.file && n.name === unwrap);
-  if (wrapper) top = [...top.filter((n) => n !== wrapper), ...wrapper.children];
-  const sort = (nodes: OutlineNode<F>[]) => {
-    for (const n of nodes) {
-      sort(n.children);
-      n.rank = n.path === DIRECTORY ? -1 : rankIn(directory, fileTitle(n.name));
-      if (!Number.isFinite(n.rank) && n.children.length) n.rank = Math.min(...n.children.map((c) => c.rank));
+    if (!f.path.startsWith(prefix)) continue;
+    const [first, ...more] = f.path.slice(prefix.length).split('/');
+    if (!more.length) {
+      list.push({ kind: 'file', file: f, name: fileTitle(first), pending: pending.has(f.path) });
+      continue;
     }
-    nodes.sort((a, b) => a.rank - b.rank || a.name.localeCompare(b.name, 'zh', { numeric: true }));
-  };
-  sort(top);
-  return top;
+    const folder = folders.get(first) || { children: new Set<string>(), pending: false };
+    folder.children.add(more[0]);
+    if (pending.has(f.path)) folder.pending = true;
+    folders.set(first, folder);
+  }
+  const byName = (a: FolderItem<F>, b: FolderItem<F>) => a.name.localeCompare(b.name, 'zh', { numeric: true });
+  const dirs: FolderItem<F>[] = [...folders].map(([name, v]) => ({ kind: 'folder', path: prefix + name, name, count: v.children.size, pending: v.pending }));
+  return [...dirs.sort(byName), ...list.sort(byName)];
 }
 
 /* ---------- 中间翻开的一页 ---------- */

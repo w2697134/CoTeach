@@ -85,6 +85,11 @@ export class Workspace {
     const s = this.find(cleanPath(path));
     return s && this.visible(s) ? this.bytes(s).toString('utf8') : null;
   }
+  /** 原样的字节（二进制原件用，按文字读会读坏） */
+  bytesOf(path: string): Buffer | null {
+    const s = this.find(cleanPath(path));
+    return s && this.visible(s) ? this.bytes(s) : null;
+  }
   private writable(s?: FileState) {
     if (this.readOnly) throw bad('来源档案只能读取');
     writableKb(this.kbId);

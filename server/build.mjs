@@ -5,7 +5,7 @@ import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 
 // 注意：dist/web 由前端构建产出，这里只清理服务端产物
-for (const p of ['dist/server.mjs', 'dist/server.mjs.map', 'dist/kb-owner.mjs', 'dist/kb-owner.mjs.map', 'dist/intake-worker.mjs', 'dist/intake-worker.mjs.map', 'dist/assets', 'dist/seed-content'])
+for (const p of ['dist/server.mjs', 'dist/server.mjs.map', 'dist/ct.mjs', 'dist/kb-owner.mjs', 'dist/kb-owner.mjs.map', 'dist/intake-worker.mjs', 'dist/intake-worker.mjs.map', 'dist/assets', 'dist/seed-content'])
   rmSync(p, { recursive: true, force: true });
 mkdirSync('dist', { recursive: true });
 const banner = { js: "import { createRequire as __cr } from 'node:module'; const require = __cr(import.meta.url);" };
@@ -20,6 +20,17 @@ await build({
   minify: false,
   legalComments: 'none',
   banner,
+  logLevel: 'info',
+});
+// 整理助手敲的 ct 命令：很小的一个脚本，转给服务器
+await build({
+  entryPoints: ['src/kb/agent/ct-cli.ts'],
+  outfile: 'dist/ct.mjs',
+  bundle: true,
+  platform: 'node',
+  format: 'esm',
+  target: 'node22',
+  legalComments: 'none',
   logLevel: 'info',
 });
 // 读资料线程单独打包：文档、表格、幻灯片、PDF 和解压的读取库都在这里，服务主体不加载它们

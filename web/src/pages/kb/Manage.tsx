@@ -1,13 +1,12 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Archive, FilePlus, Users, Sparkles, MoreHorizontal, PenLine, Trash2 } from 'lucide-react';
+import { Archive, Users, Sparkles, MoreHorizontal, PenLine, Trash2 } from 'lucide-react';
 import { api, get, post } from '../../lib/api';
 import { toast } from '../../lib/store';
 import { Button, Empty, ErrorState, IconButton, Input, MenuItem, Modal, Skeleton, Textarea, useConfirm, Popover } from '../../components/ui';
 import { useKnowledgeBases, type KnowledgeBase } from './data';
 import { parseRoster } from './presentation';
-import { LocationField } from './LocationField';
 
 export interface ClassStudent {
   id: number;
@@ -22,17 +21,14 @@ export function useStudents(id: number, enabled = true) {
     enabled,
   });
 }
-export function KnowledgeTools({ kb, onSelect }: { kb: KnowledgeBase; onSelect: (p: string) => void }) {
+/** 最外层每个知识库那一格右上角的「⋯」：改名、删除（班级知识库另有名单和封存） */
+export function KnowledgeTools({ kb }: { kb: KnowledgeBase }) {
   const navigate = useNavigate();
   const qc = useQueryClient(),
     confirm = useConfirm(),
     roster = useStudents(kb.id, kb.kind === 'class');
-  const [modal, setModal] = useState<'file' | 'students' | null>(null),
-    [name, setName] = useState(''),
-    [folder, setFolder] = useState(''),
+  const [modal, setModal] = useState<'students' | null>(null),
     [notice, setNotice] = useState(''),
-    [content, setContent] = useState(''),
-    [studentId, setStudentId] = useState(''),
     [names, setNames] = useState(''),
     [busy, setBusy] = useState(false),
     [error, setError] = useState('');
@@ -64,9 +60,9 @@ export function KnowledgeTools({ kb, onSelect }: { kb: KnowledgeBase; onSelect: 
     if (!(await confirm({ title: `删除「${kb.name}」？`, desc: '里面的笔记和资料会一起删掉。', okText: '删除', danger: true }))) return;
     setBusy(true);
     try {
-      const r = await api<{ next: number }>(`/knowledge/${kb.id}`, { method: 'DELETE' });
+      // 删完留在最外层，那一格消失
+      await api(`/knowledge/${kb.id}`, { method: 'DELETE' });
       await qc.invalidateQueries({ queryKey: ['knowledge-bases'] });
-      navigate(`/knowledge/${r.next}`, { replace: true });
       toast.success('已删除');
     } catch (e) {
       toast.fromError(e);
@@ -77,30 +73,6 @@ export function KnowledgeTools({ kb, onSelect }: { kb: KnowledgeBase; onSelect: 
   const refresh = () => {
     for (const key of ['kb-tree', 'kb-file', 'kb-changes', 'course', 'kb-students']) qc.invalidateQueries({ queryKey: [key, kb.id] });
     qc.invalidateQueries({ queryKey: ['knowledge-bases'] });
-  };
-  const newFile = async () => {
-    setBusy(true);
-    setError('');
-    try {
-      const path = [folder, /\.md$/i.test(name.trim()) ? name.trim() : name.trim() + '.md'].filter(Boolean).join('/');
-      await api(`/knowledge/${kb.id}/kb/file`, {
-        method: 'PUT',
-        body: {
-          path,
-          content,
-          base: null,
-          ...(studentId ? { studentId: Number(studentId) } : {}),
-        },
-      });
-      refresh();
-      setModal(null);
-      onSelect(path);
-      toast.success('已新建');
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setBusy(false);
-    }
   };
   const addStudents = async () => {
     setBusy(true);
@@ -188,28 +160,13 @@ export function KnowledgeTools({ kb, onSelect }: { kb: KnowledgeBase; onSelect: 
         <Popover
           width={176}
           trigger={({ toggle }) => (
-            <IconButton label="更多" onClick={toggle} disabled={busy}>
-              <MoreHorizontal className="size-[18px]" />
+            <IconButton label="更多" size="sm" onClick={toggle} disabled={busy} className="text-ink-3">
+              <MoreHorizontal className="size-4" />
             </IconButton>
           )}
         >
           {(close) => (
             <div onClick={close}>
-              {!archived && (
-                <MenuItem
-                  icon={<FilePlus />}
-                  onClick={() => {
-                    setModal('file');
-                    setName('');
-                    setFolder('');
-                    setContent('');
-                    setStudentId('');
-                    setError('');
-                  }}
-                >
-                  新建笔记
-                </MenuItem>
-              )}
               {!archived && (
                 <MenuItem
                   icon={<PenLine />}
@@ -277,55 +234,6 @@ export function KnowledgeTools({ kb, onSelect }: { kb: KnowledgeBase; onSelect: 
             {error}
           </p>
         )}
-      </Modal>
-      <Modal
-        open={modal === 'file'}
-        onClose={() => !busy && setModal(null)}
-        title="新建笔记"
-        footer={
-          <>
-            <Button disabled={busy} onClick={() => setModal(null)}>
-              取消
-            </Button>
-            <Button variant="primary" loading={busy} disabled={!name.trim()} onClick={newFile}>
-              保存
-            </Button>
-          </>
-        }
-      >
-        <div className="space-y-4">
-          <label className="block text-[14px] text-ink">
-            名称
-            <Input autoFocus className="mt-1.5" value={name} onChange={(e) => setName(e.target.value.replace(/[\\/]/g, ''))} />
-          </label>
-          <LocationField cid={kb.id} value={folder} onChange={setFolder} />
-          {kb.kind === 'class' && (
-            <label className="block text-[14px] text-ink">
-              这份记录属于
-              <select
-                className="mt-1.5 block w-full rounded-lg border border-line bg-surface px-3 py-2 text-ink"
-                value={studentId}
-                onChange={(e) => setStudentId(e.target.value)}
-              >
-                <option value="">全班共有</option>
-                {roster.data?.students.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name} · {s.studentNo}
-                  </option>
-                ))}
-              </select>
-            </label>
-          )}
-          <label className="block text-[14px] text-ink">
-            内容
-            <Textarea className="mt-1.5 min-h-48" value={content} onChange={(e) => setContent(e.target.value)} />
-          </label>
-          {error && (
-            <p role="alert" className="text-[14px] text-bad">
-              {error}
-            </p>
-          )}
-        </div>
       </Modal>
       <Modal
         open={modal === 'students'}

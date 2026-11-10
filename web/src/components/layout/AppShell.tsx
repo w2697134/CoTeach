@@ -1,12 +1,14 @@
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router';
 import { AnimatePresence, motion } from 'motion/react';
-import { BookOpen, LogOut, Menu, Monitor, Moon, Plus, Sun } from 'lucide-react';
+import { BookOpen, LogOut, Menu, Monitor, Moon, Sun } from 'lucide-react';
 import { APP_NAME, APP_SHORT_NAME } from '../../lib/brand';
 import { useAuth, useTheme, useUi } from '../../lib/store';
 import { Avatar, IconButton, MenuItem, MenuLabel, Popover, cn } from '../ui';
-import { useKnowledgeBases, usePrefetchKb } from '../../pages/kb/data';
-import { NewKnowledgeBaseModal } from '../../pages/kb/NewKnowledgeBase';
+import { useKnowledgeBases } from '../../pages/kb/data';
+
+/** 现在打开的是哪个知识库（不在某个知识库里时为 null） */
+const openKb = (pathname: string) => Number(pathname.match(/^\/knowledge\/(\d+)/)?.[1]) || null;
 
 export function Logo({ size = 32, className }: { size?: number; className?: string }) {
   return (
@@ -21,11 +23,10 @@ export function Logo({ size = 32, className }: { size?: number; className?: stri
   );
 }
 
+/** 左边栏只有一个「知识库」入口；一个个知识库摆在知识库页面里，像电脑里的 C 盘、D 盘 */
 function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const bases = useKnowledgeBases().data?.knowledgeBases || [];
-  const prefetch = usePrefetchKb();
-  const navigate = useNavigate();
-  const [creating, setCreating] = useState(false);
+  const pending = bases.reduce((n, k) => n + k.pending, 0);
   const item = (active: boolean) =>
     cn(
       'group relative flex h-9 items-center gap-3 rounded-md px-3 text-[14.5px] font-medium transition-colors',
@@ -43,46 +44,17 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
         </div>
       </div>
       <nav className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-3 pb-4 pt-2">
-        <div className="mb-1 flex items-center justify-between pl-3">
-          <p className="text-[12.5px] font-medium tracking-wider text-ink-3">知识库</p>
-          <IconButton label="新建知识库" size="sm" onClick={() => setCreating(true)}>
-            <Plus className="size-4" />
-          </IconButton>
-        </div>
-        <div className="space-y-0.5">
-          {bases.map((k) => (
-            <NavLink
-              key={k.id}
-              to={`/knowledge/${k.id}`}
-              onClick={onNavigate}
-              onPointerEnter={() => prefetch(k.id)}
-              onFocus={() => prefetch(k.id)}
-              className={({ isActive }) => cn(item(isActive), 'h-auto min-h-9 py-2')}
-            >
-              {({ isActive }) => (
-                <>
-                  {isActive && <motion.span layoutId="nav-indicator" className="absolute -left-3 top-1.5 h-6 w-[3px] rounded-r-full bg-brand" />}
-                  <BookOpen className={cn('size-[18px] shrink-0', isActive ? 'text-brand' : 'text-ink-3')} />
-                  <span className="min-w-0 flex-1 break-words">
-                    <span className="block">{k.name}</span>
-                    {k.term && <span className="mt-0.5 block text-[12px] font-normal text-ink-3">{k.term}</span>}
-                  </span>
-                  {k.pending > 0 && <span className="rounded-full bg-brand px-1.5 text-[11.5px] font-semibold text-white">{k.pending}</span>}
-                </>
-              )}
-            </NavLink>
-          ))}
-        </div>
+        <NavLink to="/knowledge" onClick={onNavigate} className={({ isActive }) => item(isActive)}>
+          {({ isActive }) => (
+            <>
+              {isActive && <motion.span layoutId="nav-indicator" className="absolute -left-3 top-1.5 h-6 w-[3px] rounded-r-full bg-brand" />}
+              <BookOpen className={cn('size-[18px] shrink-0', isActive ? 'text-brand' : 'text-ink-3')} />
+              <span className="min-w-0 flex-1">知识库</span>
+              {pending > 0 && <span className="rounded-full bg-brand px-1.5 text-[11.5px] font-semibold text-white">{pending}</span>}
+            </>
+          )}
+        </NavLink>
       </nav>
-      <NewKnowledgeBaseModal
-        open={creating}
-        onClose={() => setCreating(false)}
-        onCreated={(id) => {
-          setCreating(false);
-          onNavigate?.();
-          navigate(`/knowledge/${id}`);
-        }}
-      />
     </div>
   );
 }
@@ -153,9 +125,13 @@ function UserMenu() {
 export function AppShell() {
   const { mobileNav, setMobileNav } = useUi();
   const location = useLocation();
+  // 手机上左边栏收起来了，现在在哪写在最上面：某个知识库里写它的名字，最外层写「知识库」
+  const kbId = openKb(location.pathname);
+  const kbName = useKnowledgeBases().data?.knowledgeBases.find((k) => k.id === kbId)?.name;
+  const title = kbId ? kbName : /^\/knowledge\/?$/.test(location.pathname) ? '知识库' : undefined;
   useEffect(() => setMobileNav(false), [location.pathname, setMobileNav]);
   // 知识库页面要占满整屏高度，自己管滚动
-  const full = location.pathname.startsWith('/c/') || /^\/knowledge\/\d+/.test(location.pathname);
+  const full = location.pathname.startsWith('/c/') || /^\/knowledge(\/|$)/.test(location.pathname);
   return (
     <div className="min-h-screen bg-bg">
       <aside className="fixed inset-y-0 left-0 z-40 hidden w-[248px] border-r border-line bg-surface lg:block">
@@ -188,6 +164,7 @@ export function AppShell() {
           <IconButton className="shrink-0 lg:hidden" label="菜单" onClick={() => setMobileNav(true)}>
             <Menu className="size-5" />
           </IconButton>
+          {title && <p className="min-w-0 truncate text-[16px] font-semibold tracking-tight text-ink lg:hidden">{title}</p>}
           <div className="ml-auto flex shrink-0 items-center gap-1.5">
             <ThemeMenu />
             <UserMenu />

@@ -343,3 +343,19 @@ migrations.push(`
 DROP INDEX kb_one_teacher;
 ALTER TABLE knowledge_bases ADD COLUMN deleted_at INTEGER;
 `);
+
+// 第 6 次：整理助手只有一个，管老师所有的知识库（2026-11-10）。
+// 工作记录按老师记（老师在最外层说的话不挂在哪个知识库上）；每位老师的对话接着说，记下对话编号；在最外层交的资料由整理助手决定放进哪个库。
+migrations.push(`
+ALTER TABLE kb_runs ADD COLUMN teacher_id INTEGER REFERENCES users(id);
+UPDATE kb_runs SET teacher_id=(SELECT teacher_id FROM knowledge_bases k WHERE k.id=kb_runs.kb_id) WHERE teacher_id IS NULL;
+CREATE INDEX idx_kb_runs_teacher ON kb_runs(teacher_id,id);
+CREATE TABLE keeper_sessions (
+  teacher_id INTEGER NOT NULL REFERENCES users(id),
+  key TEXT NOT NULL,
+  session_id TEXT NOT NULL,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY(teacher_id,key)
+);
+ALTER TABLE kb_intakes ADD COLUMN route INTEGER NOT NULL DEFAULT 0;
+`);

@@ -85,13 +85,19 @@ export const useIntakes = (cid: number) => useQuery(intakesQuery(cid));
  * 真正停下后的推送可能先到，旧回复后到时不能把新状态盖回去。
  */
 export function putIntake(qc: QueryClient, cid: number, intake: Intake) {
-  qc.setQueryData<{ intakes: Intake[] }>(['kb-intakes', cid], (old) => {
+  const put = (old: { intakes: Intake[] } | undefined) => {
     const list = old?.intakes || [];
     return list.some((x) => x.id === intake.id)
       ? { intakes: list.map((x) => (x.id === intake.id && intake.updatedAt >= x.updatedAt ? intake : x)) }
       : { intakes: [...list, intake] };
-  });
+  };
+  qc.setQueryData<{ intakes: Intake[] }>(['kb-intakes', cid], put);
+  // 整理助手只有一个：它那一栏列着老师所有知识库里交的资料
+  qc.setQueryData<{ intakes: Intake[] }>(['keeper-intakes'], (old) => (old ? put(old) : old));
 }
+/** 老师所有知识库里交的资料（整理助手那一栏用） */
+export const keeperIntakesQuery = () => queryOptions({ queryKey: ['keeper-intakes'], queryFn: () => get<{ intakes: Intake[] }>('/keeper/intakes') });
+export const useKeeperIntakes = () => useQuery(keeperIntakesQuery());
 
 export const pickedFromList = (list: FileList | File[]): Picked[] =>
   Array.from(list).map((file) => ({ file, path: file.webkitRelativePath || file.name }));
@@ -150,20 +156,22 @@ async function retrying<T>(fn: () => Promise<T>): Promise<T> {
  * 登记好就回调 onCreated（页面马上能看到这次交的进度），然后在后台分块上传。
  */
 export async function sendIntake(
-  cid: number,
+  cid: number | null,
   picked: Picked[],
   opts: { message?: string; text?: string; onCreated?: (intake: Intake) => void } = {},
 ): Promise<Intake> {
+  // 在最外层交的（cid 为空）：先放在一个库里，整理助手看内容再放到合适的库
   const created = await post<{
     intake: Intake;
     uploads: { itemId: number; index: number; size: number; received: number }[];
     chunkSize: number;
-  }>(`/knowledge/${cid}/intakes`, {
+  }>(cid === null ? '/keeper/intakes' : `/knowledge/${cid}/intakes`, {
     message: opts.message?.trim() || null,
     text: opts.text || null,
     files: picked.map((p) => ({ name: p.path, size: p.file.size })),
   });
-  const id = created.intake.id;
+  const id = created.intake.id,
+    kb = created.intake.kbId;
   opts.onCreated?.(created.intake);
   if (!created.uploads.length) return created.intake;
   uploading.add(id);
@@ -178,7 +186,7 @@ export async function sendIntake(
         while (offset < u.size) {
           const at = offset;
           const r = await retrying(() =>
-            api<{ received: number; complete: boolean }>(`/knowledge/${cid}/intakes/${id}/items/${u!.itemId}?offset=${at}`, {
+            api<{ received: number; complete: boolean }>(`/knowledge/${kb}/intakes/${id}/items/${u!.itemId}?offset=${at}`, {
               method: 'PUT',
               body: file.slice(at, Math.min(u!.size, at + created.chunkSize)),
             }),
@@ -197,14 +205,17 @@ export async function sendIntake(
 }
 
 /** 页面上各处交资料都走这里：登记好就在整理助手那边显示出来，上传在后台继续，出错弹提示 */
-export const handIn = (qc: QueryClient, cid: number, files: Picked[], message?: string) =>
+export const handIn = (qc: QueryClient, cid: number | null, files: Picked[], message?: string) =>
   new Promise<void>((resolve) => {
-    sendIntake(cid, files, { message, onCreated: (intake) => (putIntake(qc, cid, intake), resolve()) })
+    sendIntake(cid, files, { message, onCreated: (intake) => (putIntake(qc, intake.kbId, intake), resolve()) })
       .catch((err) => {
         toast.fromError(err);
         resolve();
       })
-      .finally(() => qc.invalidateQueries({ queryKey: ['kb-intakes', cid] }));
+      .finally(() => {
+        qc.invalidateQueries({ queryKey: ['kb-intakes'] });
+        qc.invalidateQueries({ queryKey: ['keeper-intakes'] });
+      });
   });
 
 /** 粘贴进来的截图没有像样的名字，按时间起一个 */

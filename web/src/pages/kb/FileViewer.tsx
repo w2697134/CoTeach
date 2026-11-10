@@ -10,7 +10,8 @@ import { Alert, Button, Empty, Input, MenuItem, Modal, Popover, Skeleton, Textar
 import { PLAIN_NAMES, plainText, fileTitle, fileDir, rehypePlainNames, useFile, useCourse, useKnowledgeBases, type CommitInfo } from './data';
 import { kbTarget, rehypeKbLinks, splitTitle, withoutFrontMatter } from './presentation';
 import { LocationField } from './LocationField';
-import { MaterialIcon } from './Contents';
+import { Crumbs, MaterialIcon } from './Files';
+import { BackButton } from './Changes';
 import { copyText } from '../../lib/clipboard';
 
 function WhoLine({ c }: { c: CommitInfo }) {
@@ -64,17 +65,28 @@ const fmtDay = (t: number) => new Date(t).toLocaleDateString('zh-CN', { month: '
 /** 中间翻开的那一页：笔记像文档一样排好；资料显示原件转出来的文字，可以下载原件 */
 export function FileViewer({
   cid,
+  kbName,
   path,
   paths,
   onSelect,
+  onBack,
+  onTop,
+  onOpenDir,
   onOpenChange,
   pendingHere,
 }: {
   cid: number;
+  kbName: string;
   path: string | null;
   /** 知识库里所有的位置：正文提到的就能点开 */
   paths: string[];
   onSelect: (path: string) => void;
+  /** 合上这一页，回到刚才看的那一格文件夹 */
+  onBack: () => void;
+  /** 回到最外层，所有知识库摆在一起的那页 */
+  onTop: () => void;
+  /** 回到某个文件夹（上面那条路径点的） */
+  onOpenDir: (path: string) => void;
   onOpenChange: (id: number) => void;
   pendingHere: number | null;
 }) {
@@ -177,11 +189,8 @@ export function FileViewer({
       await api(`/knowledge/${cid}/kb/file?path=${encodeURIComponent(path)}&base=${f.hash}&baseEntryId=${encodeURIComponent(f.id)}`, {
         method: 'DELETE',
       });
-      setParams((prev) => {
-        const n = new URLSearchParams(prev);
-        n.delete('f');
-        return n;
-      });
+      // 回到它原来所在的那个文件夹
+      onOpenDir(fileDir(path));
       refresh(path);
       toast.success('已移除');
     } catch (e) {
@@ -223,11 +232,7 @@ export function FileViewer({
     try {
       await api(`/knowledge/${cid}/kb/transfer`, { method: 'POST', body: { paths: [path], to: target.id } });
       setTransferring(false);
-      setParams((prev) => {
-        const n = new URLSearchParams(prev);
-        n.delete('f');
-        return n;
-      });
+      onOpenDir(fileDir(path));
       refresh(path);
       qc.invalidateQueries({ queryKey: ['kb-tree', target.id] });
       qc.invalidateQueries({ queryKey: ['knowledge-bases'] });
@@ -257,9 +262,6 @@ export function FileViewer({
     }
   };
 
-  // 所在位置：资料、笔记两栏的外层文件夹不再重复写
-  const dir = fileDir(path).replace(material ? /^资料(\/|$)/ : /^笔记(\/|$)/, '');
-  const crumb = [material ? '资料' : '笔记', ...dir.split('/').filter(Boolean).map(fileTitle)];
   // 笔记的大标题从正文里拿；资料用老师交的原件名字，正文原样显示
   const shown = f?.text != null && isMd ? withoutFrontMatter(f.text) : f?.text || '';
   const split = f?.text != null && isMd ? splitTitle(shown, fileTitle(path)) : null;
@@ -269,8 +271,10 @@ export function FileViewer({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex h-12 shrink-0 items-center gap-2 border-b border-line px-4 sm:px-5">
-        <p className="min-w-0 flex-1 truncate text-[13px] text-ink-3">{crumb.join(' › ')}</p>
+      <div className="flex h-12 shrink-0 items-center gap-2 border-b border-line px-3 sm:px-4">
+        <BackButton label="返回" onClick={onBack} />
+        <span aria-hidden className="h-4 w-px shrink-0 bg-line" />
+        <Crumbs kb={kbName} dir={fileDir(path)} onTop={onTop} onOpenDir={onOpenDir} className="text-[13px]" />
         {f && !editing && (
           <div className="flex shrink-0 items-center gap-1">
             {f.source && (

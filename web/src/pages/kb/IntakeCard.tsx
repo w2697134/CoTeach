@@ -124,6 +124,8 @@ export function IntakeCard({ cid, intake }: { cid: number; intake: Intake }) {
       putIntake(qc, cid, (await fn()).intake);
       qc.invalidateQueries({ queryKey: ['kb-runs', cid] });
       qc.invalidateQueries({ queryKey: ['kb-intakes', cid] });
+      qc.invalidateQueries({ queryKey: ['keeper-runs'] });
+      qc.invalidateQueries({ queryKey: ['keeper-intakes'] });
     } catch (err) {
       toast.fromError(err);
     } finally {

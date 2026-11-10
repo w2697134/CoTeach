@@ -22,6 +22,8 @@ export interface IntakeRow {
   batch: number;
   checkpoint: string | null;
   resumes: number;
+  /** 在最外层交的：整理助手看内容放到合适的库 */
+  route: number;
   created_at: number;
   updated_at: number;
   finished_at: number | null;
@@ -174,6 +176,7 @@ export function publicIntake(row: IntakeRow, full = true) {
   return {
     id: row.id,
     kbId: row.kb_id,
+    route: !!row.route,
     status: row.status,
     message: row.message,
     error: row.error,
@@ -213,7 +216,12 @@ export function announce(intakeId: number, urgent = false) {
     timers.delete(intakeId);
     lastSent.set(intakeId, Date.now());
     const row = db.get<IntakeRow>('SELECT * FROM kb_intakes WHERE id=?', intakeId);
-    if (row) bus.publish(`kb:${row.kb_id}`, 'intake', publicIntake(row, false));
+    if (!row) return;
+    const data = publicIntake(row, false);
+    bus.publish(`kb:${row.kb_id}`, 'intake', data);
+    // 整理助手只有一个：交资料的进度也推给老师，在哪一页都看得到
+    const teacher = db.value<number>('SELECT teacher_id FROM knowledge_bases WHERE id=?', row.kb_id);
+    if (teacher) bus.publish(`keeper:${teacher}`, 'intake', data);
   };
   const wait = 500 - (Date.now() - (lastSent.get(intakeId) || 0));
   if (urgent || wait <= 0) {

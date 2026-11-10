@@ -78,7 +78,7 @@ export interface FileDiff {
 
 /* 老师看到的文件名不带 .md：笔记都是 .md 文件，扩展名对老师没用 */
 export { fileTitle, fileDir, plainPath, plainText } from './presentation';
-import { DIRECTORY, plainText } from './presentation';
+import { plainText } from './presentation';
 
 /** 整理助手的话里提到文件名时也去掉 .md */
 /** 显示知识库文档时，正文里提到的文件名也去掉 .md；代码里的不动。编辑时看到的还是原文 */
@@ -101,6 +101,10 @@ export interface RunEvent {
 
 export interface Run {
   id: number;
+  /** 这一轮挂在哪个知识库上（老师在最外层说的话为空） */
+  kbId?: number | null;
+  /** 这一轮在各个知识库里交的改动 */
+  changes?: { id: number; kbId: number; kbName: string; status: ChangeStatus; title: string }[];
   kind: 'materials' | 'chat' | 'summary' | 'observation';
   status: 'running' | 'done' | 'error' | 'canceled';
   request: string;
@@ -160,7 +164,7 @@ export const useKnowledgeBases = () =>
     queryFn: () => get<{ knowledgeBases: KnowledgeBase[] }>('/knowledge'),
     refetchInterval: 15000,
   });
-const treeQuery = (cid: number) =>
+export const treeQuery = (cid: number) =>
   queryOptions({
     queryKey: ['kb-tree', cid],
     queryFn: () => get<{ files: TreeFile[] }>(`/knowledge/${cid}/kb/tree`),
@@ -179,6 +183,13 @@ const runsQuery = (cid: number) =>
     queryFn: () => get<{ runs: Run[]; activeRunId: number | null }>(`/knowledge/${cid}/kb/runs`),
   });
 export const useRuns = (cid: number) => useQuery(runsQuery(cid));
+/** 整理助手只有一个：老师所有知识库里的工作记录排在一起 */
+export const keeperRunsQuery = () =>
+  queryOptions({
+    queryKey: ['keeper-runs'],
+    queryFn: () => get<{ runs: Run[]; activeRunId: number | null }>('/keeper/runs'),
+  });
+export const useKeeperRuns = () => useQuery(keeperRunsQuery());
 const changesQuery = (cid: number, status?: 'pending') =>
   queryOptions({
     queryKey: ['kb-changes', cid, status || 'all'],
@@ -188,21 +199,17 @@ export const useChanges = (cid: number, status?: 'pending') => useQuery(changesQ
 
 let keeperAvatar: HTMLImageElement | null = null;
 /**
- * 打开一个知识库头一眼要看的（名字、目录、「目录」这一页、整理助手的记录和头像）先在后台取好。
+ * 打开一个知识库头一眼要看的（名字、文件、整理助手的记录和头像）先在后台取好。
  * 服务器远，来回一次要零点几秒，等点了再取就要干等。
  */
 export function prefetchKb(qc: QueryClient, cid: number) {
   keeperAvatar ??= Object.assign(new Image(), { src: '/agents/keeper.webp' });
   void qc.prefetchQuery(courseQuery(cid));
-  void qc.prefetchQuery(runsQuery(cid));
+  void qc.prefetchQuery(keeperRunsQuery());
   void qc.prefetchQuery(intakesQuery(cid));
   void qc.prefetchQuery(changesQuery(cid));
   void qc.prefetchQuery(changesQuery(cid, 'pending'));
-  qc.fetchQuery(treeQuery(cid))
-    .then((tree) => {
-      if (tree.files.some((f) => f.path === DIRECTORY)) return qc.prefetchQuery(fileQuery(cid, DIRECTORY));
-    })
-    .catch(() => {});
+  void qc.prefetchQuery(treeQuery(cid));
 }
 export function usePrefetchKb() {
   const qc = useQueryClient();
@@ -214,6 +221,56 @@ export const useChange = (cid: number, id: number | null) =>
     queryFn: () => get<{ change: Change; files: FileDiff[]; stale: string[] }>(`/knowledge/${cid}/kb/changes/${id}`),
     enabled: !!id,
   });
+
+/**
+ * 整理助手的实时消息（按老师推，在哪一页都一样）：每一步、说到一半的话、交资料的进度、交上来的改动。
+ * 文件格的刷新还是靠各个知识库自己的推送（useKbStream）。
+ */
+export function useKeeperStream() {
+  const qc = useQueryClient();
+  const userId = useAuth((s) => s.user?.id);
+  const [live, setLive] = useState<{ runId: number; text: string } | null>(null);
+  useEffect(() => {
+    setLive(null);
+    const bases = () => {
+      qc.invalidateQueries({ queryKey: ['knowledge-bases'] });
+      qc.invalidateQueries({ queryKey: ['course'] });
+      qc.invalidateQueries({ queryKey: ['kb-tree'] });
+    };
+    return subscribe('/keeper/stream', {
+      run: (r: { id: number; status: string }) => {
+        qc.invalidateQueries({ queryKey: ['keeper-runs'] });
+        if (r.status !== 'running') {
+          setLive(null);
+          qc.invalidateQueries({ queryKey: ['knowledge-bases'] });
+        }
+      },
+      event: (e: RunEvent & { runId: number }) => {
+        qc.setQueryData<{ runs: Run[]; activeRunId: number | null }>(['keeper-runs'], (old) =>
+          old
+            ? {
+                ...old,
+                runs: old.runs.map((r) => (r.id === e.runId && !r.events.some((x) => x.id === e.id) ? { ...r, events: [...r.events, e] } : r)),
+              }
+            : old,
+        );
+        setLive(null);
+        if (e.type === 'change') {
+          const kb = Number(e.data?.kbId) || null;
+          qc.invalidateQueries({ queryKey: kb ? ['kb-changes', kb] : ['kb-changes'] });
+          qc.invalidateQueries({ queryKey: kb ? ['kb-change', kb] : ['kb-change'] });
+          qc.invalidateQueries({ queryKey: ['knowledge-bases'] });
+          qc.invalidateQueries({ queryKey: ['kb-tree'] });
+        }
+        if (e.type === 'tool' && !e.data?.error && KB_LEVEL_TOOLS.has(String(e.data?.name))) bases();
+      },
+      delta: (d: { runId: number; text: string }) =>
+        setLive((prev) => (prev && prev.runId === d.runId ? { runId: d.runId, text: prev.text + d.text } : { runId: d.runId, text: d.text })),
+      intake: (intake: Intake) => putIntake(qc, intake.kbId, intake),
+    });
+  }, [qc, userId]);
+  return live;
+}
 
 /** 订阅这门课的实时消息：整理助手的每一步、改动和文件的变化 */
 export type FileOperation = { path: string; from?: string; deleted: boolean };

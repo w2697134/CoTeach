@@ -8,7 +8,6 @@ import { bad, conflict, notFound, HttpError } from '../lib/http.js';
 import { checkIdentity, loadKb, writableKb, registerSourceIdentities } from './access.js';
 import { fileDiff, type FileDiff } from './diff.js';
 
-export const MATERIALS_DIR = '资料';
 export interface Entry {
   id: string;
   path: string;

@@ -22,7 +22,20 @@ import { cancelIntake, createIntake, finishIntake, intakeFromBuffers, moveToClas
 import { blobPath, publicIntake } from './intake/store.js';
 import { baseName, extOf, kindFromExt } from './intake/kinds.js';
 import { existsSync, readFileSync } from 'node:fs';
-import { activeRun, cancelRun, cancelForArchive, publicRun, startRun, enqueueTask, drainInbox, taskSubject } from './keeper.js';
+import {
+  activeRun,
+  cancelRun,
+  cancelForArchive,
+  cancelTeacherRun,
+  landingKb,
+  publicRun,
+  startChat,
+  startRun,
+  enqueueTask,
+  drainInbox,
+  taskSubject,
+  teacherBusy,
+} from './keeper.js';
 import {
   cleanPath,
   createKnowledgeBase,
@@ -768,5 +781,134 @@ courseRoutes.get('/:id', async (c) => {
     course: r,
     kbId: await ensureTeacherKb(u.id, u.name),
     legacyPrefix,
+  });
+});
+
+/**
+ * 整理助手只有一个，管老师所有的知识库：它的工作记录、跟它说话、在最外层交资料、实时推送，都按老师来，不按知识库。
+ */
+export const keeperRoutes = new Hono<AppEnv>();
+keeperRoutes.get('/runs', (c) => {
+  const u = teacher(c);
+  return c.json({
+    runs: db.all<any>('SELECT * FROM kb_runs WHERE teacher_id=? ORDER BY id DESC LIMIT 100', u.id).reverse().map(runWithEvents),
+    activeRunId: teacherBusy(u.id)?.runId || null,
+  });
+});
+keeperRoutes.post('/runs', async (c) => {
+  const u = teacher(c);
+  const d = await body(
+    c,
+    z.object({
+      message: z.string().trim().min(1).max(2_000_000),
+      kbId: z.number().int().positive().nullable().optional(),
+      file: z.string().max(400).nullable().optional(),
+    }),
+  );
+  const kbId = d.kbId ?? null;
+  if (kbId !== null) ownKb(u, kbId);
+  // 很长的一段（教案、讲稿、整章内容）直接贴过来：原样存成一份资料，再交给整理助手消化
+  if (d.message.length > LONG_PASTE)
+    return c.json({ intakeId: createIntake(kbId ?? landingKb(u.id), u, { text: d.message, files: [], route: kbId === null }).intake.id });
+  return c.json({ runId: startChat(u, kbId, d.message, d.file ?? null) });
+});
+keeperRoutes.post('/runs/:rid/cancel', (c) => {
+  cancelTeacherRun(teacher(c).id, intParam(c, 'rid'));
+  return c.json({ ok: true });
+});
+/** 在最外层交资料：先放在最早那个库的最外层，整理助手看内容再放到合适的库 */
+keeperRoutes.post('/intakes', async (c) => {
+  const u = teacher(c);
+  const d = await body(
+    c,
+    z.object({
+      message: z.string().max(4000).nullable().optional(),
+      text: z.string().max(2_000_000).nullable().optional(),
+      files: z.array(z.object({ name: z.string().min(1).max(1000), size: z.number().int().min(0) })).max(1000),
+    }),
+  );
+  return c.json(createIntake(landingKb(u.id), u, { ...d, route: true }));
+});
+/** 在最外层一次交几份小资料（测量和脚本用；页面上照旧分块上传） */
+keeperRoutes.post(
+  '/upload',
+  bodyLimit({
+    maxSize: 50 * 1024 * 1024,
+    onError: () => {
+      throw bad('一次交的资料太大，请用「交资料」按钮分块上传');
+    },
+  }),
+  async (c) => {
+    const u = teacher(c);
+    const form = await c.req.parseBody({ all: true }),
+      files = ([] as any[]).concat(form.file || []).filter((f) => f && typeof f === 'object' && 'arrayBuffer' in f);
+    if (!files.length || files.length > 30) throw bad('每次请选择 1 至 30 份资料');
+    const row = await intakeFromBuffers(
+      landingKb(u.id),
+      u,
+      await Promise.all(files.map(async (f) => ({ name: String(f.name || '资料'), data: new Uint8Array(await f.arrayBuffer()) }))),
+      typeof form.message === 'string' ? form.message : undefined,
+      true,
+    );
+    return c.json({ intake: publicIntake(row, false) });
+  },
+);
+keeperRoutes.get('/intakes', (c) => {
+  const u = teacher(c);
+  return c.json({
+    intakes: db
+      .all<any>(
+        'SELECT i.* FROM kb_intakes i JOIN knowledge_bases k ON k.id=i.kb_id WHERE k.teacher_id=? AND k.deleted_at IS NULL ORDER BY i.id DESC LIMIT 50',
+        u.id,
+      )
+      .reverse()
+      .map((r) => publicIntake(r, false)),
+  });
+});
+keeperRoutes.get('/inbox', (c) => {
+  const u = teacher(c);
+  return c.json({
+    items: db
+      .all<any>(
+        "SELECT b.* FROM kb_inbox b JOIN knowledge_bases k ON k.id=b.kb_id WHERE k.teacher_id=? AND k.deleted_at IS NULL AND b.sender<>'intake' AND b.status IN ('pending','running','error') ORDER BY b.id",
+        u.id,
+      )
+      .map((item) => ({ ...item, task: taskSubject(item) })),
+  });
+});
+keeperRoutes.get('/stream', (c) => {
+  const uid = teacher(c).id;
+  return streamSSE(c, async (stream) => {
+    let closed = false;
+    const unsub = bus.subscribe(`keeper:${uid}`, (msg) => {
+      if (!closed && !sessionStillActive(c)) {
+        closed = true;
+        unsub();
+        void stream.close().catch(() => {});
+        return;
+      }
+      if (!closed) void stream.writeSSE({ event: msg.event, data: JSON.stringify(msg.data) }).catch(() => {});
+    });
+    stream.onAbort(() => {
+      closed = true;
+      unsub();
+    });
+    try {
+      while (!closed) {
+        await stream.sleep(25000);
+        if (!closed) {
+          if (!sessionStillActive(c)) {
+            closed = true;
+            unsub();
+            await stream.close();
+            break;
+          }
+          await stream.writeSSE({ event: 'ping', data: '{}' });
+        }
+      }
+    } finally {
+      closed = true;
+      unsub();
+    }
   });
 });

@@ -1,9 +1,16 @@
+import { randomBytes } from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join, sep, resolve } from 'node:path';
 import { config } from '../config.js';
 import { db, now } from '../db/index.js';
-import { bus } from '../lib/bus.js';
 import { bad, conflict, notFound, HttpError } from '../lib/http.js';
+import { Desk, type SpaceState } from './agent/desk.js';
+import { runTurn, type TurnResult } from './agent/harness.js';
+import { runCommand, type Turn } from './agent/commands.js';
+import { agentPrompt, materialsRequest, outcomesSince, whereLine } from './agent/prompt.js';
+import { publish as publishEvent, record as recordEvent, type RunRef } from './agent/events.js';
+import { fileOriginals } from './agent/filing.js';
+export { planFiling } from './agent/filing.js';
 import { streamChat, type Msg, type ToolCall, type ToolSpec } from '../llm/index.js';
 import { createChange, isTidy, KEEPER_AUTHOR, checkMetadata } from './changes.js';
 import { loadKb, studentIn, students, writableKb, type KnowledgeBase } from './access.js';
@@ -13,14 +20,14 @@ import { Workspace } from './workspace.js';
 import { documentName } from './teacher-text.js';
 import { collectEvidence, type EvidenceFinding } from './evidence.js';
 import { experienceTool, placeExperience } from './experience.js';
-import { announce, loadIntake, setIntake, type Batch, type Checkpoint } from './intake/store.js';
+import { announce, loadIntake, setIntake, type Batch } from './intake/store.js';
 export { Workspace } from './workspace.js';
 
 export const KEEPER_NAME = '整理助手';
 export const keeperPrompt = (kb: KnowledgeBase) => `你是这位老师的整理助手。知识库要让一个新来的助教读完，就能照这位老师的意思办事。
 
 当前工作范围：${kb.kind === 'teacher' ? '老师的长期知识库。整理时提取课程知识和今后沿用的教法；本班本学期的安排与学情留给对应班级知识库，归属不明则留在原件中等待老师说明。内容修改提交后等老师确认；内容不变的移动会直接生效。' : '这个班级这个学期的临时知识库。内容修改提交后直接生效，老师能查看和撤回。'}
-目录由你按老师的资料和使用需要组织，可以新建、改名、移动、删除。原件和转换文字由系统标记保护，只能引用和调整位置，不能改写内容。
+目录由你按老师的资料和使用需要组织，可以新建、改名、移动、删除。原件和转换文字由系统标记保护，不能改写内容；位置由你定，和根据它写的文档放在同一个文件夹。
 学生个人情况只能记在对应班级的本人记录里，写入时指定名单里的 student_id。全班共有内容不包含个人情况，长期库不保留学生身份。归属不清先问老师，不创建虚构名单。
 
 只写资料、老师交代或本次提供的来源记录所支持的内容，不替老师补充。${kb.kind === 'teacher' ? '正文直接写教学内容；引用资料时使用资料标题和章节作为出处。' : '记录真实出处；'}依据不足的结论不要写。当前交代是这次任务，历史中已拒绝或撤回的交代不能继续执行。
@@ -199,14 +206,16 @@ export function textChunk(text: string, startLine = 1, endLine?: number, startCh
   };
 }
 
+const teacherOfKb = (kbId: number) => loadKb(kbId).teacher_id;
 function record(kbId: number, runId: number, type: string, data: Record<string, unknown>) {
-  const t = now(),
-    id = db.insert('kb_events', { run_id: runId, type, data, created_at: t });
-  bus.publish(`kb:${kbId}`, 'event', { runId, id, type, data, createdAt: t });
+  recordEvent({ teacherId: teacherOfKb(kbId), runId, kbId }, type, data);
 }
-function publishRun(kbId: number, runId: number) {
+/** 一轮的状态变了：推给老师（整理助手只有一个，按老师推），挂着的知识库也推一份 */
+function publishRun(kbId: number | null, runId: number) {
   const row = db.get<any>('SELECT * FROM kb_runs WHERE id=?', runId);
-  bus.publish(`kb:${kbId}`, 'run', publicRun(row));
+  if (!row) return;
+  const teacherId: number | null = row.teacher_id ?? (row.kb_id ? teacherOfKb(row.kb_id) : kbId ? teacherOfKb(kbId) : null);
+  if (teacherId) publishEvent({ teacherId, runId, kbId: row.kb_id ?? kbId }, 'run', publicRun(row));
 }
 const SOURCE_TOOLS: Record<string, string> = { list_source_files: 'list_files', read_source_file: 'read_file', search_source: 'search' };
 const SOURCE_LABELS: Record<string, string> = {
@@ -392,7 +401,7 @@ export async function runKbTool(kb: KnowledgeBase, ws: Workspace, call: ToolCall
     case 'delete_knowledge_base': {
       const target = findKb(kb.teacher_id, a.name);
       if (target.id === kb.id) throw bad('当前知识库不能删');
-      deleteKb(target, { onlyEmpty: true, busy: active.has(target.id) });
+      deleteKb(target, { onlyEmpty: true, busy: false });
       ws.structural = true;
       return { content: `已删除「${target.name}」`, event: { ...base, base: target.name } };
     }
@@ -400,8 +409,19 @@ export async function runKbTool(kb: KnowledgeBase, ws: Workspace, call: ToolCall
       throw bad('没有这个工具');
   }
 }
-const active = new Map<number, { runId: number; ctrl: AbortController; intakeId?: number }>();
-export const activeRun = (kbId: number) => active.get(kbId)?.runId ?? null;
+interface Busy {
+  runId: number;
+  ctrl: AbortController;
+  intakeId?: number;
+  kbId: number | null;
+}
+/** 整理助手只有一个：一位老师同一时间只做一件事（老师编号 → 正在做的那件） */
+const busy = new Map<number, Busy>();
+/** 正在跑的一轮（ct 命令凭口令找到它） */
+const turns = new Map<string, Turn>();
+export const lookupTurn = (token: string) => (token ? (turns.get(token) ?? null) : null);
+export const teacherBusy = (teacherId: number) => busy.get(teacherId) ?? null;
+export const activeRun = (kbId: number) => busy.get(teacherOfKb(kbId))?.runId ?? null;
 export function startRun(
   kbId: number,
   kind: 'materials' | 'chat' | 'summary' | 'observation',
@@ -411,9 +431,11 @@ export function startRun(
   inboxId?: number,
   studentId?: number,
 ): number {
+  // 老师跟整理助手说话走 Claude Code 外壳；学期提炼、其他助手的记录（现在没在用）照旧
+  if (kind === 'chat' && !sourceKbId && studentId === undefined && !inboxId) return startChat(user, kbId, request);
   const kb = writableKb(kbId);
   if (kb.teacher_id !== user.id) throw bad('整理任务归属不正确');
-  if (active.has(kbId)) throw conflict('整理助手正在处理上一件事，请稍后再试');
+  if (busy.has(user.id)) throw conflict('整理助手正在处理上一件事，请稍后再试');
   if (studentId !== undefined) studentIn(kbId, studentId);
   const origin = inboxId ? db.get<any>('SELECT * FROM kb_inbox WHERE id=? AND kb_id=?', inboxId, kbId) : null;
   if (inboxId && !origin) throw bad('整理来源不属于当前知识库');
@@ -423,6 +445,7 @@ export function startRun(
   }
   const runId = db.insert('kb_runs', {
     kb_id: kbId,
+    teacher_id: user.id,
     kind,
     status: 'running',
     request,
@@ -432,7 +455,7 @@ export function startRun(
     created_at: now(),
   });
   const ctrl = new AbortController();
-  active.set(kbId, { runId, ctrl });
+  busy.set(user.id, { runId, ctrl, kbId });
   publishRun(kbId, runId);
   if (inboxId)
     db.update('kb_inbox', inboxId, {
@@ -456,9 +479,9 @@ export function startRun(
       if (inboxId) db.update('kb_inbox', inboxId, { status: 'error', error: msg });
     })
     .finally(() => {
-      active.delete(kbId);
+      busy.delete(user.id);
       publishRun(kbId, runId);
-      drainInbox(kbId);
+      drainTeacher(user.id);
     });
   return runId;
 }
@@ -479,9 +502,9 @@ export function enqueueTask(kbId: number, sender: string, sourceId: string, cont
   return id;
 }
 export function drainInbox(kbId: number) {
-  if (active.has(kbId)) return;
   const kb = loadKb(kbId);
-  if (kb.status !== 'active') return;
+  if (busy.has(kb.teacher_id)) return;
+  if (kb.status !== 'active' || kb.deleted_at) return;
   const job = db.get<any>("SELECT * FROM kb_inbox WHERE kb_id=? AND status='pending' ORDER BY id LIMIT 1", kbId);
   if (!job) return;
   const user = db.get<any>("SELECT id,name FROM users WHERE id=? AND status='active'", kb.teacher_id);
@@ -504,6 +527,145 @@ export function drainInbox(kbId: number) {
     });
   }
 }
+/** 整理助手空下来了：老师各个知识库里排着的事接着做 */
+export function drainTeacher(teacherId: number) {
+  for (const k of listKbs(teacherId)) {
+    if (busy.has(teacherId)) return;
+    drainInbox(k.id);
+  }
+}
+
+/** 一段对话的编号：老师说话接着主对话（main），每次交的资料单开一段（intake:编号），几批接着说 */
+function sessionOf(teacherId: number, key: string): string | null {
+  return db.value<string>('SELECT session_id FROM keeper_sessions WHERE teacher_id=? AND key=?', teacherId, key) ?? null;
+}
+function saveSession(teacherId: number, key: string, sessionId: string | null) {
+  if (!sessionId) return;
+  db.run(
+    'INSERT INTO keeper_sessions (teacher_id,key,session_id,updated_at) VALUES (?,?,?,?) ON CONFLICT(teacher_id,key) DO UPDATE SET session_id=excluded.session_id, updated_at=excluded.updated_at',
+    teacherId,
+    key,
+    sessionId,
+    now(),
+  );
+}
+function dropSession(teacherId: number, key: string) {
+  db.run('DELETE FROM keeper_sessions WHERE teacher_id=? AND key=?', teacherId, key);
+}
+/** 对话记录丢了（换了机器、清了数据）：新开一段，把最近几次说的话带上 */
+function recentContext(teacherId: number, runId: number): string {
+  const rows = db
+    .all<any>("SELECT request, reply FROM kb_runs WHERE teacher_id=? AND id<? AND kind='chat' AND status='done' ORDER BY id DESC LIMIT 4", teacherId, runId)
+    .reverse();
+  if (!rows.length) return '';
+  return `（之前说过的：${rows.map((r) => `老师：${String(r.request).slice(0, 300)}；你：${String(r.reply || '').slice(0, 300)}`).join('；')}）\n`;
+}
+
+const AGENT_NUDGE = '（系统：你改了文件还没交。要留下就用 ct 交 交给老师；不要了就直接说一声，这些改动不会留下。）';
+
+/** 跑一轮；对话记录丢了就新开一段再来一次 */
+async function agentTurn(
+  turn: Turn,
+  user: { id: number; name: string },
+  key: string,
+  message: string,
+  opts: { maxTurns: number; turnMs: number; quietMs: number; purpose: string; signal: AbortSignal; fresh?: boolean },
+): Promise<TurnResult> {
+  const run = (sessionId: string | null, text: string) =>
+    runTurn({
+      ref: turn,
+      cwd: turn.desk.root,
+      message: text,
+      systemPrompt: agentPrompt(user.name),
+      sessionId,
+      maxTurns: opts.maxTurns,
+      turnMs: opts.turnMs,
+      quietMs: opts.quietMs,
+      token: turn.token,
+      userId: user.id,
+      purpose: opts.purpose,
+      signal: opts.signal,
+    });
+  const sid = opts.fresh ? null : sessionOf(user.id, key);
+  let r = await run(sid, message);
+  if (r.lostSession) {
+    dropSession(user.id, key);
+    r = await run(null, (key === 'main' ? recentContext(user.id, turn.runId) : '') + message);
+  }
+  saveSession(user.id, key, r.sessionId);
+  return r;
+}
+
+/** 改了没交：提醒一次，让它交或者放弃 */
+async function settle(turn: Turn, user: { id: number; name: string }, key: string, r: TurnResult, signal: AbortSignal, purpose: string) {
+  if (turn.submitted || r.error) return r;
+  await turn.desk.sync();
+  if (![...turn.desk.spaces.values()].some((ws) => ws.ops().length)) return r;
+  const again = await agentTurn(turn, user, key, AGENT_NUDGE, { maxTurns: 15, turnMs: 10 * 60_000, quietMs: 5 * 60_000, purpose, signal });
+  return { ...again, reply: again.reply || r.reply };
+}
+
+/**
+ * 老师跟整理助手说话：在哪儿说都是同一个整理助手、同一段对话。
+ * 每一轮先把老师所有的知识库摆成桌面，再接着主对话说；带上老师现在在哪、上次交的改动老师怎么处理了。
+ */
+export function startChat(user: { id: number; name: string }, kbId: number | null, message: string, file?: string | null): number {
+  if (kbId !== null) {
+    const kb = writableKb(kbId);
+    if (kb.teacher_id !== user.id) throw bad('整理任务归属不正确');
+  }
+  if (busy.has(user.id)) throw conflict('整理助手正在处理上一件事，请稍后再试');
+  const since = db.value<number>("SELECT max(created_at) FROM kb_runs WHERE teacher_id=? AND kind='chat'", user.id) ?? 0;
+  const runId = db.insert('kb_runs', { kb_id: kbId, teacher_id: user.id, kind: 'chat', status: 'running', request: message, created_by: user.id, created_at: now() });
+  const ctrl = new AbortController();
+  busy.set(user.id, { runId, ctrl, kbId });
+  publishRun(kbId, runId);
+  const ref: RunRef = { teacherId: user.id, runId, kbId };
+  void chatTurn(ref, user, message, file ?? null, since, ctrl.signal)
+    .catch((err) => {
+      const msg = ctrl.signal.aborted ? '这次已停止' : (err as Error).message;
+      if (!ctrl.signal.aborted) recordEvent(ref, 'error', { message: msg });
+      db.update('kb_runs', runId, { status: ctrl.signal.aborted ? 'canceled' : 'error', error: ctrl.signal.aborted ? null : msg, finished_at: now() });
+    })
+    .finally(() => {
+      busy.delete(user.id);
+      publishRun(kbId, runId);
+      drainTeacher(user.id);
+    });
+  return runId;
+}
+
+async function chatTurn(ref: RunRef, user: { id: number; name: string }, message: string, file: string | null, since: number, signal: AbortSignal) {
+  const desk = await Desk.open(user.id);
+  const turn: Turn = { ...ref, token: randomBytes(24).toString('hex'), kind: 'chat', desk, contextKbId: ref.kbId, submitted: false, finish: null, changes: [] };
+  turns.set(turn.token, turn);
+  try {
+    const folder = ref.kbId !== null && desk.folders.has(ref.kbId) ? desk.folderOf(ref.kbId) : null;
+    const text = [whereLine(folder, file), outcomesSince(user.id, since), message].filter(Boolean).join('\n');
+    const opts = { maxTurns: 40, turnMs: 15 * 60_000, quietMs: 5 * 60_000, purpose: 'kb:chat', signal };
+    let r = await agentTurn(turn, user, 'main', text, opts);
+    signal.throwIfAborted();
+    r = await settle(turn, user, 'main', r, signal, 'kb:chat');
+    signal.throwIfAborted();
+    let reply = r.reply;
+    if (!turn.submitted) {
+      await desk.sync();
+      if ([...desk.spaces.values()].some((ws) => ws.ops().length)) reply = `${reply ? reply + '\n\n' : ''}（这次改的没有交，没有留下）`;
+    }
+    if (r.error && !reply && !turn.changes.length) throw new Error(r.error);
+    db.update('kb_runs', ref.runId, { status: 'done', reply: reply || null, change_id: turn.changes[0]?.changeId ?? null, error: null, finished_at: now() });
+  } finally {
+    turns.delete(turn.token);
+  }
+}
+
+/** 交资料的整理落在哪个库上：老师在哪个库里交的就是哪个；在最外层交的先放在最早那个库，由整理助手再放到合适的库 */
+export function landingKb(teacherId: number): number {
+  const first = listKbs(teacherId).find((k) => k.status === 'active');
+  if (!first) throw bad('还没有知识库，先新建一个');
+  return first.id;
+}
+
 /**
  * 交给整理助手的话：分批时每批和只交一批时说法完全一样。分批是内部做法，
  * 告诉它「第几批」它会把批次写进目录和进度（2026-11-07 实测），所以不提。老师随资料说的话放在最前面。
@@ -513,9 +675,8 @@ export function batchRequest(message: string | null, paths: string[]) {
 }
 
 /**
- * 一次交的资料分批整理：每批重新开一段对话（上下文不会越堆越长），但共用同一个暂存区，
- * 后面的批次看得到前面暂存的笔记。每批做完记下暂存，中断后从下一批接着来，做完的批次不重做。
- * 全部做完才生成一次改动，长期库照旧等老师确认。
+ * 一次交的资料分批整理：这次交的资料单开一段对话，几批接着说；桌面一直摆着，后面的批次看得到前面写的。
+ * 每批做完记下各个库暂存的改动，中断后从下一批接着来，做完的批次不重做。全部做完才交一次改动，照旧等老师确认。
  */
 function startIntakeDigest(kbId: number, job: any, user: { id: number; name: string }) {
   const intakeId = Number(String(job.source_id).split(':')[0]);
@@ -528,7 +689,7 @@ function startIntakeDigest(kbId: number, job: any, user: { id: number; name: str
     return;
   }
   const ctrl = new AbortController();
-  active.set(kbId, { runId: 0, ctrl, intakeId });
+  busy.set(user.id, { runId: 0, ctrl, intakeId, kbId });
   db.update('kb_inbox', job.id, { status: 'running', error: null });
   setIntake(intakeId, { status: 'digesting', error: null });
   announce(intakeId, true);
@@ -540,9 +701,9 @@ function startIntakeDigest(kbId: number, job: any, user: { id: number; name: str
       if (loadIntake(intakeId).status === 'digesting') setIntake(intakeId, { status: 'paused', error: message });
     })
     .finally(() => {
-      active.delete(kbId);
+      busy.delete(user.id);
       announce(intakeId, true);
-      drainInbox(kbId);
+      drainTeacher(user.id);
     });
 }
 
@@ -550,6 +711,13 @@ function readableKeeperError(err: unknown) {
   const msg = String((err as Error)?.message || '');
   if (err instanceof HttpError && err.status === 409) return '整理期间知识库里的相关内容被改过，这次的整理需要重新核对';
   return msg || '整理没有完成，可以接着整理';
+}
+
+/** 断点：各个库暂存的改动（以前只记一个库的，读的时候照旧认） */
+function checkpointSpaces(intake: { kb_id: number; checkpoint: string | null }): { spaces: SpaceState[]; notes: { title: string; reason: string }[] } {
+  const cp: any = intake.checkpoint ? JSON.parse(intake.checkpoint) : null;
+  if (!cp) return { spaces: [], notes: [] };
+  return { spaces: cp.spaces ?? [{ kbId: intake.kb_id, baseSha: cp.baseSha, ops: cp.ops }], notes: cp.notes || [] };
 }
 
 async function digestIntake(kb: KnowledgeBase, intakeId: number, jobId: number, user: { id: number; name: string }, ctrl: AbortController) {
@@ -561,15 +729,22 @@ async function digestIntake(kb: KnowledgeBase, intakeId: number, jobId: number, 
     setIntake(intakeId, { status: 'done', finished_at: now() });
     return;
   }
+  // 这次交的原件按内容指纹认：整理助手把它挪到别的库，换了编号也认得出
+  const hashes = new Set(
+    db.all<{ hash: string }>('SELECT hash FROM kb_intake_items WHERE intake_id=? AND hash IS NOT NULL', intakeId).map((r) => r.hash),
+  );
+  const key = `intake:${intakeId}`;
+  let desk: Desk | null = null;
   for (let b = first.batch; b < total; b++) {
     ctrl.signal.throwIfAborted();
     const intake = loadIntake(intakeId);
-    const cp: Checkpoint | null = intake.checkpoint ? JSON.parse(intake.checkpoint) : null;
-    const ws = cp ? Workspace.restore(kb.id, cp.baseSha, cp.ops) : new Workspace(kb.id);
-    ws.carried = JSON.stringify(ws.ops());
-    const request = batchRequest(intake.message, plan[b].paths);
+    const { spaces, notes } = checkpointSpaces(intake);
+    desk ??= await Desk.open(user.id, spaces);
+    const last = b === total - 1;
+    const request = materialsRequest(intake.message, desk.folders.has(kb.id) ? desk.folderOf(kb.id) : kb.name, plan[b].paths, !!intake.route);
     const runId = db.insert('kb_runs', {
       kb_id: kb.id,
+      teacher_id: user.id,
       kind: 'materials',
       status: 'running',
       request,
@@ -577,16 +752,25 @@ async function digestIntake(kb: KnowledgeBase, intakeId: number, jobId: number, 
       intake_id: intakeId,
       created_at: now(),
     });
-    active.get(kb.id)!.runId = runId;
+    busy.get(user.id)!.runId = runId;
     db.update('kb_inbox', jobId, { run_id: runId });
     publishRun(kb.id, runId);
     announce(intakeId, true);
-    const last = b === total - 1;
-    try {
-      const notes = cp?.notes || [];
-      const r = await execute(kb, runId, 'materials', request, user, ctrl.signal, undefined, undefined, { sender: 'teacher-upload', source_id: String(intake.change_id) }, {
-        ws,
-        checkpoint: !last,
+    const turn: Turn = {
+      teacherId: user.id,
+      runId,
+      kbId: kb.id,
+      token: randomBytes(24).toString('hex'),
+      kind: 'materials',
+      desk,
+      contextKbId: null,
+      submitted: false,
+      finish: null,
+      changes: [],
+      batch: {
+        intakeId,
+        last,
+        hashes,
         requestKey: last ? `intake:${intakeId}:${intake.change_id}:final` : undefined,
         commitMeta:
           total > 1
@@ -595,14 +779,31 @@ async function digestIntake(kb: KnowledgeBase, intakeId: number, jobId: number, 
                 reason: [...notes, ...(finish ? [finish] : [])].map((n) => n.reason.trim()).filter(Boolean).join('\n'),
               })
             : undefined,
-      });
+      },
+    };
+    turns.set(turn.token, turn);
+    try {
+      const opts = { maxTurns: 80, turnMs: 30 * 60_000, quietMs: 6 * 60_000, purpose: 'kb:materials', signal: ctrl.signal, fresh: b === 0 };
+      let r = await agentTurn(turn, user, key, request, opts);
+      ctrl.signal.throwIfAborted();
+      r = await settle(turn, user, key, r, ctrl.signal, 'kb:materials');
+      ctrl.signal.throwIfAborted();
+      // 整理的东西不能白丢：提醒过还没交，就照这次交的资料替它交上去，照旧等老师确认
+      if (!turn.submitted) {
+        const auto = await runCommand(turn, ['交', '整理了这次交的资料', '']);
+        if (!auto.ok && !/没有实际改动/.test(auto.text)) throw new Error(r.error || auto.text);
+      }
       if (!last)
         setIntake(intakeId, {
           batch: b + 1,
           resumes: 0,
-          checkpoint: JSON.stringify({ baseSha: ws.baseSha, ops: ws.ops(), notes: [...notes, ...(r.finish ? [r.finish] : [])] } satisfies Checkpoint),
+          checkpoint: JSON.stringify({ spaces: desk.states(), notes: [...notes, ...(turn.finish ? [turn.finish] : [])] }),
         });
-      else setIntake(intakeId, { batch: total, status: 'done', digest_change_id: r.changeId, checkpoint: null, error: null, finished_at: now() });
+      else {
+        setIntake(intakeId, { batch: total, status: 'done', digest_change_id: turn.changes[0]?.changeId ?? null, checkpoint: null, error: null, finished_at: now() });
+        dropSession(user.id, key);
+      }
+      db.update('kb_runs', runId, { status: 'done', reply: r.reply || turn.finish?.title || null, change_id: turn.changes[0]?.changeId ?? null, finished_at: now() });
     } catch (err) {
       const msg = ctrl.signal.aborted ? '这次整理已停止' : (err as Error).message;
       // 老师自己让它停下不算出错：不记错误，页面显示「已停止」
@@ -610,52 +811,58 @@ async function digestIntake(kb: KnowledgeBase, intakeId: number, jobId: number, 
       db.update('kb_runs', runId, { status: ctrl.signal.aborted ? 'canceled' : 'error', error: ctrl.signal.aborted ? null : msg, finished_at: now() });
       throw err;
     } finally {
+      turns.delete(turn.token);
       publishRun(kb.id, runId);
     }
   }
 }
 
 export function cancelIntakeRun(kbId: number, intakeId: number) {
-  const a = active.get(kbId);
+  const a = busy.get(teacherOfKb(kbId));
   if (!a || a.intakeId !== intakeId) throw notFound('这次整理已经结束');
   a.ctrl.abort();
 }
 
-/** 整理停在中途时，老师选择「就整理到这里」：把已经暂存的部分作为一次改动交出来。 */
+/** 整理停在中途时，老师选择「就整理到这里」：把各个库已经暂存的部分作为改动交出来。 */
 export async function commitCheckpoint(kbId: number, intakeId: number, user: { id: number; name: string }) {
-  const kb = writableKb(kbId);
-  if (active.get(kbId)?.intakeId === intakeId) throw conflict('整理助手还在整理这批资料');
+  writableKb(kbId);
+  if (busy.get(user.id)?.intakeId === intakeId) throw conflict('整理助手还在整理这批资料');
   const intake = loadIntake(intakeId);
-  const cp: Checkpoint | null = intake.checkpoint ? JSON.parse(intake.checkpoint) : null;
+  const { spaces, notes } = checkpointSpaces(intake);
   let changeId: number | null = null;
-  if (cp?.ops.length) {
-    const tidy = isTidy(kbId, cp.ops);
+  for (const s of spaces.filter((x) => x.ops.length)) {
+    const kb = writableKb(s.kbId);
+    const tidy = isTidy(s.kbId, s.ops);
     const c = await createChange({
-      kbId,
+      kbId: s.kbId,
       title: '整理了这次交的一部分资料',
-      reason: cp.notes.map((n) => n.reason.trim()).filter(Boolean).join('\n'),
+      reason: notes.map((n) => n.reason.trim()).filter(Boolean).join('\n'),
       author: 'keeper',
       authorName: KEEPER_NAME,
       kind: tidy ? 'tidy' : 'keeper',
-      ops: cp.ops,
+      ops: s.ops,
       apply: kb.kind === 'class' || tidy ? { by: null, as: KEEPER_AUTHOR } : undefined,
       requestKey: `intake:${intakeId}:${intake.change_id}:partial`,
     });
-    changeId = c.id;
+    changeId ??= c.id;
   }
   db.run("UPDATE kb_inbox SET status='dismissed' WHERE kb_id=? AND sender='intake' AND source_id LIKE ? AND status IN ('pending','error')", kbId, `${intakeId}:%`);
   setIntake(intakeId, { status: 'done', digest_change_id: changeId, checkpoint: null, error: null, finished_at: now() });
+  dropSession(user.id, `intake:${intakeId}`);
   announce(intakeId, true);
-  void user;
 }
 
 export function cancelRun(kbId: number, runId: number) {
-  const a = active.get(kbId);
+  cancelTeacherRun(teacherOfKb(kbId), runId);
+}
+export function cancelTeacherRun(teacherId: number, runId: number) {
+  const a = busy.get(teacherId);
   if (!a || a.runId !== runId) throw notFound('这件事已经结束');
   a.ctrl.abort();
 }
 export function cancelForArchive(kbId: number) {
-  active.get(kbId)?.ctrl.abort();
+  const a = busy.get(teacherOfKb(kbId));
+  if (a && a.kbId === kbId) a.ctrl.abort();
 }
 const OUTCOME: Record<string, string> = {
   applied: '已生效',
@@ -723,10 +930,14 @@ async function execute(
     commitMeta?: (finish: { title: string; reason: string } | null) => { title: string; reason: string };
     /** 同一次交资料只生成一次改动：最后一批提交后、记下完成前断电，重启接着跑也不会再生成一份 */
     requestKey?: string;
+    /** 这批交的原件（交资料整理时）：整理完放到根据它写的文档旁边 */
+    files?: string[];
   } = {},
 ): Promise<{ finish: { title: string; reason: string } | null; changeId: number | null }> {
   const ws = batch.ws ?? new Workspace(kb.id, false, !sourceKbId && studentId === undefined, studentId),
     source = sourceKbId ? new Workspace(sourceKbId, true) : undefined;
+  // 按编号认这批原件，整理助手挪了位置也认得出
+  const handedIn = new Set((batch.files || []).map((p) => ws.entry(p)?.id).filter((id): id is string => !!id));
   const model = db.get<any>(
     "SELECT m.id FROM models m JOIN providers p ON p.id=m.provider_id WHERE m.model='deepseek-flash' AND m.enabled=1 AND p.enabled=1 ORDER BY m.id LIMIT 1",
   );
@@ -828,7 +1039,7 @@ async function execute(
     })) {
       if (d.type === 'text') {
         text += d.text;
-        bus.publish(`kb:${kb.id}`, 'delta', { runId, text: d.text });
+        publishEvent({ teacherId: kb.teacher_id, runId, kbId: kb.id }, 'delta', { runId, text: d.text });
       } else if (d.type === 'tool') calls.push(d.call);
     }
     if (text.trim()) {
@@ -848,6 +1059,8 @@ async function execute(
         if (finished) throw bad('本次已经结束，后续操作不执行');
         if (placement && ['write_file', 'delete_file'].includes(call.name)) throw bad('请把核对后的经验放入选定文档');
         if (KB_TOOL_NAMES.has(call.name) && !kbTools) throw bad('没有这个工具');
+        if (kind === 'materials' && call.name === 'delete_file' && ws.entry(String(call.args?.path || ''))?.sourceId)
+          throw bad('老师交的原件不能删除，要换位置请用 move_file');
         const out =
           placement && call.name === 'place_experience'
             ? placeExperience(ws, findings!, sourceInfo!, call.args, placed)
@@ -896,6 +1109,8 @@ async function execute(
   }
   signal.throwIfAborted();
   if (!finished) throw new Error('这次整理未完成，已保留工作记录，请重试');
+  // 交资料：原件放到根据它写的文档旁边，和文档一起等老师确认
+  if (kind === 'materials' && handedIn.size) await fileOriginals(ws, handedIn);
   let changeId: number | null = null;
   const ops = ws.ops();
   if (batch.checkpoint) {
@@ -962,8 +1177,14 @@ export function publicRun(r: any) {
       ? (db.get<any>('SELECT * FROM kb_inbox WHERE run_id=?', r.id) ??
         (r.intake_id ? db.get<any>("SELECT * FROM kb_inbox WHERE sender='intake' AND source_id LIKE ? ORDER BY id DESC LIMIT 1", `${r.intake_id}:%`) : null))
       : null;
+  // 一轮可能在好几个知识库里各交一份改动
+  const changes = db
+    .all<any>('SELECT c.id, c.kb_id, c.status, c.title, k.name FROM kb_changes c JOIN knowledge_bases k ON k.id=c.kb_id WHERE c.run_id=? ORDER BY c.id', r.id)
+    .map((c) => ({ id: c.id, kbId: c.kb_id, kbName: c.name, status: c.status, title: c.title }));
   return {
     id: r.id,
+    kbId: r.kb_id ?? null,
+    changes,
     kind: r.kind,
     status: r.status,
     request: r.request,

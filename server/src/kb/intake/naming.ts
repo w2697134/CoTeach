@@ -1,7 +1,7 @@
 import { KIND_LABEL, baseName, type Kind } from './kinds.js';
 
 /**
- * 老师的文件夹、文件名原样带进知识库「资料」里；系统不允许的字符换成相近的全角字符。
+ * 老师的文件夹、文件名原样带进知识库（先放在最外层，整理完跟着整理助手写的文档进文件夹）；系统不允许的字符换成相近的全角字符。
  * 同一文件夹里同名不同类型（「第1章」幻灯片和「第1章」PDF）各自加上类型，不会互相覆盖。
  */
 const FULLWIDTH: Record<string, string> = { ':': '：', '*': '＊', '?': '？', '"': '＂', '<': '＜', '>': '＞', '|': '｜', '\\': '＼' };
@@ -93,8 +93,8 @@ export function assignPaths(requests: PathRequest[], taken: Set<string>): Map<nu
       const n = (seen.get(name) || 0) + 1;
       seen.set(name, n);
       if (n > 1) name = `${name}（${n}）`;
-      let path = fit(`资料/${f.dir ? f.dir + '/' : ''}${name}.md`);
-      for (let k = 2; used.has(path.toLocaleLowerCase()) || dirClash(path, used); k++) path = fit(`资料/${f.dir ? f.dir + '/' : ''}${name}（${k}）.md`);
+      let path = fit(`${f.dir ? f.dir + '/' : ''}${name}.md`);
+      for (let k = 2; used.has(path.toLocaleLowerCase()) || dirClash(path, used); k++) path = fit(`${f.dir ? f.dir + '/' : ''}${name}（${k}）.md`);
       used.add(path.toLocaleLowerCase());
       result.set(f.id, path);
     }

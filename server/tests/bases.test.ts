@@ -14,7 +14,7 @@ const repo = await import('../src/kb/repo.js');
 const changes = await import('../src/kb/changes.js');
 const bases = await import('../src/kb/bases.js');
 const access = await import('../src/kb/access.js');
-const { Workspace, runTool, runKbTool } = await import('../src/kb/keeper.js');
+const { Workspace, runTool, runKbTool, planFiling } = await import('../src/kb/keeper.js');
 const { createApp } = await import('../src/app.js');
 const app = createApp();
 
@@ -210,6 +210,27 @@ test('整理助手操作知识库：用名字指代，立即生效，只删空�
     await assert.rejects(runKbTool(kb, ws, call('move_to_knowledge_base', { paths: ['待改.md'], to: '递归' }), 0), /还没提交/);
     assert.ok(paths(first).includes('待改.md'));
   });
+});
+
+test('交资料整理完：原件挪到这次写的同名文档旁边，撞名加「（原件）」；没同名的看正文书名号；找不到就不动', () => {
+  const files = [
+    { id: 'o1', path: '第6章 函数基础.md', protected: true },
+    { id: 'o2', path: '第7章 递归 教案.md', protected: true },
+    { id: 'o3', path: '课程大纲.md', protected: true },
+    { id: 'o4', path: '杂项.md', protected: true },
+    { id: 'o5', path: '第8章/第8章 文件.md', protected: true },
+    { id: 'n1', path: '第4章 函数/第6章 函数基础.md', pending: '待提交' },
+    { id: 'n2', path: '第4章 函数/递归 教学设计.md', pending: '待提交' },
+    { id: 'n3', path: '课程说明/课程大纲 使用说明.md', pending: '待提交' },
+    { id: 'n4', path: '第8章/第8章 要点.md', pending: '' },
+    // 不是这次交的原件，不管它在哪
+    { id: 'x', path: '旧资料/讲义.md', protected: true },
+  ];
+  const text: Record<string, string> = { '第4章 函数/递归 教学设计.md': '出处：《第7章 递归 教案》第二节' };
+  assert.deepEqual(planFiling(files, new Set(['o1', 'o2', 'o3', 'o4', 'o5']), (p) => text[p] || ''), [
+    { from: '第6章 函数基础.md', to: '第4章 函数/第6章 函数基础（原件）.md' },
+    { from: '第7章 递归 教案.md', to: '第4章 函数/第7章 递归 教案.md' },
+  ]);
 });
 
 test.after(async () => {
