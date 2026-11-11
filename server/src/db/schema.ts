@@ -359,3 +359,9 @@ CREATE TABLE keeper_sessions (
 );
 ALTER TABLE kb_intakes ADD COLUMN route INTEGER NOT NULL DEFAULT 0;
 `);
+
+// 第 7 次：老师跟整理助手说话可以带文件（2026-11-11）。带的文件照旧一份份读，读完不直接进知识库，
+// 交给这句话的整理助手看，由它按老师的话决定存不存、存哪；记下是哪句话带的。
+migrations.push(`
+ALTER TABLE kb_intakes ADD COLUMN run_id INTEGER REFERENCES kb_runs(id);
+`);

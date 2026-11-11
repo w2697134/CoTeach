@@ -1,15 +1,18 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowUp, BookOpen, Check, ChevronDown, FilePlus, FolderOpen, FolderSearch, MoveRight, OctagonX, PenLine, Search, Send, Trash2, Upload, X } from 'lucide-react';
+import { ArrowUp, BookOpen, Check, ChevronDown, FilePlus, FileText, FolderInput, FolderOpen, FolderSearch, MoveRight, OctagonX, Paperclip, PenLine, Search, Send, Trash2, Upload, X } from 'lucide-react';
 import { get, post } from '../../lib/api';
 import { toast, useAuth } from '../../lib/store';
 import { Markdown } from '../../components/Markdown';
 import { AgentAvatar, Alert, Avatar, Badge, Button, IconButton, MenuItem, Popover, Skeleton, Textarea, cn } from '../../components/ui';
 import { changedPages, useChangeActions } from './Changes';
 import { IntakeCard } from './IntakeCard';
-import { handIn, pastedFiles, pickedFromDrop, pickedFromList, uploadingHere, useKeeperIntakes, type Intake, type Picked } from './intake';
+import { pastedFiles, pickedFromDrop, pickedFromList, sendMessage, uploadingHere, useKeeperIntakes, type Intake, type Picked } from './intake';
+import { MaterialIcon } from './Files';
 import { readableError, toolPresentation, when } from './presentation';
 import { KEEPER, STATUS_TEXT, STATUS_TONE, plainText, useChanges, useKeeperRuns, useKeeperStream, useKnowledgeBases, type Run, type RunEvent } from './data';
+
+const SHOWN = /\.(png|jpe?g|gif|webp)$/i;
 
 const TOOL_ICON: Record<string, typeof BookOpen> = {
   list_files: FolderSearch,
@@ -17,6 +20,7 @@ const TOOL_ICON: Record<string, typeof BookOpen> = {
   search: Search,
   write_file: PenLine,
   edit_file: PenLine,
+  save_file: FolderInput,
   delete_file: Trash2,
   move_file: MoveRight,
   finish: Send,
@@ -85,6 +89,34 @@ function ChangeCard({ cid, changeId, title, kbName, onOpen }: { cid: number; cha
   );
 }
 
+/** 老师那句话带的文件：图片显示小图，点开看大图；别的显示文件名；没读出来的写原因 */
+function Sent({ run }: { run: Run }) {
+  const items = run.attachments || [];
+  return (
+    <div className="flex flex-wrap justify-end gap-2">
+      {items.map((a) => {
+        const raw = `/api/knowledge/${a.kbId}/intakes/${a.intakeId}/items/${a.id}/raw`;
+        const name = a.name.split('/').pop() || a.name;
+        return a.kind === 'image' && SHOWN.test(a.name) && a.status !== 'uploading' ? (
+          <a key={a.id} href={`${raw}?inline=1`} target="_blank" rel="noreferrer" title={name}>
+            <img src={`${raw}?inline=1`} alt={name} className="max-h-40 max-w-[220px] rounded-xl border border-line object-cover" />
+          </a>
+        ) : (
+          <div key={a.id} title={name} className="flex max-w-[220px] items-center gap-2 rounded-xl border border-line bg-surface px-3 py-2 text-left">
+            <MaterialIcon file={{ source: { kind: a.kind } }} className="size-5" />
+            <span className="min-w-0">
+              <span className="block truncate text-[13px] text-ink">{name}</span>
+              {a.status === 'uploading' && <span className="block text-[12px] text-ink-3">上传中</span>}
+              {(a.status === 'failed' || a.status === 'skipped') && <span className="block truncate text-[12px] text-bad">{a.reason || '没读出来'}</span>}
+            </span>
+          </div>
+        );
+      })}
+      {!!run.moreAttachments && <span className="self-center text-[12px] text-ink-3">还有 {run.moreAttachments} 份</span>}
+    </div>
+  );
+}
+
 function RunBlock({
   run,
   live,
@@ -121,8 +153,16 @@ function RunBlock({
     <div className="space-y-3">
       {run.kind === 'chat' ? (
         <div className="flex justify-end gap-2">
-          <div className="max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-tr-md bg-brand px-3.5 py-2 text-[14px] leading-relaxed text-white">
-            {plainText(run.request)}
+          <div className="flex min-w-0 max-w-[85%] flex-col items-end gap-1.5">
+            {!!run.attachments?.length && <Sent run={run} />}
+            {run.request && (
+              <div className="whitespace-pre-wrap rounded-2xl rounded-tr-md bg-brand px-3.5 py-2 text-[14px] leading-relaxed text-white">{plainText(run.request)}</div>
+            )}
+            {run.receiving && (
+              <p className="text-[12px] text-ink-3">
+                {run.receiving.status === 'uploading' ? '正在收文件' : `正在读文件 ${Math.min(run.receiving.done + 1, run.receiving.total)}/${run.receiving.total}`}
+              </p>
+            )}
           </div>
           <Avatar name={user?.name} seed={user?.id} size={28} className="mt-0.5" />
         </div>
@@ -212,6 +252,7 @@ export function HandInButton({
   size = 'sm',
   variant = 'ghost',
   compact = false,
+  clip = false,
 }: {
   onPick: (files: Picked[]) => void;
   disabled?: boolean;
@@ -219,6 +260,8 @@ export function HandInButton({
   variant?: 'ghost' | 'primary' | 'secondary';
   /** 手机上只留图标，给旁边的路径腾地方 */
   compact?: boolean;
+  /** 输入框里那个：只显示回形针 */
+  clip?: boolean;
 }) {
   const fileInput = useRef<HTMLInputElement>(null);
   const folderInput = useRef<HTMLInputElement>(null);
@@ -232,11 +275,17 @@ export function HandInButton({
       <Popover
         align="start"
         width={160}
-        trigger={({ toggle }) => (
-          <Button size={size} variant={variant} icon={<Upload className="size-4" />} disabled={disabled} onClick={toggle} title="交资料">
-            <span className={compact ? 'max-sm:sr-only' : undefined}>交资料</span>
-          </Button>
-        )}
+        trigger={({ toggle }) =>
+          clip ? (
+            <IconButton label="加文件" onClick={toggle} disabled={disabled}>
+              <Paperclip className="size-[18px]" />
+            </IconButton>
+          ) : (
+            <Button size={size} variant={variant} icon={<Upload className="size-4" />} disabled={disabled} onClick={toggle} title="交资料">
+              <span className={compact ? 'max-sm:sr-only' : undefined}>交资料</span>
+            </Button>
+          )
+        }
       >
         {(close) => (
           <div onClick={close}>
@@ -276,6 +325,7 @@ function statusLine(intakes: Intake[], run: Run | undefined, pending: number, ar
     return `正在读第 ${Math.min(c.done + c.same + c.failed + c.skipped + 1, busy.total)}/${busy.total} 份`;
   }
   if (busy?.status === 'digesting') return busy.batches > 1 ? `正在整理第 ${Math.min(busy.batch + 1, busy.batches)}/${busy.batches} 批` : '正在整理';
+  if (run?.receiving) return run.receiving.status === 'uploading' ? '正在收文件' : '正在读文件';
   if (run) return run.kind === 'chat' ? '正在处理' : '正在整理';
   if (pending) return `有 ${pending} 处改动等你确认`;
   return '';
@@ -326,7 +376,7 @@ export const KeeperPanel = forwardRef<
   // 交资料和整理记录按时间排在一起
   const timeline = [
     ...runs.map((run) => ({ at: run.createdAt, key: `r${run.id}`, run })),
-    ...intakeList.map((intake) => ({ at: intake.createdAt, key: `i${intake.id}`, intake })),
+    ...intakeList.filter((intake) => !intake.runId).map((intake) => ({ at: intake.createdAt, key: `i${intake.id}`, intake })),
   ].sort((a, b) => a.at - b.at);
   const activeId = q.data?.activeRunId ?? null;
   const activeRun = runs.find((r) => r.status === 'running');
@@ -350,27 +400,49 @@ export const KeeperPanel = forwardRef<
     };
   }, []);
 
-  // 交资料：输入框里写的话跟着资料一起交，交完清空，并回到最新的一条
-  const give = (files: Picked[]) => {
+  // 发东西就是发消息带附件：选的、拖进来的、粘贴的文件先摆在输入框上方，写不写话都行，一起发出去
+  const [attached, setAttached] = useState<{ key: string; picked: Picked; url: string | null }[]>([]);
+  const composer = useRef<HTMLDivElement>(null);
+  const attachedRef = useRef(attached);
+  attachedRef.current = attached;
+  useEffect(() => () => attachedRef.current.forEach((a) => a.url && URL.revokeObjectURL(a.url)), []);
+  const attach = (files: Picked[]) => {
     if (!files.length || archived) return;
-    const message = text.trim();
-    setText('');
-    stick.current = true;
-    void handIn(qc, kbId, files, message);
+    setAttached((prev) => {
+      const seen = new Set(prev.map((a) => a.key));
+      const add = files
+        .filter((p) => !seen.has(`${p.path}:${p.file.size}`))
+        .map((p) => ({ key: `${p.path}:${p.file.size}`, picked: p, url: p.file.type.startsWith('image/') ? URL.createObjectURL(p.file) : null }));
+      return [...prev, ...add];
+    });
+    requestAnimationFrame(() => composer.current?.querySelector('textarea')?.focus());
   };
-  useImperativeHandle(ref, () => ({ handIn: give }));
+  const detach = (key: string) =>
+    setAttached((prev) => {
+      const a = prev.find((x) => x.key === key);
+      if (a?.url) URL.revokeObjectURL(a.url);
+      return prev.filter((x) => x.key !== key);
+    });
+  useImperativeHandle(ref, () => ({ handIn: attach }));
 
   const send = async () => {
     const msg = text.trim();
-    if (!msg || archived || busy) return;
+    if ((!msg && !attached.length) || archived || busy || sending) return;
     setSending(true);
     // 发了话就回到最新的一条，看得到自己说的和它的回答
     stick.current = true;
     try {
-      // 很长的一段（教案、讲稿）服务器会按一份资料收下再消化
-      const r = await post<{ runId?: number; intakeId?: number }>('/keeper/runs', { message: msg, kbId, file: file ?? null });
+      // 很长的一段（教案、讲稿）服务器会当一份文件交给它
+      await sendMessage(
+        msg,
+        kbId,
+        file ?? null,
+        attached.map((a) => a.picked),
+      );
       setText('');
-      qc.invalidateQueries({ queryKey: [r.intakeId ? 'keeper-intakes' : 'keeper-runs'] });
+      attached.forEach((a) => a.url && URL.revokeObjectURL(a.url));
+      setAttached([]);
+      qc.invalidateQueries({ queryKey: ['keeper-runs'] });
     } catch (err) {
       toast.fromError(err);
     } finally {
@@ -474,10 +546,35 @@ export const KeeperPanel = forwardRef<
           if (archived || !e.dataTransfer.types.includes('Files')) return;
           e.preventDefault();
           e.stopPropagation();
-          void pickedFromDrop(e.dataTransfer).then(give);
+          void pickedFromDrop(e.dataTransfer).then(attach);
         }}
       >
-        <div className="rounded-2xl border border-line bg-surface shadow-xs transition-colors focus-within:border-brand/50">
+        <div ref={composer} className="rounded-2xl border border-line bg-surface shadow-xs transition-colors focus-within:border-brand/50">
+          {attached.length > 0 && (
+            <div className="flex flex-wrap gap-2 px-3 pt-3">
+              {attached.slice(0, 12).map((a) => (
+                <div key={a.key} className="relative">
+                  {a.url ? (
+                    <img src={a.url} alt="" className="size-16 rounded-lg border border-line object-cover" />
+                  ) : (
+                    <div className="flex h-16 w-36 items-center gap-2 rounded-lg border border-line bg-surface-2 px-2.5">
+                      <FileText className="size-5 shrink-0 text-ink-3" />
+                      <span className="line-clamp-2 min-w-0 break-all text-[12px] leading-4 text-ink-2">{a.picked.path.split('/').pop()}</span>
+                    </div>
+                  )}
+                  <button
+                    type="button"
+                    aria-label="去掉"
+                    onClick={() => detach(a.key)}
+                    className="absolute -right-1.5 -top-1.5 flex size-5 items-center justify-center rounded-full bg-ink/70 text-white hover:bg-ink"
+                  >
+                    <X className="size-3" />
+                  </button>
+                </div>
+              ))}
+              {attached.length > 12 && <span className="self-center text-[12px] text-ink-3">还有 {attached.length - 12} 份</span>}
+            </div>
+          )}
           <Textarea
             autoGrow
             maxRows={8}
@@ -485,10 +582,10 @@ export const KeeperPanel = forwardRef<
             value={text}
             onChange={(e) => setText(e.target.value)}
             onPaste={(e) => {
-              // 截图、复制的文件直接粘贴进来，当资料交
+              // 截图、复制的文件直接粘贴进来，摆在输入框上方，跟这句话一起发
               if (archived || !e.clipboardData.files.length) return;
               e.preventDefault();
-              give(pastedFiles(e.clipboardData.files));
+              attach(pastedFiles(e.clipboardData.files));
             }}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
@@ -501,11 +598,11 @@ export const KeeperPanel = forwardRef<
             className="min-h-0 resize-none border-0 bg-transparent px-3.5 pb-1 pt-3 shadow-none! focus:ring-0"
           />
           <div className="flex items-center justify-between gap-2 px-2 pb-2">
-            {archived ? <span /> : <HandInButton onPick={give} />}
+            {archived ? <span /> : <HandInButton clip onPick={attach} disabled={busy} />}
             <button
               type="button"
               onClick={send}
-              disabled={!text.trim() || busy || sending || archived}
+              disabled={(!text.trim() && !attached.length) || busy || sending || archived}
               aria-label="发送"
               className="inline-flex size-9 shrink-0 items-center justify-center rounded-xl bg-brand text-white transition-colors hover:bg-brand-hover disabled:opacity-40"
             >

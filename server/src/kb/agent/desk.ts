@@ -9,7 +9,7 @@
 import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { config } from '../../config.js';
-import { bad, notFound } from '../../lib/http.js';
+import { bad, conflict, notFound } from '../../lib/http.js';
 import { loadKb, type KnowledgeBase } from '../access.js';
 import { listKbs } from '../bases.js';
 import { cleanPath, type FileOp } from '../repo.js';
@@ -22,6 +22,8 @@ export interface SpaceState {
 }
 
 export const agentDir = (teacherId: number) => join(config.dataDir, 'agent', String(teacherId));
+/** 桌面最外层放老师这句话带来的文件的地方（只读，不是知识库）。每一轮桌面重新摆，里面只有这一句的文件 */
+export const INBOX = '老师发来的';
 
 /** 知识库的名字当文件夹名：系统不允许的字符换成相近的全角字符 */
 function folderName(name: string) {
@@ -147,7 +149,7 @@ export class Desk {
     const problems: string[] = [];
     const known = new Set([...this.folders.values()]);
     for (const name of existsSync(this.root) ? readdirSync(this.root) : []) {
-      if (name.startsWith('.') || known.has(name)) continue;
+      if (name.startsWith('.') || known.has(name) || name === INBOX) continue;
       problems.push(`「${name}」不在任何知识库里：最外层只放知识库的文件夹，要新建知识库用 ct 新建库`);
     }
     for (const [kbId, folder] of this.folders) {
@@ -196,24 +198,77 @@ export class Desk {
     return all.filter((p) => p === path || p.startsWith(path + '/'));
   }
 
-  /** 同一个知识库里挪（改名）：Workspace 记下身份，文件夹里跟着挪 */
-  async moveWithin(kbId: number, from: string, to: string): Promise<string[]> {
+  /**
+   * 同一个知识库里挪（改名）：Workspace 记下身份，文件夹里跟着挪。
+   * 像电脑上拖文件：挪到一个已有的文件夹（或者写成「文件夹/」、只写库名），就是放进去。
+   * 先查好再动；动到一半出错就全部退回。以前记录先挪、文件没挪过去，原件就丢了「原件」身份（2026-11-11）。
+   */
+  async moveWithin(kbId: number, from: string, to: string, intoFolder = false): Promise<{ to: string; moved: string[] }> {
     const ws = this.spaces.get(kbId)!;
-    const paths = await this.pathsUnder(kbId, from);
-    if (!paths.length) throw notFound(`没有「${this.folderOf(kbId)}/${from}」`);
+    const all = (await ws.list()).map((f) => f.path);
+    const where = (p: string) => `「${this.folderOf(kbId)}${p ? '/' + p : ''}」`;
+    const paths = all.filter((p) => p === from || p.startsWith(from + '/'));
+    if (!paths.length) throw notFound(`没有${where(from)}`);
+    const isFolder = (p: string) => !p || all.some((x) => x.startsWith(p + '/')) || (existsSync(this.abs(kbId, p)) && statSync(this.abs(kbId, p)).isDirectory());
+    if (intoFolder || (to !== from && isFolder(to))) to = [to, from.split('/').pop()].filter(Boolean).join('/');
+    if (to === from) throw bad(`${where(from)}已经在那里了`);
+    if (to.startsWith(from + '/')) throw bad('不能挪进它自己里面');
     const moves = paths.map((p) => ({ from: p, to: p === from ? to : to + p.slice(from.length) }));
-    for (const m of moves) ws.move(m.from, m.to);
+    // 先查：目标位置不能已经有文件或文件夹，也不能放在一个文件「里面」
+    const moving = new Set(paths);
+    const staying = all.filter((p) => !moving.has(p)).map((p) => p.toLocaleLowerCase());
+    const taken = new Set(staying);
     for (const m of moves) {
-      const a = this.abs(kbId, m.from),
-        b = this.abs(kbId, m.to);
-      mkdirSync(dirname(b), { recursive: true });
-      const ro = !(statSync(a).mode & 0o200);
-      loosen(a);
-      renameSync(a, b);
-      if (ro) chmodSync(b, 0o444);
+      const t = m.to.toLocaleLowerCase();
+      if (taken.has(t)) throw conflict(`${where(m.to)}已经有了；换个名字，或者先挪走、删掉那份`);
+      if (staying.some((p) => p.startsWith(t + '/'))) throw conflict(`${where(m.to)}是一个文件夹；要放进去就写「${m.to}/」`);
+      const parts = m.to.split('/');
+      for (let i = 1; i < parts.length; i++)
+        if (taken.has(parts.slice(0, i).join('/').toLocaleLowerCase())) throw bad(`${where(parts.slice(0, i).join('/'))}是文件，不是文件夹`);
+    }
+    const recorded: typeof moves = [],
+      renamed: { a: string; b: string; ro: boolean }[] = [];
+    try {
+      for (const m of moves) {
+        ws.move(m.from, m.to);
+        recorded.push(m);
+      }
+      for (const m of moves) {
+        const a = this.abs(kbId, m.from),
+          b = this.abs(kbId, m.to);
+        const ro = !(statSync(a).mode & 0o200);
+        loosen(a);
+        try {
+          mkdirSync(dirname(b), { recursive: true });
+          renameSync(a, b);
+        } catch (err) {
+          if (ro) chmodSync(a, 0o444);
+          throw bad(`${where(m.from)}没挪成（${(err as NodeJS.ErrnoException).code || '文件系统出错'}），已经退回原样`);
+        }
+        if (ro) chmodSync(b, 0o444);
+        renamed.push({ a, b, ro });
+      }
+    } catch (err) {
+      // 退回：文件挪回原处，记录也挪回去，记录和文件夹始终对得上
+      for (const r of renamed.reverse())
+        try {
+          loosen(r.b);
+          renameSync(r.b, r.a);
+          if (r.ro) chmodSync(r.a, 0o444);
+        } catch {
+          /* 挪不回去的，下次对账（sync）按文件夹里的样子记 */
+        }
+      for (const m of recorded.reverse())
+        try {
+          ws.move(m.to, m.from);
+        } catch {
+          /* 同上 */
+        }
+      for (const m of moves) this.prune(kbId, m.to);
+      throw err;
     }
     this.prune(kbId, from);
-    return moves.map((m) => m.to);
+    return { to, moved: moves.map((m) => m.to) };
   }
 
   /** 删掉：Workspace 记下删除，文件夹里跟着删 */
@@ -277,6 +332,34 @@ export class Desk {
     wipe(this.abs(kbId, ''));
     this.folders.delete(kbId);
     this.spaces.delete(kbId);
+  }
+
+  /** 老师这句话带的文件摆进「老师发来的」，只读 */
+  stageInbox(files: { rel: string; bytes: Buffer }[]): string {
+    const dir = join(this.root, INBOX);
+    for (const f of files) {
+      const abs = join(dir, ...f.rel.split('/'));
+      mkdirSync(dirname(abs), { recursive: true });
+      writeFileSync(abs, f.bytes);
+      chmodSync(abs, 0o444);
+    }
+    return INBOX;
+  }
+
+  /** 刚存进知识库的原件也摆上这个库的文件夹（只读），这个库按新的版本重新起，暂存的改动照旧 */
+  async placeSaved(kbId: number, paths: string[]) {
+    const ws = this.spaces.get(kbId)!;
+    this.rebase(kbId, ws.ops());
+    const fresh = this.spaces.get(kbId)!;
+    for (const p of paths) {
+      const bytes = fresh.bytesOf(p);
+      if (!bytes) continue;
+      const abs = this.abs(kbId, p);
+      mkdirSync(dirname(abs), { recursive: true });
+      loosen(abs);
+      writeFileSync(abs, bytes);
+      chmodSync(abs, 0o444);
+    }
   }
 
   /** 各个知识库这次暂存的改动（分批整理时记下来，断了从这里接着） */

@@ -41,6 +41,23 @@ export function outcomesSince(teacherId: number, since: number): string {
   return lines.length ? `（系统记录：${lines.join('；')}）` : '';
 }
 
+/**
+ * 老师这句话带的文件（2026-11-11 起，交资料就是说话带附件）：告诉它文件摆在哪、各是什么、哪些没读出来。
+ * 怎么用这些文件只在这里说，不写进 agentPrompt：没带文件的时候用不着。
+ */
+export function inboxBlock(root: string, files: { rel: string; note: string }[], failed: { name: string; reason: string }[]) {
+  const lines = files.map((f) => `${root}/${f.rel}${f.note ? `（${f.note}）` : ''}`);
+  const bad = failed.length ? `\n没读出来的：${failed.map((f) => `${f.name}（${f.reason}）`).join('；')}` : '';
+  return `（文件在「${root}」文件夹里，只读；要存进知识库用 ct 存：\n${lines.join('\n')}${bad}）`;
+}
+
+/** 老师只发了文件、没写话：在哪个库里发的就存进哪个库，在最外层发的看内容存进合适的库；都要整理好（和以前交资料一样） */
+export function noWordsRequest(folder: string | null) {
+  return folder
+    ? `（老师只发了文件，没写话：存进「${folder}」，整理好）`
+    : '（老师只发了文件，没写话：看内容存进合适的知识库，没有合适的就新建一个，整理好）';
+}
+
 /** 交资料：在某个知识库里交的就整理进这个库；在最外层交的，系统先放在一个库的最外层，由整理助手看内容放到合适的库 */
 export function materialsRequest(message: string | null, folder: string, paths: string[], route: boolean) {
   const lead = message?.trim() ? message.trim() + '\n\n' : '';

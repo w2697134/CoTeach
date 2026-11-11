@@ -5,7 +5,7 @@ import { db, j, now } from '../../db/index.js';
 import { bad, conflict, forbidden, notFound } from '../../lib/http.js';
 import { identityHits, loadKb, writableKb } from '../access.js';
 import { createChange, teacherAuthor } from '../changes.js';
-import { enqueueTask, drainInbox, cancelIntakeRun, INTERRUPTED } from '../keeper.js';
+import { enqueueTask, drainInbox, cancelIntakeRun, attachmentsRead, INTERRUPTED } from '../keeper.js';
 import { addSource, hashBytes, manifest, readEntry, type FileOp } from '../repo.js';
 import { documentName } from '../teacher-text.js';
 import { kindFromExt, extOf, isSystemJunk, type Kind } from './kinds.js';
@@ -65,7 +65,7 @@ function ensureDisk(need: number) {
 export function createIntake(
   kbId: number,
   user: { id: number; name: string },
-  input: { message?: string | null; text?: string | null; files: NewFile[]; route?: boolean },
+  input: { message?: string | null; text?: string | null; files: NewFile[]; route?: boolean; runId?: number },
 ) {
   writableKb(kbId);
   // 系统文件要按原名认（.DS_Store、._讲义.docx），清理名字时会去掉开头的点，清理后就认不出来了
@@ -89,6 +89,7 @@ export function createIntake(
       message: input.message?.trim() || null,
       // 在最外层交的：先放在这个库的最外层，整理助手看内容再放到合适的库
       route: input.route ? 1 : 0,
+      run_id: input.runId ?? null,
       status: 'uploading',
       created_at: t,
       updated_at: t,
@@ -400,6 +401,12 @@ function cleanStage(id: number) {
 
 async function publish(id: number) {
   const intake = loadIntake(id);
+  // 跟整理助手说话带的文件：读完交给那句话的整理助手看，由它决定存不存、存哪
+  if (intake.run_id) {
+    setIntake(id, { status: 'done', finished_at: now() });
+    attachmentsRead(intake.run_id, id);
+    return;
+  }
   const kb = loadKb(intake.kb_id);
   const user = db.get<{ id: number; name: string }>('SELECT id,name FROM users WHERE id=?', intake.created_by)!;
   const items = intakeItems(id);

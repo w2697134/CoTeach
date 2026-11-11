@@ -27,7 +27,10 @@ import {
   cancelRun,
   cancelForArchive,
   cancelTeacherRun,
+  attachIntake,
+  failFileRun,
   landingKb,
+  openFileRun,
   publicRun,
   startChat,
   startRun,
@@ -532,6 +535,15 @@ kbRoutes.get('/:id/intakes/:iid/items/:item/raw', (c) => {
   const item = db.get<any>('SELECT * FROM kb_intake_items WHERE id=? AND intake_id=?', intParam(c, 'item'), row.id);
   // 读不了的文件交完就清理了，原件不在时照实说
   if (!item?.hash || !existsSync(blobPath(item.hash))) throw notFound('这份文件没有收到或已经清理');
+  // 对话里的小图：常见图片原样显示，别的照旧下载
+  const shown = ({ png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp' } as Record<string, string>)[
+    String(item.name).split('.').pop()?.toLowerCase() || ''
+  ];
+  if (c.req.query('inline') && shown) {
+    c.header('Content-Type', shown);
+    c.header('Content-Disposition', 'inline');
+    return c.body(new Uint8Array(readFileSync(blobPath(item.hash))));
+  }
   c.header('Content-Type', 'application/octet-stream');
   c.header('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(item.name.split('/').pop())}`);
   return c.body(new Uint8Array(readFileSync(blobPath(item.hash))));
@@ -812,6 +824,41 @@ keeperRoutes.post('/runs', async (c) => {
     return c.json({ intakeId: createIntake(kbId ?? landingKb(u.id), u, { text: d.message, files: [], route: kbId === null }).intake.id });
   return c.json({ runId: startChat(u, kbId, d.message, d.file ?? null) });
 });
+/**
+ * 跟整理助手说一句话，可以带文件（像聊天发附件）：先登记这句话和要传的文件，页面接着分块上传；
+ * 文件读完交给整理助手看，由它按老师的话决定存不存、存哪。很长的一段话也当一份文件交给它。
+ */
+keeperRoutes.post('/messages', async (c) => {
+  const u = teacher(c);
+  const d = await body(
+    c,
+    z.object({
+      message: z.string().max(2_000_000).optional(),
+      kbId: z.number().int().positive().nullable().optional(),
+      file: z.string().max(400).nullable().optional(),
+      files: z.array(z.object({ name: z.string().min(1).max(1000), size: z.number().int().min(0) })).max(1000).optional(),
+    }),
+  );
+  const kbId = d.kbId ?? null;
+  if (kbId !== null) ownKb(u, kbId);
+  const files = d.files || [];
+  let message = (d.message || '').trim();
+  const pasted = message.length > LONG_PASTE ? message : null;
+  if (pasted) message = '';
+  if (!files.length && !pasted) {
+    if (!message) throw bad('写点什么，或者带上文件');
+    return c.json({ runId: startChat(u, kbId, message, d.file ?? null) });
+  }
+  const runId = openFileRun(u, kbId, message, d.file ?? null);
+  try {
+    const created = createIntake(kbId ?? landingKb(u.id), u, { files, text: pasted, runId });
+    attachIntake(runId, created.intake.id);
+    return c.json({ runId, ...created });
+  } catch (err) {
+    failFileRun(u.id, runId, (err as Error).message);
+    throw err;
+  }
+});
 keeperRoutes.post('/runs/:rid/cancel', (c) => {
   cancelTeacherRun(teacher(c).id, intParam(c, 'rid'));
   return c.json({ ok: true });
@@ -858,7 +905,7 @@ keeperRoutes.get('/intakes', (c) => {
   return c.json({
     intakes: db
       .all<any>(
-        'SELECT i.* FROM kb_intakes i JOIN knowledge_bases k ON k.id=i.kb_id WHERE k.teacher_id=? AND k.deleted_at IS NULL ORDER BY i.id DESC LIMIT 50',
+        'SELECT i.* FROM kb_intakes i JOIN knowledge_bases k ON k.id=i.kb_id WHERE k.teacher_id=? AND k.deleted_at IS NULL AND i.run_id IS NULL ORDER BY i.id DESC LIMIT 50',
         u.id,
       )
       .reverse()

@@ -99,12 +99,27 @@ export interface RunEvent {
   createdAt: number;
 }
 
+export interface Attachment {
+  id: number;
+  intakeId: number;
+  kbId: number;
+  name: string;
+  kind: string;
+  status: string;
+  reason: string | null;
+  path: string | null;
+}
 export interface Run {
   id: number;
   /** 这一轮挂在哪个知识库上（老师在最外层说的话为空） */
   kbId?: number | null;
   /** 这一轮在各个知识库里交的改动 */
   changes?: { id: number; kbId: number; kbName: string; status: ChangeStatus; title: string }[];
+  /** 老师这句话带的文件 */
+  attachments?: Attachment[] | null;
+  moreAttachments?: number;
+  /** 带的文件还在收、在读 */
+  receiving?: { status: string; done: number; total: number } | null;
   kind: 'materials' | 'chat' | 'summary' | 'observation';
   status: 'running' | 'done' | 'error' | 'canceled';
   request: string;
@@ -266,7 +281,33 @@ export function useKeeperStream() {
       },
       delta: (d: { runId: number; text: string }) =>
         setLive((prev) => (prev && prev.runId === d.runId ? { runId: d.runId, text: prev.text + d.text } : { runId: d.runId, text: d.text })),
-      intake: (intake: Intake) => putIntake(qc, intake.kbId, intake),
+      intake: (intake: Intake) => {
+        putIntake(qc, intake.kbId, intake);
+        // 老师这句话带的文件：那句话下面的进度跟着走，读完了再取一次（它开始干活了）
+        if (!intake.runId) return;
+        const reading = intake.status === 'uploading' || intake.status === 'reading';
+        const c = intake.counts;
+        qc.setQueryData<{ runs: Run[]; activeRunId: number | null }>(['keeper-runs'], (old) =>
+          old
+            ? {
+                ...old,
+                runs: old.runs.map((r) =>
+                  r.id === intake.runId
+                    ? {
+                        ...r,
+                        receiving: reading ? { status: intake.status, done: c.done + c.same + c.failed + c.skipped, total: intake.total } : null,
+                        attachments: r.attachments?.map((a) => {
+                          const now = intake.items.find((i) => i.id === a.id);
+                          return now ? { ...a, status: now.status, reason: now.reason } : a;
+                        }),
+                      }
+                    : r,
+                ),
+              }
+            : old,
+        );
+        if (!reading) qc.invalidateQueries({ queryKey: ['keeper-runs'] });
+      },
     });
   }, [qc, userId]);
   return live;

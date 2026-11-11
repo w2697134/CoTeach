@@ -129,12 +129,29 @@ function toolEvent(cwd: string, name: string, input: any): Record<string, unknow
   }
 }
 
-function errorText(content: unknown) {
-  const s = typeof content === 'string' ? content : Array.isArray(content) ? content.map((c: any) => c?.text || '').join('') : '';
-  return s
+/**
+ * 自带工具出错：原话是给整理助手看的（英文、带服务器上的路径），记给老师看的换成一句话。
+ * 以前原样记下，老师那边看到「EISDIR: illegal operation on a directory, read '/…/work/…'」（2026-11-11）。
+ */
+function errorText(cwd: string, content: unknown) {
+  const s = (typeof content === 'string' ? content : Array.isArray(content) ? content.map((c: any) => c?.text || '').join('') : '')
     .replace(/<\/?tool_use_error>/g, '')
-    .trim()
-    .slice(0, 300);
+    .trim();
+  if (/EISDIR|is a directory/i.test(s)) return '这是文件夹，不是文件';
+  if (/has not been read yet|read it first/i.test(s)) return '要先读一遍再改';
+  if (/modified since read/i.test(s)) return '读过以后又变了，要重新读';
+  if (/String to replace not found/i.test(s)) return '要改的那段没找到';
+  if (/Found \d+ matches/i.test(s)) return '要改的那段有好几处';
+  if (/exceeds maximum|too large|too long/i.test(s)) return '太长了，要分段读';
+  if (/ENOENT|does not exist|no such file/i.test(s)) return '没有这个文件';
+  if (/EACCES|EPERM|read-?only/i.test(s)) return '原件是只读的，不能改';
+  // 想看桌面以外的地方被挡回去：是边界在起作用，不是事情没做成，老师那边不记
+  if (/denied|not allowed|permission/i.test(s)) return null;
+  const plain = s
+    .split(cwd)
+    .join('')
+    .replace(/[A-Za-z]:\\[^\s'"，。]*|\/(?:root|var|home|tmp|opt|srv|usr)\/[^\s'"，。]*/g, '');
+  return /[㐀-鿿]/.test(plain) ? plain.slice(0, 200) : '没做成';
 }
 
 function kill(pid: number | undefined) {
@@ -265,7 +282,12 @@ export async function runTurn(t: TurnRun): Promise<TurnResult> {
         pending.delete(b.tool_use_id);
         if (!call) continue;
         const ev = toolEvent(t.cwd, call.name, call.input);
-        if (ev) record(t.ref, 'tool', b.is_error ? { ...ev, error: errorText(b.content) || '没做成' } : ev);
+        if (!ev) continue;
+        if (!b.is_error) record(t.ref, 'tool', ev);
+        else {
+          const error = errorText(t.cwd, b.content);
+          if (error) record(t.ref, 'tool', { ...ev, error });
+        }
       }
       return;
     }

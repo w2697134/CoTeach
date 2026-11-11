@@ -26,6 +26,8 @@ export interface IntakeItem {
 export interface Intake {
   id: number;
   kbId: number;
+  /** 跟整理助手说的一句话带的文件：显示在那句话下面，不单独成卡片 */
+  runId?: number | null;
   status: 'uploading' | 'reading' | 'digesting' | 'paused' | 'done' | 'failed' | 'canceled';
   message: string | null;
   error: string | null;
@@ -92,8 +94,8 @@ export function putIntake(qc: QueryClient, cid: number, intake: Intake) {
       : { intakes: [...list, intake] };
   };
   qc.setQueryData<{ intakes: Intake[] }>(['kb-intakes', cid], put);
-  // 整理助手只有一个：它那一栏列着老师所有知识库里交的资料
-  qc.setQueryData<{ intakes: Intake[] }>(['keeper-intakes'], (old) => (old ? put(old) : old));
+  // 整理助手只有一个：它那一栏列着老师所有知识库里交的资料；跟一句话一起发的文件显示在那句话下面，不单列
+  qc.setQueryData<{ intakes: Intake[] }>(['keeper-intakes'], (old) => (old && !intake.runId ? put(old) : old));
 }
 /** 老师所有知识库里交的资料（整理助手那一栏用） */
 export const keeperIntakesQuery = () => queryOptions({ queryKey: ['keeper-intakes'], queryFn: () => get<{ intakes: Intake[] }>('/keeper/intakes') });
@@ -170,14 +172,24 @@ export async function sendIntake(
     text: opts.text || null,
     files: picked.map((p) => ({ name: p.path, size: p.file.size })),
   });
-  const id = created.intake.id,
-    kb = created.intake.kbId;
   opts.onCreated?.(created.intake);
-  if (!created.uploads.length) return created.intake;
+  await uploadItems(created.intake.kbId, created.intake.id, created.uploads, picked, created.chunkSize);
+  return created.intake;
+}
+
+/** 分块上传登记好的文件：三路同时传，网络断一下就等一会儿再传这一块；传的时候离开页面先提醒 */
+export async function uploadItems(
+  kb: number,
+  id: number,
+  uploads: { itemId: number; index: number; size: number; received: number }[],
+  picked: Picked[],
+  chunkSize: number,
+) {
+  if (!uploads.length) return;
   uploading.add(id);
   if (uploading.size === 1) window.addEventListener('beforeunload', warnLeave);
   try {
-    const queue = [...created.uploads];
+    const queue = [...uploads];
     const lane = async () => {
       for (let u = queue.shift(); u; u = queue.shift()) {
         const file = picked[u.index]?.file;
@@ -188,7 +200,7 @@ export async function sendIntake(
           const r = await retrying(() =>
             api<{ received: number; complete: boolean }>(`/knowledge/${kb}/intakes/${id}/items/${u!.itemId}?offset=${at}`, {
               method: 'PUT',
-              body: file.slice(at, Math.min(u!.size, at + created.chunkSize)),
+              body: file.slice(at, Math.min(u!.size, at + chunkSize)),
             }),
           );
           if (r.complete) break;
@@ -201,7 +213,22 @@ export async function sendIntake(
     uploading.delete(id);
     if (!uploading.size) window.removeEventListener('beforeunload', warnLeave);
   }
-  return created.intake;
+}
+
+/**
+ * 跟整理助手说一句话，可以带文件（像聊天发附件）：先登记，马上回来（对话里就出现这句话和带的文件），
+ * 文件在后台分块上传；文件读完整理助手才开始看。
+ */
+export async function sendMessage(message: string, kbId: number | null, file: string | null, picked: Picked[]) {
+  const r = await post<{
+    runId?: number;
+    intake?: Intake;
+    uploads?: { itemId: number; index: number; size: number; received: number }[];
+    chunkSize?: number;
+  }>('/keeper/messages', { message, kbId, file, files: picked.map((p) => ({ name: p.path, size: p.file.size })) });
+  if (r.intake && r.uploads?.length)
+    void uploadItems(r.intake.kbId, r.intake.id, r.uploads, picked, r.chunkSize || 0).catch((err) => toast.fromError(err));
+  return r;
 }
 
 /** 页面上各处交资料都走这里：登记好就在整理助手那边显示出来，上传在后台继续，出错弹提示 */

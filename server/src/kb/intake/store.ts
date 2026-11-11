@@ -24,6 +24,8 @@ export interface IntakeRow {
   resumes: number;
   /** 在最外层交的：整理助手看内容放到合适的库 */
   route: number;
+  /** 跟整理助手说的一句话带的文件：读完交给那句话的整理助手，不直接进知识库 */
+  run_id: number | null;
   created_at: number;
   updated_at: number;
   finished_at: number | null;
@@ -177,6 +179,7 @@ export function publicIntake(row: IntakeRow, full = true) {
     id: row.id,
     kbId: row.kb_id,
     route: !!row.route,
+    runId: row.run_id ?? null,
     status: row.status,
     message: row.message,
     error: row.error,

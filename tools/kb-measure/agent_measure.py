@@ -7,6 +7,10 @@
 
 旧的整理助手没有最外层：跨库提问、跨库挪改成在「王建国的知识库」里说；最外层交资料做不到，不量。
 
+2026-11-11 起交资料就是说话带附件（像聊天发图、发文件），多量四件：
+  发文件不写话（库里）、发图问问题（截图里写了什么，不该存）、发文件让存（最外层，说存进「数据结构」）、最外层发文件不写话。
+旧做法（线上那版）只量发图问问题：截图按交资料交，看它答没答、存没存。
+
 用法（在 coteach 目录）：python tools/kb-measure/agent_measure.py <对照名> <new|old> <轮数> [只跑哪几个，逗号隔开]
 """
 import json, os, shutil, stat, subprocess, sys, time, urllib.request, urllib.parse, http.cookiejar, uuid
@@ -14,11 +18,13 @@ import json, os, shutil, stat, subprocess, sys, time, urllib.request, urllib.par
 sys.stdout.reconfigure(encoding='utf-8', line_buffering=True)
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 OUT = os.path.join(ROOT, 'output', 'kb-agent-measure')
-SRC_DATA = os.path.join(ROOT, 'server', 'data')
+# 起点数据：默认本机 server/data；做对照时换成别的副本（比如 make_seed_bycontent.py 做的「按内容分」那份）
+SRC_DATA = os.environ.get('CT_MEASURE_DATA') or os.path.join(ROOT, 'server', 'data')
 HERE = os.path.dirname(os.path.abspath(__file__))
 MATERIALS = os.path.join(HERE, 'materials')
 ROUTED = os.path.join(HERE, 'materials-route')
 SEED = os.path.join(HERE, 'seed-ds', '栈与队列.md')
+CHAT = os.path.join(HERE, 'materials-chat')
 PORT = int(os.environ.get('CT_MEASURE_PORT', '18692'))
 API = f'http://127.0.0.1:{PORT}/api'
 KB = 1
@@ -37,6 +43,12 @@ CASES = [
     {'key': '跨库提问', 'msg': '数据结构那个库里，栈和队列是怎么讲的？', 'top': True, 'seed': True, 'want': False},
     {'key': '跨库挪', 'msg': '新建一个知识库叫「函数专题」，把第6章的笔记和原件都挪过去。', 'top': True, 'want': True},
     {'key': '最外层交资料', 'top': True, 'seed': True, 'want': True, 'newOnly': True},
+    {'key': '发文件不写话', 'want': True, 'newOnly': True},
+    {'key': '发图问问题', 'msg': '这张截图里，右边最下面老师问了什么，整理助手怎么答的？', 'want': False},
+    {'key': '发文件让存', 'msg': '把这份存进「数据结构」库。', 'top': True, 'seed': True, 'want': True, 'newOnly': True},
+    {'key': '最外层发文件不写话', 'top': True, 'seed': True, 'want': True, 'newOnly': True},
+    # 11-11 老师在线上就这么试的：最外层只贴一张界面截图，不写话。只看它怎么办（存到哪、怎么回），不判对错
+    {'key': '最外层发截图不写话', 'top': True, 'want': True, 'newOnly': True},
 ]
 
 
@@ -63,6 +75,28 @@ class Client:
         req = urllib.request.Request(API + url, data=data, method='POST',
                                      headers={'x-tv2': '1', 'Content-Type': f'multipart/form-data; boundary={boundary}'})
         return json.loads(self.op.open(req, timeout=900).read().decode())
+
+
+def send(c, url, message, kb, paths):
+    """像页面那样：先登记这句话和要传的文件，再分块上传"""
+    files = [{'name': os.path.basename(p), 'size': os.path.getsize(p)} for p in paths]
+    body = {'message': message, 'files': files}
+    if url == '/keeper/messages':
+        body['kbId'] = kb
+    r = c.call(url, body)
+    intake, size = r['intake'], r['chunkSize']
+    for u in r['uploads']:
+        data = open(paths[u['index']], 'rb').read()
+        for at in range(0, len(data), size):
+            req = urllib.request.Request(f"{API}/knowledge/{intake['kbId']}/intakes/{intake['id']}/items/{u['itemId']}?offset={at}",
+                                         data=data[at:at + size], method='PUT',
+                                         headers={'x-tv2': '1', 'Content-Type': 'application/octet-stream'})
+            c.op.open(req, timeout=300).read()
+    return r
+
+
+def originals(snap):
+    return {kid: sorted(f['path'] for f in v['files'] if f.get('protected') or f.get('source')) for kid, v in snap.items()}
 
 
 def rm(path):
@@ -174,7 +208,7 @@ def one(case, engine, label, rnd):
             ds = c.call('/knowledge', {'name': '数据结构'})['id']
             c.call(f'/knowledge/{ds}/kb/file', {'path': '栈与队列.md', 'content': open(SEED, encoding='utf-8').read(), 'base': None}, method='PUT')
         target = KB
-        if k == '交资料':
+        if k in ('交资料', '发文件不写话'):  # 交进一个新建的空库（王建国的库里本来就有这几份）
             target = c.call('/knowledge', {'name': '测量用'})['id']
         known = {r['id'] for r in all_runs(c, engine)['runs']}
         before = snapshot(c)
@@ -184,6 +218,20 @@ def one(case, engine, label, rnd):
             c.upload(f'/knowledge/{target}/kb/upload', sorted(os.path.join(MATERIALS, n) for n in os.listdir(MATERIALS)))
         elif k == '最外层交资料':
             c.upload('/keeper/upload', sorted(os.path.join(ROUTED, n) for n in os.listdir(ROUTED)))
+        elif k == '发文件不写话':
+            send(c, '/keeper/messages', '', target, sorted(os.path.join(MATERIALS, n) for n in os.listdir(MATERIALS)))
+        elif k == '最外层发文件不写话':
+            send(c, '/keeper/messages', '', None, sorted(os.path.join(ROUTED, n) for n in os.listdir(ROUTED)))
+        elif k == '发文件让存':
+            send(c, '/keeper/messages', case['msg'], None, [os.path.join(ROUTED, '第3章 链表.md')])
+        elif k == '最外层发截图不写话':
+            send(c, '/keeper/messages', '', None, [os.path.join(CHAT, '截图.png')])
+        elif k == '发图问问题':
+            pic = [os.path.join(CHAT, '截图.png')]
+            if engine == 'new':
+                send(c, '/keeper/messages', case['msg'], KB, pic)
+            else:  # 线上那版：截图按交资料交，随资料说的话带上
+                send(c, f'/knowledge/{KB}/intakes', case['msg'], KB, pic)
         elif engine == 'new':
             c.call('/keeper/runs', {'message': case['msg'], 'kbId': None if top else KB})
         else:
@@ -205,6 +253,10 @@ def one(case, engine, label, rnd):
         after = snapshot(c)
         moves = tools.count('move_file') + tools.count('move_to_knowledge_base')
         same_paths = all(sorted(f['path'] for f in after[kid]['files']) == sorted(f['path'] for f in before[kid]['files']) for kid in before if kid in after) and set(after) == set(before)
+        if k == '发文件不写话':
+            k = '交资料'
+        if k == '最外层发文件不写话':
+            k = '最外层交资料'
         if k == '交资料':
             la = layout(after[target]['files'])
             chars = note_chars(c, target, after[target]['files'])
@@ -223,6 +275,19 @@ def one(case, engine, label, rnd):
             la = layout(after[KB]['files'])
             ok = la['originals'] == layout(before[KB]['files'])['originals'] and la['together'] == la['originals'] and not la['byWho']
             why = f"原件 {la['together']}/{la['originals']} 和笔记同一文件夹；按谁做的分 {la['byWho']}；没在一起 {la['apart']}"
+        elif k == '发图问问题':
+            # 截图右下角：老师问「现在一共有几个知识库？」，整理助手答「目前只有 1 个知识库：王建国的知识库。」
+            said = reply + ' '.join(e['data'].get('text', '') for e in events if e['type'] == 'say')
+            hit = '几个知识库' in said and any(w in said for w in ('1 个', '1个', '一个'))
+            saved = originals(after) != originals(before)
+            ok = hit and not saved
+            why = f'答出截图里那句 {hit}；存进了知识库 {saved}'
+        elif k == '发文件让存':
+            ds = next((kid for kid, v in after.items() if v['name'] == '数据结构'), None)
+            there = [p for p in originals(after).get(ds, []) if '链表' in p]
+            elsewhere = [p for kid, ps in originals(after).items() if kid != ds for p in ps if '链表' in p]
+            ok = bool(there) and not elsewhere
+            why = f'存进数据结构 {there}；存到别处 {elsewhere}'
         elif k == '跨库提问':
             hits = [w for w in ('盘子', '打饭', '假溢出') if w in reply]
             ok = same_paths and new_pending == 0 and len(hits) >= 2
@@ -233,6 +298,11 @@ def one(case, engine, label, rnd):
             left = [f['path'] for f in after[KB]['files'] if '第6章' in f['path']]
             ok = bool(fx) and any(f.get('protected') for f in there) and any(not f.get('protected') for f in there) and not left
             why = f"新库 {'有' if fx else '没有'}；第6章在新库 {[f['path'] for f in there]}；还留在原库 {left}"
+        elif k == '最外层发截图不写话':
+            new = {after[kid]['name']: sorted(set(ps) - set(originals(before).get(kid, []))) for kid, ps in originals(after).items()}
+            new = {n: ps for n, ps in new.items() if ps}
+            ok = True
+            why = f'存了 {new or "没存"}；新库 {[v["name"] for kid, v in after.items() if kid not in before]}'
         else:  # 最外层交资料
             def where(name):
                 return [(kid, f['path']) for kid, v in after.items() for f in v['files'] if (f.get('protected') or f.get('source')) and name in f['path']]

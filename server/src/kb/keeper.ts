@@ -7,14 +7,18 @@ import { bad, conflict, notFound, HttpError } from '../lib/http.js';
 import { Desk, type SpaceState } from './agent/desk.js';
 import { runTurn, type TurnResult } from './agent/harness.js';
 import { runCommand, type Turn } from './agent/commands.js';
-import { agentPrompt, materialsRequest, outcomesSince, whereLine } from './agent/prompt.js';
+import { agentPrompt, inboxBlock, materialsRequest, noWordsRequest, outcomesSince, whereLine } from './agent/prompt.js';
+import { type InboxItem } from './agent/commands.js';
+import { blobPath, intakeItems, readBlobText } from './intake/store.js';
+import { cleanRelative } from './intake/naming.js';
+import { KIND_LABEL, type Kind } from './intake/kinds.js';
 import { publish as publishEvent, record as recordEvent, type RunRef } from './agent/events.js';
 import { fileOriginals } from './agent/filing.js';
 export { planFiling } from './agent/filing.js';
 import { streamChat, type Msg, type ToolCall, type ToolSpec } from '../llm/index.js';
 import { createChange, isTidy, KEEPER_AUTHOR, checkMetadata } from './changes.js';
 import { loadKb, studentIn, students, writableKb, type KnowledgeBase } from './access.js';
-import { cleanPath, isTextEntry, manifest, validateOps } from './repo.js';
+import { cleanPath, isTextEntry, isTextPath, manifest, validateOps } from './repo.js';
 import { createKb, deleteKb, findKb, listKbs, renameKb, transferFiles } from './bases.js';
 import { Workspace } from './workspace.js';
 import { documentName } from './teacher-text.js';
@@ -414,6 +418,8 @@ interface Busy {
   ctrl: AbortController;
   intakeId?: number;
   kbId: number | null;
+  /** 老师这句话带了文件，还在收、在读：读完再开始 */
+  waiting?: { since: number; file: string | null };
 }
 /** 整理助手只有一个：一位老师同一时间只做一件事（老师编号 → 正在做的那件） */
 const busy = new Map<number, Busy>();
@@ -609,6 +615,135 @@ async function settle(turn: Turn, user: { id: number; name: string }, key: strin
  * 老师跟整理助手说话：在哪儿说都是同一个整理助手、同一段对话。
  * 每一轮先把老师所有的知识库摆成桌面，再接着主对话说；带上老师现在在哪、上次交的改动老师怎么处理了。
  */
+/**
+ * 老师说的一句话带了文件：先记下这句话、占住整理助手（同一时间只做一件事），文件照旧一份份读，读完再开始（attachmentsRead）。
+ */
+export function openFileRun(user: { id: number; name: string }, kbId: number | null, message: string, file: string | null): number {
+  if (kbId !== null) {
+    const kb = writableKb(kbId);
+    if (kb.teacher_id !== user.id) throw bad('整理任务归属不正确');
+  }
+  if (busy.has(user.id)) throw conflict('整理助手正在处理上一件事，请稍后再试');
+  const since = db.value<number>("SELECT max(created_at) FROM kb_runs WHERE teacher_id=? AND kind='chat'", user.id) ?? 0;
+  const runId = db.insert('kb_runs', { kb_id: kbId, teacher_id: user.id, kind: 'chat', status: 'running', request: message, created_by: user.id, created_at: now() });
+  const ctrl = new AbortController();
+  busy.set(user.id, { runId, ctrl, kbId, waiting: { since, file } });
+  // 文件还没读完，老师让它停下：这句话带的文件也不读了
+  ctrl.signal.addEventListener(
+    'abort',
+    () => {
+      const b = busy.get(user.id);
+      if (!b || b.runId !== runId || !b.waiting) return;
+      const intakeId = db.value<number>('SELECT intake_id FROM kb_runs WHERE id=?', runId);
+      endWaiting(user.id, runId, 'canceled', null);
+      if (intakeId)
+        void import('./intake/service.js').then((m) => {
+          try {
+            m.cancelIntake(loadIntake(intakeId).kb_id, intakeId);
+          } catch {
+            /* 已经结束 */
+          }
+        });
+    },
+    { once: true },
+  );
+  publishRun(kbId, runId);
+  return runId;
+}
+export function attachIntake(runId: number, intakeId: number) {
+  db.update('kb_runs', runId, { intake_id: intakeId });
+  publishRun(null, runId);
+}
+/** 文件没收成（登记就出错）：这句话结束 */
+export function failFileRun(teacherId: number, runId: number, message: string) {
+  const b = busy.get(teacherId);
+  if (b && b.runId === runId) endWaiting(teacherId, runId, 'error', message);
+}
+function endWaiting(teacherId: number, runId: number, status: 'canceled' | 'error', error: string | null) {
+  db.update('kb_runs', runId, { status, error, finished_at: now() });
+  busy.delete(teacherId);
+  publishRun(null, runId);
+  drainTeacher(teacherId);
+}
+/** 这句话带的文件读完了：整理助手开始看 */
+export function attachmentsRead(runId: number, intakeId: number) {
+  const run = db.get<any>('SELECT * FROM kb_runs WHERE id=?', runId);
+  if (!run || run.status !== 'running') return;
+  const b = busy.get(run.teacher_id);
+  if (!b || b.runId !== runId || !b.waiting) return;
+  const user = db.get<{ id: number; name: string }>('SELECT id,name FROM users WHERE id=?', run.teacher_id)!;
+  const { since, file } = b.waiting;
+  b.waiting = undefined;
+  const ref: RunRef = { teacherId: user.id, runId, kbId: run.kb_id ?? null };
+  publishRun(ref.kbId, runId);
+  void chatTurn(ref, user, run.request || '', file, since, b.ctrl.signal, intakeId)
+    .catch((err) => {
+      const msg = b.ctrl.signal.aborted ? '这次已停止' : (err as Error).message;
+      if (!b.ctrl.signal.aborted) recordEvent(ref, 'error', { message: msg });
+      db.update('kb_runs', runId, { status: b.ctrl.signal.aborted ? 'canceled' : 'error', error: b.ctrl.signal.aborted ? null : msg, finished_at: now() });
+    })
+    .finally(() => {
+      busy.delete(user.id);
+      publishRun(ref.kbId, runId);
+      drainTeacher(user.id);
+    });
+}
+
+const SEEN = /\.(png|jpe?g|gif|webp)$/i;
+/**
+ * 这句话带的文件摆进桌面「老师发来的」：图片原样放（它自己看），文档放转出来的文字，文字文件原样放。
+ * 没读出来的列出来告诉它；读出文字的才能存进知识库。
+ */
+function stageAttachments(desk: Desk, runId: number, intakeId: number) {
+  const files: { rel: string; bytes: Buffer }[] = [];
+  const listed: { rel: string; note: string }[] = [];
+  const failed: { name: string; reason: string }[] = [];
+  const items = new Map<string, InboxItem>();
+  const hashes: string[] = [];
+  const used = new Set<string>();
+  for (const i of intakeItems(intakeId)) {
+    if (i.method === 'archive') continue;
+    if (i.status !== 'done' || !i.hash) {
+      if (i.status === 'failed' || i.status === 'skipped') failed.push({ name: i.name, reason: i.reason || '读不出来' });
+      continue;
+    }
+    const name = cleanRelative(i.name);
+    const image = i.kind === 'image' && SEEN.test(name);
+    const plain = isTextPath(name);
+    let rel = image || plain ? name : `${name}.md`;
+    for (let k = 2; used.has(rel.toLowerCase()); k++) rel = rel.replace(/(\.[^./]+)$/, `（${k}）$1`);
+    used.add(rel.toLowerCase());
+    files.push({ rel, bytes: image ? readFileSync(blobPath(i.hash)) : Buffer.from(i.text_hash ? readBlobText(i.text_hash) : '') });
+    listed.push({ rel, note: image ? '图片，用读文件工具直接看' : plain ? '' : `${KIND_LABEL[i.kind as Kind] || '文件'}转出来的文字` });
+    if (i.text_hash) items.set(rel, { id: i.id, name: i.name, kind: i.kind, hash: i.hash, text_hash: i.text_hash, method: i.method, notes: i.notes });
+    hashes.push(i.hash);
+  }
+  const root = desk.stageInbox(files);
+  return { inbox: { root, intakeId, items }, listed, failed, hashes };
+}
+
+/** 一句话带的文件在对话里怎么显示：每份的名字、类型、读到哪了；还在收、在读时说一声进度 */
+function attachmentsOf(intakeId: number) {
+  const intake = db.get<any>('SELECT * FROM kb_intakes WHERE id=?', intakeId);
+  if (!intake) return null;
+  const all = intakeItems(intakeId);
+  const docs = all.filter((i) => i.method !== 'archive');
+  return {
+    items: all
+      .filter((i) => i.depth === 0)
+      .slice(0, 60)
+      .map((i) => ({ id: i.id, intakeId, kbId: intake.kb_id as number, name: i.name, kind: i.kind, status: i.status, reason: i.reason, path: i.path })),
+    more: Math.max(0, all.filter((i) => i.depth === 0).length - 60),
+    receiving: ['uploading', 'reading'].includes(intake.status)
+      ? {
+          status: intake.status as string,
+          done: docs.filter((i) => ['done', 'failed', 'skipped', 'same'].includes(i.status)).length,
+          total: docs.length,
+        }
+      : null,
+  };
+}
+
 export function startChat(user: { id: number; name: string }, kbId: number | null, message: string, file?: string | null): number {
   if (kbId !== null) {
     const kb = writableKb(kbId);
@@ -635,18 +770,42 @@ export function startChat(user: { id: number; name: string }, kbId: number | nul
   return runId;
 }
 
-async function chatTurn(ref: RunRef, user: { id: number; name: string }, message: string, file: string | null, since: number, signal: AbortSignal) {
+async function chatTurn(
+  ref: RunRef,
+  user: { id: number; name: string },
+  message: string,
+  file: string | null,
+  since: number,
+  signal: AbortSignal,
+  intakeId?: number,
+) {
   const desk = await Desk.open(user.id);
-  const turn: Turn = { ...ref, token: randomBytes(24).toString('hex'), kind: 'chat', desk, contextKbId: ref.kbId, submitted: false, finish: null, changes: [] };
+  const turn: Turn = { ...ref, token: randomBytes(24).toString('hex'), user, kind: 'chat', desk, contextKbId: ref.kbId, submitted: false, finish: null, changes: [] };
   turns.set(turn.token, turn);
   try {
     const folder = ref.kbId !== null && desk.folders.has(ref.kbId) ? desk.folderOf(ref.kbId) : null;
-    const text = [whereLine(folder, file), outcomesSince(user.id, since), message].filter(Boolean).join('\n');
-    const opts = { maxTurns: 40, turnMs: 15 * 60_000, quietMs: 5 * 60_000, purpose: 'kb:chat', signal };
+    let files = '';
+    if (intakeId) {
+      const staged = stageAttachments(desk, ref.runId, intakeId);
+      turn.inbox = staged.inbox;
+      // 交的时候，存进去的原件挪到根据它写的文档旁边（按内容指纹认）
+      turn.batch = { intakeId, last: true, hashes: new Set(staged.hashes) };
+      files = inboxBlock(staged.inbox.root, staged.listed, staged.failed);
+    }
+    const ask = message.trim() || (intakeId ? noWordsRequest(folder) : '');
+    const text = [whereLine(folder, file), outcomesSince(user.id, since), ask, files].filter(Boolean).join('\n');
+    const opts = intakeId
+      ? { maxTurns: 120, turnMs: 45 * 60_000, quietMs: 8 * 60_000, purpose: 'kb:chat', signal }
+      : { maxTurns: 40, turnMs: 15 * 60_000, quietMs: 5 * 60_000, purpose: 'kb:chat', signal };
     let r = await agentTurn(turn, user, 'main', text, opts);
     signal.throwIfAborted();
     r = await settle(turn, user, 'main', r, signal, 'kb:chat');
     signal.throwIfAborted();
+    // 带了文件、整理过了却没交：照这次的文件替它交上去，照旧等老师确认，整理的东西不白丢
+    if (intakeId && !turn.submitted) {
+      const auto = await runCommand(turn, ['交', '整理了老师发来的文件', '']);
+      if (!auto.ok && !/没有实际改动/.test(auto.text)) recordEvent(ref, 'error', { message: auto.text });
+    }
     let reply = r.reply;
     if (!turn.submitted) {
       await desk.sync();
@@ -761,6 +920,7 @@ async function digestIntake(kb: KnowledgeBase, intakeId: number, jobId: number, 
       runId,
       kbId: kb.id,
       token: randomBytes(24).toString('hex'),
+      user,
       kind: 'materials',
       desk,
       contextKbId: null,
@@ -1181,10 +1341,14 @@ export function publicRun(r: any) {
   const changes = db
     .all<any>('SELECT c.id, c.kb_id, c.status, c.title, k.name FROM kb_changes c JOIN knowledge_bases k ON k.id=c.kb_id WHERE c.run_id=? ORDER BY c.id', r.id)
     .map((c) => ({ id: c.id, kbId: c.kb_id, kbName: c.name, status: c.status, title: c.title }));
+  const files = r.kind === 'chat' && r.intake_id ? attachmentsOf(r.intake_id) : null;
   return {
     id: r.id,
     kbId: r.kb_id ?? null,
     changes,
+    attachments: files?.items ?? null,
+    moreAttachments: files?.more ?? 0,
+    receiving: files?.receiving ?? null,
     kind: r.kind,
     status: r.status,
     request: r.request,
