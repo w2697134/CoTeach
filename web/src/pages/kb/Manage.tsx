@@ -5,7 +5,7 @@ import { Archive, Users, Sparkles, MoreHorizontal, PenLine, Trash2 } from 'lucid
 import { api, get, post } from '../../lib/api';
 import { toast } from '../../lib/store';
 import { Button, Empty, ErrorState, IconButton, Input, MenuItem, Modal, Skeleton, Textarea, useConfirm, Popover } from '../../components/ui';
-import { useKnowledgeBases, type KnowledgeBase } from './data';
+import { type KnowledgeBase } from './data';
 import { parseRoster } from './presentation';
 
 export interface ClassStudent {
@@ -38,9 +38,6 @@ export function KnowledgeTools({ kb }: { kb: KnowledgeBase }) {
   const archived = kb.status === 'archived';
   const [renaming, setRenaming] = useState(false),
     [newName, setNewName] = useState('');
-  const all = useKnowledgeBases().data?.knowledgeBases || [];
-  // 最后一个知识库不能删
-  const canDelete = kb.kind !== 'teacher' || all.filter((k) => k.kind === 'teacher').length > 1;
   const rename = async () => {
     if (!newName.trim() || busy) return;
     setBusy(true);
@@ -179,11 +176,9 @@ export function KnowledgeTools({ kb }: { kb: KnowledgeBase }) {
                   改名
                 </MenuItem>
               )}
-              {canDelete && (
-                <MenuItem icon={<Trash2 />} danger onClick={removeKb}>
-                  删除这个知识库
-                </MenuItem>
-              )}
+              <MenuItem icon={<Trash2 />} danger onClick={removeKb}>
+                删除这个知识库
+              </MenuItem>
               {kb.kind === 'class' && (
                 <>
                   <MenuItem

@@ -60,7 +60,7 @@ export function KnowledgeHomePage() {
   const [dragging, setDragging] = useState(0);
   // 手机上一次只放一栏
   const [pane, setPane] = useState<'page' | 'keeper'>('keeper');
-  const filesDragged = (e: React.DragEvent) => list.length > 0 && e.dataTransfer.types.includes('Files');
+  const filesDragged = (e: React.DragEvent) => e.dataTransfer.types.includes('Files');
 
   return (
     <div

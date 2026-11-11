@@ -42,8 +42,8 @@ function S({ children }: { children: ReactNode }) {
 
 /** 进来先看老师所有的知识库（最外层），像打开「此电脑」 */
 function MyKnowledgeBase() {
-  const kbId = useAuth((s) => s.user?.kbId);
-  if (!kbId) return <Empty title="这个账号没有知识库" />;
+  const role = useAuth((s) => s.user?.role);
+  if (role !== 'teacher' && role !== 'admin') return <Empty title="这个账号没有知识库" />;
   return <Navigate replace to="/knowledge" />;
 }
 

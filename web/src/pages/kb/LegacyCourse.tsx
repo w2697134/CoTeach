@@ -9,10 +9,12 @@ export function LegacyCoursePage() {
     [params] = useSearchParams();
   const q = useQuery({
     queryKey: ['course-link', id],
-    queryFn: () => get<{ kbId: number; legacyPrefix: string }>(`/courses/${id}`),
+    queryFn: () => get<{ kbId: number | null; legacyPrefix: string }>(`/courses/${id}`),
   });
   if (q.error) return <ErrorState error={q.error} onRetry={() => q.refetch()} />;
   if (!q.data) return <PageLoading />;
+  // 知识库全删了：回到最外层
+  if (!q.data.kbId) return <Navigate replace to="/knowledge" />;
   const target = new URLSearchParams(params);
   if (target.has('f')) target.set('f', q.data.legacyPrefix + target.get('f'));
   return <Navigate replace to={`/knowledge/${q.data.kbId}${target.size ? '?' + target.toString() : ''}`} />;

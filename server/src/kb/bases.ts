@@ -46,12 +46,11 @@ export function renameKb(kbId: number, name: unknown) {
 }
 
 /**
- * 删除只做记号：仓库、原件、改动记录都留着。最后一个不能删；整理助手只能删已经清空的。
+ * 删除只做记号：仓库、原件、改动记录都留着。最后一个也能删；整理助手只能删已经清空的。
  * busy：整理助手正在这个库里干活
  */
 export function deleteKb(kb: KnowledgeBase, opts: { onlyEmpty: boolean; busy: boolean }) {
   if (kb.deleted_at) throw notFound('这个知识库已经删掉了');
-  if (kb.kind === 'teacher' && listKbs(kb.teacher_id).filter((k) => k.kind === 'teacher').length <= 1) throw bad('至少要留一个知识库');
   if (opts.busy) throw conflict('整理助手正在这个知识库里忙，等它做完再删');
   if (db.value<number>("SELECT count(*) FROM kb_intakes WHERE kb_id=? AND status IN ('uploading','reading','digesting')", kb.id))
     throw conflict('交给这个知识库的资料还在处理，处理完再删');

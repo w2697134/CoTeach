@@ -416,12 +416,22 @@ export async function createKnowledgeBase(d: { teacherId: number; name: string; 
     throw err;
   }
 }
-/** 老师最早建的那个知识库，一个都没有就建一个；登录后先打开它 */
+/** 老师最早建的那个知识库，一个都没有就建一个：只给真要往里放东西的地方用（封存学期、旧的建课接口、演示数据） */
 export async function ensureTeacherKb(teacherId: number, _name?: string): Promise<number> {
   return (
     db.value<number>("SELECT id FROM knowledge_bases WHERE teacher_id=? AND kind='teacher' AND deleted_at IS NULL ORDER BY id LIMIT 1", teacherId) ??
     (await createKnowledgeBase({ teacherId, name: '我的知识库' }))
   );
+}
+/**
+ * 老师最早的那个知识库。从来没有过知识库的新老师先给建一个「我的知识库」；
+ * 老师自己全删了的就是没有（返回空），不再自己冒出来一个。
+ */
+export async function startingKb(teacherId: number): Promise<number | null> {
+  const first = db.value<number>('SELECT id FROM knowledge_bases WHERE teacher_id=? AND deleted_at IS NULL ORDER BY id LIMIT 1', teacherId);
+  if (first) return first;
+  if (db.value<number>('SELECT count(*) FROM knowledge_bases WHERE teacher_id=?', teacherId)) return null;
+  return createKnowledgeBase({ teacherId, name: '我的知识库' });
 }
 
 const FIELD = '\x1f',

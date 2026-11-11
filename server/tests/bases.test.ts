@@ -14,7 +14,7 @@ const repo = await import('../src/kb/repo.js');
 const changes = await import('../src/kb/changes.js');
 const bases = await import('../src/kb/bases.js');
 const access = await import('../src/kb/access.js');
-const { Workspace, runTool, runKbTool, planFiling } = await import('../src/kb/keeper.js');
+const { Workspace, runTool, runKbTool, planFiling, landingKb } = await import('../src/kb/keeper.js');
 const { createApp } = await import('../src/app.js');
 const app = createApp();
 
@@ -153,7 +153,7 @@ test('知识库不分种类：想建几个建几个，能改名、删除、互�
     assert.ok(paths(klass).includes('全班/名单备注.md'));
     assert.ok(!paths(second).includes('全班/名单备注.md'));
   });
-  await t.test('删除只做记号：删掉后打不开、不在列表里；最后一个不能删', async () => {
+  await t.test('删除只做记号：删掉后打不开、不在列表里；最后一个也能删，删光了不会自己再冒出来', async () => {
     const extra = await bases.createKb(teacher, '要删的');
     await put(extra, '随手记.md', '随手记\n');
     assert.equal((await req(`/knowledge/${extra}`, undefined, 'DELETE')).status, 200);
@@ -164,7 +164,18 @@ test('知识库不分种类：想建几个建几个，能改名、删除、互�
     assert.equal(repo.readText(extra, '随手记.md'), '随手记\n');
     const onlyOne = await repo.ensureTeacherKb(other);
     for (const k of bases.listKbs(other)) if (k.id !== onlyOne) bases.deleteKb(k, { onlyEmpty: false, busy: false });
-    assert.equal((await req(`/knowledge/${onlyOne}`, undefined, 'DELETE', 'other')).status, 400);
+    assert.equal((await req(`/knowledge/${onlyOne}`, undefined, 'DELETE', 'other')).status, 200);
+    assert.deepEqual((await req('/knowledge', undefined, undefined, 'other')).json.knowledgeBases, []);
+    assert.equal((await req('/auth/me', undefined, undefined, 'other')).json.user.kbId, null);
+    assert.equal(await repo.startingKb(other), null);
+    // 删光了再交资料：像新账号一样先建一个「我的知识库」
+    const landed = await landingKb(other);
+    assert.deepEqual(bases.listKbs(other).map((k) => [k.id, k.name]), [[landed, '我的知识库']]);
+    // 从没有过知识库的新老师：进来先有一个「我的知识库」
+    const fresh = user('新来的老师');
+    const made = await repo.startingKb(fresh);
+    assert.equal(access.loadKb(made!).name, '我的知识库');
+    assert.equal(await repo.startingKb(fresh), made);
     // 删了最早那个，进来就打开下一个
     const me1 = await req('/auth/me');
     assert.equal(me1.json.user.kbId, first);

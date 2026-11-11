@@ -818,11 +818,13 @@ async function chatTurn(
   }
 }
 
-/** 交资料的整理落在哪个库上：老师在哪个库里交的就是哪个；在最外层交的先放在最早那个库，由整理助手再放到合适的库 */
-export function landingKb(teacherId: number): number {
+/**
+ * 交资料的整理落在哪个库上：老师在哪个库里交的就是哪个；在最外层交的先放在最早那个库，由整理助手再放到合适的库。
+ * 老师把知识库全删了再交：像新账号一样先建一个「我的知识库」
+ */
+export async function landingKb(teacherId: number): Promise<number> {
   const first = listKbs(teacherId).find((k) => k.status === 'active');
-  if (!first) throw bad('还没有知识库，先新建一个');
-  return first.id;
+  return first ? first.id : createKb(teacherId, '我的知识库');
 }
 
 /**

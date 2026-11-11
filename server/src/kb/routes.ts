@@ -43,6 +43,7 @@ import {
   cleanPath,
   createKnowledgeBase,
   ensureTeacherKb,
+  startingKb,
   hashText,
   hashBytes,
   history,
@@ -89,7 +90,7 @@ const publicKb = (r: any) => ({
 });
 kbRoutes.get('/', async (c) => {
   const u = teacher(c);
-  await ensureTeacherKb(u.id, u.name);
+  await startingKb(u.id);
   return c.json({ knowledgeBases: listKbs(u.id).map(publicKb) });
 });
 /** 老师想建几个就建几个，只要一个名字 */
@@ -107,7 +108,7 @@ kbRoutes.patch('/:id', async (c) => {
 kbRoutes.delete('/:id', async (c) => {
   const kb = owned(c);
   deleteKb(kb, { onlyEmpty: false, busy: activeRun(kb.id) !== null });
-  return c.json({ ok: true, next: await ensureTeacherKb(kb.teacher_id) });
+  return c.json({ ok: true });
 });
 kbRoutes.post('/classes', async (c) => {
   const u = teacher(c),
@@ -753,14 +754,14 @@ kbRoutes.get('/:id/context', (c) => {
 export const courseRoutes = new Hono<AppEnv>();
 courseRoutes.get('/', async (c) => {
   const u = teacher(c),
-    kbId = await ensureTeacherKb(u.id, u.name);
+    kbId = await startingKb(u.id);
   return c.json({
     courses: db.all<any>('SELECT * FROM courses WHERE teacher_id=? ORDER BY id', u.id).map((r) => ({
       id: r.id,
       name: r.name,
       description: r.description,
       kbId,
-      pending: pendingCount(kbId),
+      pending: kbId ? pendingCount(kbId) : 0,
       createdAt: r.created_at,
     })),
   });
@@ -791,7 +792,7 @@ courseRoutes.get('/:id', async (c) => {
   const legacyPrefix = db.get<{ prefix: string }>('SELECT prefix FROM kb_imports WHERE course_id=?', r.id)?.prefix || '';
   return c.json({
     course: r,
-    kbId: await ensureTeacherKb(u.id, u.name),
+    kbId: await startingKb(u.id),
     legacyPrefix,
   });
 });
@@ -821,7 +822,7 @@ keeperRoutes.post('/runs', async (c) => {
   if (kbId !== null) ownKb(u, kbId);
   // 很长的一段（教案、讲稿、整章内容）直接贴过来：原样存成一份资料，再交给整理助手消化
   if (d.message.length > LONG_PASTE)
-    return c.json({ intakeId: createIntake(kbId ?? landingKb(u.id), u, { text: d.message, files: [], route: kbId === null }).intake.id });
+    return c.json({ intakeId: createIntake(kbId ?? (await landingKb(u.id)), u, { text: d.message, files: [], route: kbId === null }).intake.id });
   return c.json({ runId: startChat(u, kbId, d.message, d.file ?? null) });
 });
 /**
@@ -851,7 +852,7 @@ keeperRoutes.post('/messages', async (c) => {
   }
   const runId = openFileRun(u, kbId, message, d.file ?? null);
   try {
-    const created = createIntake(kbId ?? landingKb(u.id), u, { files, text: pasted, runId });
+    const created = createIntake(kbId ?? (await landingKb(u.id)), u, { files, text: pasted, runId });
     attachIntake(runId, created.intake.id);
     return c.json({ runId, ...created });
   } catch (err) {
@@ -874,7 +875,7 @@ keeperRoutes.post('/intakes', async (c) => {
       files: z.array(z.object({ name: z.string().min(1).max(1000), size: z.number().int().min(0) })).max(1000),
     }),
   );
-  return c.json(createIntake(landingKb(u.id), u, { ...d, route: true }));
+  return c.json(createIntake(await landingKb(u.id), u, { ...d, route: true }));
 });
 /** 在最外层一次交几份小资料（测量和脚本用；页面上照旧分块上传） */
 keeperRoutes.post(
@@ -891,7 +892,7 @@ keeperRoutes.post(
       files = ([] as any[]).concat(form.file || []).filter((f) => f && typeof f === 'object' && 'arrayBuffer' in f);
     if (!files.length || files.length > 30) throw bad('每次请选择 1 至 30 份资料');
     const row = await intakeFromBuffers(
-      landingKb(u.id),
+      await landingKb(u.id),
       u,
       await Promise.all(files.map(async (f) => ({ name: String(f.name || '资料'), data: new Uint8Array(await f.arrayBuffer()) }))),
       typeof form.message === 'string' ? form.message : undefined,

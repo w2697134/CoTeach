@@ -2,7 +2,7 @@ import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { config } from './config.js';
 import { db, getSetting, now, setSetting } from './db/index.js';
-import { ensureTeacherKb } from './kb/repo.js';
+import { ensureTeacherKb, startingKb } from './kb/repo.js';
 import { migrateOwnership, recoverRepositoryRefs } from './kb/migrate.js';
 import { encrypt, hashPassword, randomToken } from './lib/crypto.js';
 
@@ -12,7 +12,7 @@ export async function bootstrap() {
   ensureProviderFromEnv();
   await ensureDemo();
   await migrateOwnership();
-  for (const u of db.all<{ id: number; name: string }>("SELECT id,name FROM users WHERE role='teacher'")) await ensureTeacherKb(u.id, u.name);
+  for (const u of db.all<{ id: number }>("SELECT id FROM users WHERE role='teacher'")) await startingKb(u.id);
   recoverRepositoryRefs();
 }
 
