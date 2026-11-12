@@ -9,8 +9,8 @@ import { useChangeActions } from './Changes';
 import { IntakeCard } from './IntakeCard';
 import { pastedFiles, pickedFromDrop, pickedFromList, sendMessage, uploadingHere, useKeeperIntakes, type Intake, type Picked } from './intake';
 import { FileCard, FileTypeIcon, formatSize, typeLabel } from './FileCard';
-import { fileTitle, readableError, toolPresentation, when } from './presentation';
-import { KEEPER, STATUS_TEXT, STATUS_TONE, plainText, useChanges, useKeeperRuns, useKeeperStream, useKnowledgeBases, type Run, type RunEvent } from './data';
+import { fileTitle, readableError, stepLines, type StepLine, when } from './presentation';
+import { KEEPER, STATUS_TEXT, STATUS_TONE, plainText, useChanges, useKeeperRuns, useKeeperStream, useKnowledgeBases, type Run } from './data';
 
 const SHOWN = /\.(png|jpe?g|gif|webp)$/i;
 
@@ -32,16 +32,13 @@ const TOOL_ICON: Record<string, typeof BookOpen> = {
   delete_knowledge_base: Trash2,
 };
 
-function ToolLine({ e }: { e: RunEvent }) {
-  const d = e.data || {};
-  const Icon = typeof d.name === 'string' && Object.hasOwn(TOOL_ICON, d.name) ? TOOL_ICON[d.name] : BookOpen;
-  const view = toolPresentation(d);
+function ToolLine({ line }: { line: StepLine }) {
+  const Icon = Object.hasOwn(TOOL_ICON, line.name) ? TOOL_ICON[line.name] : BookOpen;
   return (
-    <div className={cn('flex items-start gap-2 text-[13px] leading-5', d.error ? 'text-bad' : 'text-ink-2')}>
-      <Icon className={cn('mt-0.5 size-3.5 shrink-0', d.error ? 'text-bad' : 'text-ink-3')} />
-      <span className="min-w-0 break-all">
-        <span className="font-medium text-ink">{view.label}</span> {view.target}
-        {view.error && <span>：{view.error}</span>}
+    <div className="flex items-start gap-2 text-[13px] leading-5 text-ink-2">
+      <Icon className="mt-0.5 size-3.5 shrink-0 text-ink-3" />
+      <span className="line-clamp-2 min-w-0 break-all">
+        <span className="font-medium text-ink">{line.label}</span> {line.text}
       </span>
     </div>
   );
@@ -251,8 +248,9 @@ function RunBlock({
   const user = useAuth((s) => s.user);
   const running = run.status === 'running';
   const [expanded, setExpanded] = useState(false);
-  const steps = run.events.filter((e) => e.type === 'tool' || e.type === 'say');
-  const showAll = running || expanded;
+  const lines = stepLines(run.events);
+  const done = run.events.filter((e) => e.type === 'tool' && !e.data?.error).length;
+  const latest = lines[lines.length - 1];
   // 交上来的改动：新的一轮服务器直接给；以前的从工作记录里找
   const changeEvents = run.events.filter((e) => e.type === 'change');
   const changes = run.changes?.length
@@ -299,34 +297,33 @@ function RunBlock({
       <div className="flex gap-2.5">
         <AgentAvatar agent={KEEPER} size={28} active={running} className="mt-0.5" />
         <div className="min-w-0 flex-1 space-y-2.5">
-          {/* 工作记录照 ChatGPT、Claude 的做法：收起来时就一行灰字，展开是左边一道细线串起来的一步步 */}
-          {steps.length > 0 && (
+          {/* 工作记录照 ChatGPT、Claude 的做法：干活时也收着，就一行灰字；展开是左边一道细线串起来的一步步 */}
+          {done > 0 && (
             <div>
-              {!running && (
-                <button
-                  type="button"
-                  onClick={() => setExpanded(!expanded)}
-                  className="inline-flex items-center gap-1 py-0.5 text-[12.5px] text-ink-3 transition-colors hover:text-ink-2"
-                >
-                  <ChevronRight className={cn('size-3.5 transition-transform', expanded && 'rotate-90')} />
-                  工作记录 · {steps.filter((e) => e.type === 'tool').length} 步
-                </button>
-              )}
-              {showAll && (
-                <div className={cn('ml-[6px] space-y-1.5 border-l-2 border-line pl-3', !running && 'mt-1.5')}>
-                  {steps.map((e) =>
-                    e.type === 'say' ? (
-                      <p key={e.id} className="text-[13px] leading-5 text-ink-3">
-                        {plainText(e.data.text)}
+              <button
+                type="button"
+                onClick={() => setExpanded(!expanded)}
+                className="inline-flex items-center gap-1 py-0.5 text-[12.5px] text-ink-3 transition-colors hover:text-ink-2"
+              >
+                <ChevronRight className={cn('size-3.5 transition-transform', expanded && 'rotate-90')} />
+                工作记录 · {done} 步
+              </button>
+              {expanded && (
+                <div className="ml-[6px] mt-1.5 space-y-1.5 border-l-2 border-line pl-3">
+                  {lines.map((l) =>
+                    l.kind === 'say' ? (
+                      <p key={l.id} className="text-[13px] leading-5 text-ink-3">
+                        {l.text}
                       </p>
                     ) : (
-                      <ToolLine key={e.id} e={e} />
+                      <ToolLine key={l.id} line={l} />
                     ),
                   )}
                 </div>
               )}
             </div>
           )}
+          {/* 干活时只摆一行：它正在说的话，没在说就是最近做的那件事 */}
           {running && (
             <div className="flex items-start gap-2 text-[13px] text-ink-3">
               <span className="mt-1.5 flex gap-1">
@@ -335,7 +332,11 @@ function RunBlock({
                 ))}
               </span>
               {/* 没有中文的是它自言自语（偶尔冒一句英文），不摆出来；工作记录里也不记 */}
-              {live && /[㐀-鿿]/.test(live) && <span className="min-w-0 whitespace-pre-wrap">{plainText(live)}</span>}
+              {live && /[㐀-鿿]/.test(live) ? (
+                <span className="min-w-0 whitespace-pre-wrap">{plainText(live)}</span>
+              ) : (
+                latest && !expanded && <span className="min-w-0 truncate">{latest.label ? `${latest.label} ${latest.text}` : latest.text}</span>
+              )}
             </div>
           )}
           {!running && run.reply && !echo && (

@@ -744,7 +744,7 @@ function attachmentsOf(intakeId: number) {
   return {
     items: top
       .slice(0, 60)
-      .map((i) => ({ id: i.id, intakeId, kbId: intake.kb_id as number, name: i.name, kind: i.kind, status: i.status, reason: i.reason, path: i.path })),
+      .map((i) => ({ id: i.id, intakeId, kbId: intake.kb_id as number, name: i.name, kind: i.kind, size: i.size, status: i.status, reason: i.reason, path: i.path })),
     more: Math.max(0, top.length - 60),
     folders: [...folders.values()],
     receiving: ['uploading', 'reading'].includes(intake.status)
