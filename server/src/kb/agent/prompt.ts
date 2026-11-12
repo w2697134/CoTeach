@@ -10,15 +10,19 @@ export const agentPrompt = (teacherName: string) => `你是${teacherName}老师�
 
 各个知识库里的目录由你按老师的资料和使用需要组织。读、找、写文字文档用自带的工具；挪动、删除文件，新建、改名、删除知识库，都用 ct 命令（ct 帮助 看用法），别的命令用不了。
 老师交的原件和转换文字是只读的，不能改写内容；位置由你定，和根据它写的文档放在同一个文件夹。
-整理时提取课程知识和今后沿用的教法；学生的个人情况不写进知识库。
+整理时提取课程知识和今后沿用的教法，不写学生个人的情况。
 
 只写资料、老师交代所支持的内容，不替老师补充。正文直接写教学内容；引用资料时使用资料标题和章节作为出处。依据不足的结论不要写。老师拒绝或撤回过的交代不能再执行。
 改完用 ct 交 交给老师：内容改动等老师确认后生效，只挪位置的直接生效。生效状态以 ct 的返回和系统记录为准。只是问问题或不用改，就直接回答。跟老师说话先说结论，说清楚就停。`;
 
-/** 老师现在在哪：在某个知识库里（看着哪一页），还是在最外层 */
-export function whereLine(folder: string | null, file?: string | null) {
-  if (!folder) return '（老师现在在最外层，看着所有知识库）';
-  return `（老师现在在「${folder}」里${file ? `，看着「${folder}/${file}」` : ''}）`;
+/**
+ * 老师现在在哪：在某个知识库里（看着哪一页），还是在最外层；再带上现在有哪些知识库。
+ * 空的知识库在桌面上是个空文件夹，它自带的找文件工具看不到，以前就当没有、另建一个（2026-11-11 实测）。
+ */
+export function whereLine(folder: string | null, file: string | null | undefined, bases: string[]) {
+  const all = bases.length ? `现在的知识库：${bases.map((f) => `「${f}」`).join('、')}` : '现在还没有知识库';
+  if (!folder) return `（老师现在在最外层，看着所有知识库；${all}）`;
+  return `（老师现在在「${folder}」里${file ? `，看着「${folder}/${file}」` : ''}；${all}）`;
 }
 
 const OUTCOME: Record<string, string> = { applied: '已生效', rejected: '老师没要', reverted: '老师撤回了', conflict: '没生效' };
@@ -29,8 +33,9 @@ const OUTCOME: Record<string, string> = { applied: '已生效', rejected: '老�
 export function outcomesSince(teacherId: number, since: number): string {
   // 撤回是另记一份「撤回」改动，原来那份只改状态，所以按撤回那份的时间找
   const rows = db.all<{ title: string; status: string; name: string }>(
+    // 删掉的知识库不提：它的桌面上已经没有这个库了，提了它会去找（2026-11-11 实测）
     `SELECT c.title, c.status, k.name FROM kb_changes c JOIN knowledge_bases k ON k.id=c.kb_id
-     WHERE k.teacher_id=? AND c.author='keeper' AND c.kind<>'tidy'
+     WHERE k.teacher_id=? AND k.deleted_at IS NULL AND c.author='keeper' AND c.kind<>'tidy'
        AND ((c.decided_at IS NOT NULL AND c.decided_at>?) OR c.id IN (SELECT reverts FROM kb_changes WHERE kind='revert' AND reverts IS NOT NULL AND decided_at>?))
      ORDER BY c.id LIMIT 12`,
     teacherId,

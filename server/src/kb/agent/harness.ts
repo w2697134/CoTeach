@@ -137,7 +137,8 @@ function errorText(cwd: string, content: unknown) {
   const s = (typeof content === 'string' ? content : Array.isArray(content) ? content.map((c: any) => c?.text || '').join('') : '')
     .replace(/<\/?tool_use_error>/g, '')
     .trim();
-  if (/EISDIR|is a directory/i.test(s)) return '这是文件夹，不是文件';
+  // 拿读文件去读一个文件夹：是它在看文件夹里有什么（ls 用不了），不是事情没做成，老师那边不记（真实资料测试 16 遍里 5 遍有，2026-11-11）
+  if (/EISDIR|is a directory/i.test(s)) return null;
   if (/has not been read yet|read it first/i.test(s)) return '要先读一遍再改';
   if (/modified since read/i.test(s)) return '读过以后又变了，要重新读';
   if (/String to replace not found/i.test(s)) return '要改的那段没找到';
@@ -243,11 +244,14 @@ export async function runTurn(t: TurnRun): Promise<TurnResult> {
   child.stderr.on('data', (c) => {
     stderr = (stderr + String(c)).slice(-4000);
   });
-  /** 一步之间说的话：后面接着用工具的，记成工作记录里的一句；最后那段是回给老师的话 */
+  /**
+   * 一步之间说的话：后面接着用工具的，记成工作记录里的一句；最后那段是回给老师的话。
+   * 没有中文的不记：那是它自言自语（221 句里有 1 句英文「I'll start by surveying…」，2026-11-11），老师看不懂也用不着。
+   */
   const flushSay = () => {
     const s = pendingText.trim();
     pendingText = '';
-    if (s) record(t.ref, 'say', { text: s });
+    if (s && /[㐀-鿿]/.test(s)) record(t.ref, 'say', { text: s });
   };
   let buf = '';
   const handle = (line: string) => {

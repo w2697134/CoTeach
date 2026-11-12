@@ -1,6 +1,6 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowUp, BookOpen, Check, ChevronDown, FilePlus, FileText, FolderInput, FolderOpen, FolderSearch, MoveRight, OctagonX, Paperclip, PenLine, Search, Send, Trash2, Upload, X } from 'lucide-react';
+import { ArrowUp, BookOpen, Check, ChevronDown, FilePlus, FileText, Folder, FolderInput, FolderOpen, FolderSearch, MoveRight, OctagonX, Paperclip, PenLine, Search, Send, Trash2, Upload, X } from 'lucide-react';
 import { get, post } from '../../lib/api';
 import { toast, useAuth } from '../../lib/store';
 import { Markdown } from '../../components/Markdown';
@@ -9,7 +9,7 @@ import { changedPages, useChangeActions } from './Changes';
 import { IntakeCard } from './IntakeCard';
 import { pastedFiles, pickedFromDrop, pickedFromList, sendMessage, uploadingHere, useKeeperIntakes, type Intake, type Picked } from './intake';
 import { MaterialIcon } from './Files';
-import { readableError, toolPresentation, when } from './presentation';
+import { fileTitle, readableError, toolPresentation, when } from './presentation';
 import { KEEPER, STATUS_TEXT, STATUS_TONE, plainText, useChanges, useKeeperRuns, useKeeperStream, useKnowledgeBases, type Run, type RunEvent } from './data';
 
 const SHOWN = /\.(png|jpe?g|gif|webp)$/i;
@@ -89,12 +89,72 @@ function ChangeCard({ cid, changeId, title, kbName, onOpen }: { cid: number; cha
   );
 }
 
-/** 老师那句话带的文件：图片显示小图，点开看大图；别的显示文件名；没读出来的写原因 */
+/** 输入框上方摆着的文件按最外面那层文件夹归拢：文件夹名、里面每份的键（叉掉时一起去掉） */
+function pickedFolders(list: { key: string; picked: Picked }[]) {
+  const folders = new Map<string, string[]>();
+  for (const a of list) {
+    const cut = a.picked.path.indexOf('/');
+    if (cut <= 0) continue;
+    const name = a.picked.path.slice(0, cut);
+    folders.set(name, [...(folders.get(name) || []), a.key]);
+  }
+  return [...folders].map(([name, keys]) => ({ name, keys }));
+}
+
+/** 一次带了好几份零散的文件：先摆这么多，其余点「还有 N 份」再摆出来 */
+const LOOSE_SHOWN = 6;
+const unread = (status: string) => status === 'failed' || status === 'skipped';
+/** 和库里一模一样、没再存的那份：说和哪一份一样 */
+const twinOf = (a: { path: string | null }) => (a.path ? `和「${fileTitle(a.path)}」一样，只存了一份` : '和库里的一样，只存了一份');
+
+/**
+ * 老师那句话带的文件：图片显示小图，点开看大图；别的显示文件名；没读出来的写原因。
+ * 拖进来的整个文件夹只占一格（文件夹名、几份、几份没读出来），点开看里面有哪些。
+ */
 function Sent({ run }: { run: Run }) {
   const items = run.attachments || [];
+  const folders = run.attachmentFolders || [];
+  const [open, setOpen] = useState<string | null>(null);
+  const [everything, setEverything] = useState(false);
+  const loose = items.filter((a) => !folders.some((f) => a.name.startsWith(f.name + '/')));
+  // 服务器只给前 60 份；零散的一共几份按总数减去文件夹里的算
+  const looseTotal = items.length + (run.moreAttachments || 0) - folders.reduce((n, f) => n + f.count, 0);
+  const shown = everything ? loose : loose.slice(0, LOOSE_SHOWN);
+  const hidden = Math.max(0, looseTotal - shown.length);
   return (
     <div className="flex flex-wrap justify-end gap-2">
-      {items.map((a) => {
+      {folders.map((f) => {
+        const inside = items.filter((a) => a.name.startsWith(f.name + '/'));
+        const expanded = open === f.name;
+        return (
+          <div key={f.name} className="w-[260px] max-w-full rounded-xl border border-line bg-surface text-left">
+            <button type="button" onClick={() => setOpen(expanded ? null : f.name)} className="flex w-full items-center gap-2.5 px-3 py-2 text-left" title={f.name}>
+              <Folder className="size-5 shrink-0 fill-amber-400/35 text-amber-500" strokeWidth={1.75} />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-[13px] text-ink">{f.name}</span>
+                <span className="block text-[12px] text-ink-3">
+                  {f.count} 份{!!f.same && ` · ${f.same} 份重复`}
+                  {f.failed > 0 && <span className="text-bad"> · {f.failed} 份没读出来</span>}
+                </span>
+              </span>
+              <ChevronDown className={cn('size-3.5 shrink-0 text-ink-3 transition-transform', !expanded && '-rotate-90')} />
+            </button>
+            {expanded && (
+              <ul className="max-h-64 space-y-0.5 overflow-y-auto border-t border-line px-3 py-2 text-[12.5px] leading-5 text-ink-2">
+                {inside.map((a) => (
+                  <li key={a.id} className={unread(a.status) || a.status === 'same' ? 'break-all' : 'truncate'} title={a.name.slice(f.name.length + 1)}>
+                    {a.name.slice(f.name.length + 1)}
+                    {unread(a.status) && <span className="text-bad">：{a.reason || '没读出来'}</span>}
+                    {a.status === 'same' && <span className="text-ink-3">：{twinOf(a)}</span>}
+                  </li>
+                ))}
+                {f.count > inside.length && <li className="text-ink-3">还有 {f.count - inside.length} 份</li>}
+              </ul>
+            )}
+          </div>
+        );
+      })}
+      {shown.map((a) => {
         const raw = `/api/knowledge/${a.kbId}/intakes/${a.intakeId}/items/${a.id}/raw`;
         const name = a.name.split('/').pop() || a.name;
         return a.kind === 'image' && SHOWN.test(a.name) && a.status !== 'uploading' ? (
@@ -107,12 +167,20 @@ function Sent({ run }: { run: Run }) {
             <span className="min-w-0">
               <span className="block truncate text-[13px] text-ink">{name}</span>
               {a.status === 'uploading' && <span className="block text-[12px] text-ink-3">上传中</span>}
-              {(a.status === 'failed' || a.status === 'skipped') && <span className="block truncate text-[12px] text-bad">{a.reason || '没读出来'}</span>}
+              {unread(a.status) && <span className="block truncate text-[12px] text-bad">{a.reason || '没读出来'}</span>}
+              {a.status === 'same' && <span className="block truncate text-[12px] text-ink-3">{twinOf(a)}</span>}
             </span>
           </div>
         );
       })}
-      {!!run.moreAttachments && <span className="self-center text-[12px] text-ink-3">还有 {run.moreAttachments} 份</span>}
+      {hidden > 0 &&
+        (everything || loose.length <= shown.length ? (
+          <span className="self-center text-[12px] text-ink-3">还有 {hidden} 份</span>
+        ) : (
+          <button type="button" onClick={() => setEverything(true)} className="self-center text-[12px] text-ink-3 hover:text-ink">
+            还有 {hidden} 份
+          </button>
+        ))}
     </div>
   );
 }
@@ -212,7 +280,8 @@ function RunBlock({
                   <span key={i} className="size-1.5 animate-bounce rounded-full bg-brand/60" style={{ animationDelay: `${i * 0.15}s` }} />
                 ))}
               </span>
-              {live && <span className="min-w-0 whitespace-pre-wrap">{plainText(live)}</span>}
+              {/* 没有中文的是它自言自语（偶尔冒一句英文），不摆出来；工作记录里也不记 */}
+              {live && /[㐀-鿿]/.test(live) && <span className="min-w-0 whitespace-pre-wrap">{plainText(live)}</span>}
             </div>
           )}
           {!running && run.reply && !echo && (
@@ -552,7 +621,27 @@ export const KeeperPanel = forwardRef<
         <div ref={composer} className="rounded-2xl border border-line bg-surface shadow-xs transition-colors focus-within:border-brand/50">
           {attached.length > 0 && (
             <div className="flex flex-wrap gap-2 px-3 pt-3">
-              {attached.slice(0, 12).map((a) => (
+              {/* 拖进来、选进来的整个文件夹只占一格，叉掉就是整个文件夹不发了 */}
+              {pickedFolders(attached).map((f) => (
+                <div key={f.name} className="relative">
+                  <div title={f.name} className="flex h-16 w-44 items-center gap-2 rounded-lg border border-line bg-surface-2 px-2.5">
+                    <Folder className="size-5 shrink-0 fill-amber-400/35 text-amber-500" strokeWidth={1.75} />
+                    <span className="min-w-0">
+                      <span className="line-clamp-2 break-all text-[12px] leading-4 text-ink-2">{f.name}</span>
+                      <span className="block text-[12px] leading-4 text-ink-3">{f.keys.length} 份</span>
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    aria-label="去掉"
+                    onClick={() => f.keys.forEach(detach)}
+                    className="absolute -right-1.5 -top-1.5 flex size-5 items-center justify-center rounded-full bg-ink/70 text-white hover:bg-ink"
+                  >
+                    <X className="size-3" />
+                  </button>
+                </div>
+              ))}
+              {attached.filter((a) => !a.picked.path.includes('/')).slice(0, 12).map((a) => (
                 <div key={a.key} className="relative">
                   {a.url ? (
                     <img src={a.url} alt="" className="size-16 rounded-lg border border-line object-cover" />
@@ -572,7 +661,9 @@ export const KeeperPanel = forwardRef<
                   </button>
                 </div>
               ))}
-              {attached.length > 12 && <span className="self-center text-[12px] text-ink-3">还有 {attached.length - 12} 份</span>}
+              {attached.filter((a) => !a.picked.path.includes('/')).length > 12 && (
+                <span className="self-center text-[12px] text-ink-3">还有 {attached.filter((a) => !a.picked.path.includes('/')).length - 12} 份</span>
+              )}
             </div>
           )}
           <Textarea

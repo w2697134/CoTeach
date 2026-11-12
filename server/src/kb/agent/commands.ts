@@ -56,7 +56,7 @@ ct 删 <路径>                 删掉文件或文件夹（老师能撤回）
 ct 新建库 <名字>             新建一个知识库
 ct 改名库 <现在的名字> <新名字>
 ct 删库 <名字>               删掉一个已经清空的知识库
-路径从工作目录算起，第一段是知识库的文件夹，比如「王建国的知识库/第6章/函数基础.md」。`;
+路径从工作目录算起，第一段是知识库的文件夹。`;
 
 type Result = { ok: boolean; text: string };
 const ok = (text: string): Result => ({ ok: true, text });
@@ -309,6 +309,8 @@ function dropBase(t: Turn, name: string): Result {
 /**
  * 把老师发来的文件存进知识库：和老师自己交资料一样，存进去就生效，算老师交的原件（转出来的文字受保护）。
  * 目标给了文件名就用它；给的是文件夹就照原来的名字放进去。同名的原件当新版本，和别的文件撞名时原件名后加「（原件）」。
+ * 一个知识库里不放两份一模一样的原件（按原文件的指纹认，名字不同也算）：库里已经有的、这次一起存的里面重复的，只留一份，
+ * 告诉整理助手哪几份一样（2026-11-11 用户定：只存一份，跟老师说一声）。别的知识库里有一样的不算，各个库各放各的。
  */
 async function save(t: Turn, fromRaw: string, toRaw: string): Promise<Result> {
   if (t.submitted) return fail('这次已经交过了');
@@ -333,7 +335,19 @@ async function save(t: Turn, fromRaw: string, toRaw: string): Promise<Result> {
   for (const f of await t.desk.spaces.get(b.kbId)!.list()) taken.add(f.path.toLocaleLowerCase());
   const ops: FileOp[] = [];
   const placed: { itemId: number; path: string; sourceId: string }[] = [];
+  const hashOf = new Map(
+    db.all<{ id: string; original_hash: string }>('SELECT id, original_hash FROM kb_sources WHERE kb_id=?', b.kbId).map((s) => [s.id, s.original_hash]),
+  );
+  /** 原文件指纹 → 库里那份的路径 */
+  const have = new Map<string, string>();
+  for (const e of entries) if (e.sourceId && hashOf.has(e.sourceId)) have.set(hashOf.get(e.sourceId)!, e.path);
+  const same: { itemId: number; name: string; as: string }[] = [];
   for (const [rel, item] of picked) {
+    const twin = have.get(item.hash);
+    if (twin) {
+      same.push({ itemId: item.id, name: item.name.split('/').pop()!, as: twin });
+      continue;
+    }
     const tail = under && rel !== under ? rel.slice(under.length + 1) : rel.split('/').pop()!;
     let path = cleanPath(single ? b.path.replace(/\.[^./]+$/, '.md') : [b.path, tail.replace(/\.[^./]+$/, '') + '.md'].filter(Boolean).join('/'));
     const prev = entries.find((e) => e.path === path && e.sourceId);
@@ -343,7 +357,12 @@ async function save(t: Turn, fromRaw: string, toRaw: string): Promise<Result> {
     const sourceId = addSource(b.kbId, { name: item.name, originalHash: item.hash, text, kind: item.kind, method: item.method, notes: j<string[]>(item.notes, []) });
     ops.push({ path, content: text, base: prev ? hashBytes(readEntry(b.kbId, prev)) : null, ...(prev ? { baseEntryId: prev.id } : {}), sourceId, sourcePart: 'text' });
     placed.push({ itemId: item.id, path, sourceId });
+    have.set(item.hash, path);
   }
+  const twins = same.map((s) => `「${s.name}」和「${folder}/${s.as}」一模一样`).join('；');
+  // 老师发的那份在对话里标上「重复」：它回话里提不提都看得到（A3 最外层 2 遍都没提，2026-11-11）
+  for (const s of same) setItem(s.itemId, { status: 'same', path: `${folder}/${s.as}` });
+  if (!placed.length) return ok(`没有存：${twins}，库里已经有了，只留一份`);
   const one = placed.length === 1 ? `「${documentName(placed[0].path)}」` : `${placed.length} 份资料`;
   await createChange({
     kbId: b.kbId,
@@ -354,12 +373,12 @@ async function save(t: Turn, fromRaw: string, toRaw: string): Promise<Result> {
     ops,
     apply: { by: t.user.id, as: teacherAuthor(t.user) },
   });
-  for (const p of placed) setItem(p.itemId, { path: p.path, source_id: p.sourceId });
+  for (const p of placed) setItem(p.itemId, { status: 'done', path: p.path, source_id: p.sourceId });
   await t.desk.placeSaved(
     b.kbId,
     placed.map((p) => p.path),
   );
   t.desk.structural = true;
   record(t, 'tool', { name: 'save_file', label: LABEL.save_file, path: `${folder}/${placed[0].path}`, count: placed.length, base: kb.name });
-  return ok(`已存进「${folder}」：${placed.map((p) => `「${p.path}」`).join('、')}（已生效）`);
+  return ok(`已存进「${folder}」：${placed.map((p) => `「${p.path}」`).join('、')}（已生效）${same.length ? `\n没有存：${twins}，只留一份` : ''}`);
 }

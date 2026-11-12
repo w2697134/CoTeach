@@ -728,12 +728,25 @@ function attachmentsOf(intakeId: number) {
   if (!intake) return null;
   const all = intakeItems(intakeId);
   const docs = all.filter((i) => i.method !== 'archive');
+  const top = all.filter((i) => i.depth === 0);
+  // 拖进来的整个文件夹在对话里只占一格：按最外面那层文件夹数一共几份、几份没读出来（2026-11-11，35 份一份一行太长）
+  const folders = new Map<string, { name: string; count: number; failed: number; same: number }>();
+  for (const i of top) {
+    const cut = i.name.indexOf('/');
+    if (cut <= 0) continue;
+    const name = i.name.slice(0, cut);
+    const f = folders.get(name) || { name, count: 0, failed: 0, same: 0 };
+    f.count++;
+    if (i.status === 'failed' || i.status === 'skipped') f.failed++;
+    if (i.status === 'same') f.same++;
+    folders.set(name, f);
+  }
   return {
-    items: all
-      .filter((i) => i.depth === 0)
+    items: top
       .slice(0, 60)
       .map((i) => ({ id: i.id, intakeId, kbId: intake.kb_id as number, name: i.name, kind: i.kind, status: i.status, reason: i.reason, path: i.path })),
-    more: Math.max(0, all.filter((i) => i.depth === 0).length - 60),
+    more: Math.max(0, top.length - 60),
+    folders: [...folders.values()],
     receiving: ['uploading', 'reading'].includes(intake.status)
       ? {
           status: intake.status as string,
@@ -793,7 +806,7 @@ async function chatTurn(
       files = inboxBlock(staged.inbox.root, staged.listed, staged.failed);
     }
     const ask = message.trim() || (intakeId ? noWordsRequest(folder) : '');
-    const text = [whereLine(folder, file), outcomesSince(user.id, since), ask, files].filter(Boolean).join('\n');
+    const text = [whereLine(folder, file, [...desk.folders.values()]), outcomesSince(user.id, since), ask, files].filter(Boolean).join('\n');
     const opts = intakeId
       ? { maxTurns: 120, turnMs: 45 * 60_000, quietMs: 8 * 60_000, purpose: 'kb:chat', signal }
       : { maxTurns: 40, turnMs: 15 * 60_000, quietMs: 5 * 60_000, purpose: 'kb:chat', signal };
@@ -1350,6 +1363,7 @@ export function publicRun(r: any) {
     changes,
     attachments: files?.items ?? null,
     moreAttachments: files?.more ?? 0,
+    attachmentFolders: files?.folders ?? [],
     receiving: files?.receiving ?? null,
     kind: r.kind,
     status: r.status,

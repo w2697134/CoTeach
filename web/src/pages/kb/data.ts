@@ -118,6 +118,8 @@ export interface Run {
   /** 老师这句话带的文件 */
   attachments?: Attachment[] | null;
   moreAttachments?: number;
+  /** 拖进来的整个文件夹：名字、一共几份、几份没读出来、几份和库里一模一样没再存 */
+  attachmentFolders?: { name: string; count: number; failed: number; same?: number }[];
   /** 带的文件还在收、在读 */
   receiving?: { status: string; done: number; total: number } | null;
   kind: 'materials' | 'chat' | 'summary' | 'observation';

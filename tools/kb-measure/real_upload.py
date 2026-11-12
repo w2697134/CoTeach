@@ -13,7 +13,8 @@ sys.stdout.reconfigure(encoding='utf-8', line_buffering=True)
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 OUT = os.path.join(ROOT, 'output', 'real-upload')
 SRC_DATA = os.path.join(ROOT, 'server', 'data')
-SERVER = os.path.join(ROOT, 'server', 'dist', 'server.mjs')
+# 对比几个版本时，各版本的打包放在别处，用 CT_MEASURE_SERVER 指定（默认是当前构建）
+SERVER = os.environ.get('CT_MEASURE_SERVER') or os.path.join(ROOT, 'server', 'dist', 'server.mjs')
 PORT = int(os.environ.get('CT_MEASURE_PORT', '18693'))
 API = f'http://127.0.0.1:{PORT}/api'
 CLAUDE = os.environ.get('CT_CLAUDE', 'C:/Users/admin/.local/bin/claude.exe')
