@@ -1,14 +1,14 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowUp, BookOpen, Check, ChevronDown, FilePlus, FileText, Folder, FolderInput, FolderOpen, FolderSearch, MoveRight, OctagonX, Paperclip, PenLine, Search, Send, Trash2, Upload, X } from 'lucide-react';
+import { ArrowUp, BookOpen, Check, ChevronDown, ChevronRight, Clock, FilePenLine, FilePlus, FileText, FolderInput, FolderOpen, FolderSearch, MoveRight, OctagonX, Paperclip, PenLine, Search, Send, Trash2, Upload, X } from 'lucide-react';
 import { get, post } from '../../lib/api';
 import { toast, useAuth } from '../../lib/store';
 import { Markdown } from '../../components/Markdown';
 import { AgentAvatar, Alert, Avatar, Badge, Button, IconButton, MenuItem, Popover, Skeleton, Textarea, cn } from '../../components/ui';
-import { changedPages, useChangeActions } from './Changes';
+import { useChangeActions } from './Changes';
 import { IntakeCard } from './IntakeCard';
 import { pastedFiles, pickedFromDrop, pickedFromList, sendMessage, uploadingHere, useKeeperIntakes, type Intake, type Picked } from './intake';
-import { MaterialIcon } from './Files';
+import { FileCard, FileTypeIcon, formatSize, typeLabel } from './FileCard';
 import { fileTitle, readableError, toolPresentation, when } from './presentation';
 import { KEEPER, STATUS_TEXT, STATUS_TONE, plainText, useChanges, useKeeperRuns, useKeeperStream, useKnowledgeBases, type Run, type RunEvent } from './data';
 
@@ -47,43 +47,87 @@ function ToolLine({ e }: { e: RunEvent }) {
   );
 }
 
-/** 整理助手交上来的一次改动：改了哪几页，看一眼再确认 */
+/**
+ * 整理助手交上来的一次改动。
+ * 还没定的：图标块、标题、状态，改了哪几篇摆成小标签，底下「看改动」「不要」「确认生效」，描一圈主题色。
+ * 定了的（已生效、没要）收成一张小卡：标题、状态、「看改动」，不再把改了哪几篇列一遍，往上翻历史不乱。
+ */
 function ChangeCard({ cid, changeId, title, kbName, onOpen }: { cid: number; changeId: number; title?: string; kbName?: string; onOpen: (id: number) => void }) {
   const changes = useChanges(cid);
   const c = changes.data?.changes.find((x) => x.id === changeId);
   const { act, busy } = useChangeActions(cid);
   const status = c?.status;
-  const open = c && (status === 'pending' || status === 'conflict');
-  if (!c && changes.isPending) return <Skeleton className="h-[104px] rounded-2xl" />;
-  return (
-    <div className={cn('rounded-2xl border p-3.5', open ? 'border-brand/30 bg-brand-soft/50' : 'border-line bg-surface-2')}>
-      {kbName && <p className="mb-1 truncate text-[12px] text-ink-3">{kbName}</p>}
-      <div className="flex items-start gap-2">
-        <p className="min-w-0 flex-1 text-[14px] font-medium leading-snug text-ink">{plainText(c?.title || title || '')}</p>
-        {status && <Badge tone={STATUS_TONE[status]}>{STATUS_TEXT[status]}</Badge>}
+  if (!c && changes.isPending) return <Skeleton className="h-[64px] rounded-xl" />;
+  const name = plainText(c?.title || title || '');
+  const look = (
+    <button
+      type="button"
+      onClick={() => onOpen(changeId)}
+      className="inline-flex items-center gap-0.5 rounded-md py-1 text-[13px] font-medium text-brand transition-colors hover:text-brand-hover"
+    >
+      看改动
+      <ChevronRight className="size-3.5" />
+    </button>
+  );
+  if (!c || (status !== 'pending' && status !== 'conflict'))
+    return (
+      <div className="flex items-center gap-3 rounded-xl border border-line bg-surface px-3 py-2.5 shadow-xs">
+        <span className="flex size-8 shrink-0 items-center justify-center rounded-[9px] bg-surface-3 text-ink-3">
+          <FilePenLine className="size-4" />
+        </span>
+        <div className="min-w-0 flex-1">
+          {kbName && <p className="truncate text-[12px] text-ink-3">{kbName}</p>}
+          <p className="line-clamp-2 text-[13.5px] leading-snug text-ink-2">{name}</p>
+        </div>
+        <div className="flex shrink-0 flex-col items-end">
+          {status && <Badge tone={STATUS_TONE[status]}>{STATUS_TEXT[status]}</Badge>}
+          {look}
+        </div>
       </div>
-      {c && changedPages(c) && <p className="mt-1 text-[13px] leading-5 text-ink-3">{changedPages(c)}</p>}
-      <div className="mt-3 flex flex-wrap items-center gap-2">
-        <Button size="sm" onClick={() => onOpen(changeId)}>
-          看改动
-        </Button>
-        {open && (
-          <>
-            <Button
-              size="sm"
-              variant="primary"
-              icon={<Check className="size-3.5" />}
-              loading={busy === `${c.id}:apply`}
-              disabled={status === 'conflict'}
-              onClick={() => act(c, 'apply')}
-            >
-              确认生效
-            </Button>
-            <Button size="sm" variant="ghost" icon={<X className="size-3.5" />} loading={busy === `${c.id}:reject`} onClick={() => act(c, 'reject')}>
-              不要
-            </Button>
-          </>
-        )}
+    );
+  const pages = [...new Set(c.files.map((f) => fileTitle(f.path)).filter(Boolean))];
+  return (
+    <div className="overflow-hidden rounded-xl border border-brand/45 bg-surface shadow-xs ring-2 ring-brand/10">
+      <div className="flex gap-3 px-3 pt-3">
+        <span className="flex size-9 shrink-0 items-center justify-center rounded-[10px] bg-brand text-white">
+          <FilePenLine className="size-[18px]" />
+        </span>
+        <div className="min-w-0 flex-1">
+          {kbName && <p className="truncate text-[12px] text-ink-3">{kbName}</p>}
+          <div className="flex items-start gap-2">
+            <p className="min-w-0 flex-1 text-[14px] font-medium leading-snug text-ink">{name}</p>
+            {status && <Badge tone={STATUS_TONE[status]}>{STATUS_TEXT[status]}</Badge>}
+          </div>
+          {pages.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {pages.slice(0, 3).map((p) => (
+                <span key={p} className="inline-flex max-w-full items-center gap-1 rounded-md bg-surface-2 px-1.5 py-0.5 text-[12px] text-ink-2">
+                  <FileText className="size-3 shrink-0 text-ink-3" />
+                  <span className="truncate">{p}</span>
+                </span>
+              ))}
+              {pages.length > 3 && <span className="self-center text-[12px] text-ink-3">等 {pages.length} 篇</span>}
+            </div>
+          )}
+        </div>
+      </div>
+      <div className="mt-3 flex items-center gap-2 border-t border-line px-3 py-1.5">
+        {look}
+        <div className="ml-auto flex items-center gap-1.5">
+          <Button size="sm" variant="ghost" icon={<X className="size-3.5" />} loading={busy === `${c.id}:reject`} onClick={() => act(c, 'reject')}>
+            不要
+          </Button>
+          <Button
+            size="sm"
+            variant="primary"
+            icon={<Check className="size-3.5" />}
+            loading={busy === `${c.id}:apply`}
+            disabled={status === 'conflict'}
+            onClick={() => act(c, 'apply')}
+          >
+            确认生效
+          </Button>
+        </div>
       </div>
     </div>
   );
@@ -122,56 +166,60 @@ function Sent({ run }: { run: Run }) {
   const shown = everything ? loose : loose.slice(0, LOOSE_SHOWN);
   const hidden = Math.max(0, looseTotal - shown.length);
   return (
-    <div className="flex flex-wrap justify-end gap-2">
+    <div className="flex flex-col items-end gap-2">
       {folders.map((f) => {
         const inside = items.filter((a) => a.name.startsWith(f.name + '/'));
         const expanded = open === f.name;
         return (
-          <div key={f.name} className="w-[260px] max-w-full rounded-xl border border-line bg-surface text-left">
-            <button type="button" onClick={() => setOpen(expanded ? null : f.name)} className="flex w-full items-center gap-2.5 px-3 py-2 text-left" title={f.name}>
-              <Folder className="size-5 shrink-0 fill-amber-400/35 text-amber-500" strokeWidth={1.75} />
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-[13px] text-ink">{f.name}</span>
-                <span className="block text-[12px] text-ink-3">
-                  {f.count} 份{!!f.same && ` · ${f.same} 份重复`}
-                  {f.failed > 0 && <span className="text-bad"> · {f.failed} 份没读出来</span>}
-                </span>
-              </span>
-              <ChevronDown className={cn('size-3.5 shrink-0 text-ink-3 transition-transform', !expanded && '-rotate-90')} />
-            </button>
+          <FileCard
+            key={f.name}
+            folder
+            name={f.name}
+            meta={
+              <>
+                {f.count} 份{!!f.same && ` · ${f.same} 份重复`}
+                {f.failed > 0 && <span className="text-bad"> · {f.failed} 份没读出来</span>}
+              </>
+            }
+            onClick={() => setOpen(expanded ? null : f.name)}
+            after={<ChevronDown className={cn('size-4 shrink-0 text-ink-3 transition-transform', !expanded && '-rotate-90')} />}
+          >
             {expanded && (
-              <ul className="max-h-64 space-y-0.5 overflow-y-auto border-t border-line px-3 py-2 text-[12.5px] leading-5 text-ink-2">
+              <ul className="max-h-72 space-y-1.5 overflow-y-auto border-t border-line px-3 py-2.5">
                 {inside.map((a) => (
-                  <li key={a.id} className={unread(a.status) || a.status === 'same' ? 'break-all' : 'truncate'} title={a.name.slice(f.name.length + 1)}>
-                    {a.name.slice(f.name.length + 1)}
-                    {unread(a.status) && <span className="text-bad">：{a.reason || '没读出来'}</span>}
-                    {a.status === 'same' && <span className="text-ink-3">：{twinOf(a)}</span>}
+                  <li key={a.id} className="flex items-start gap-2 text-[12.5px] leading-5">
+                    <FileTypeIcon name={a.name} kind={a.kind} size={20} className="mt-px" />
+                    <span className="min-w-0 flex-1">
+                      <span className="block break-all text-ink-2">{a.name.slice(f.name.length + 1)}</span>
+                      {unread(a.status) && <span className="block text-bad">{a.reason || '没读出来'}</span>}
+                      {a.status === 'same' && <span className="block text-ink-3">{twinOf(a)}</span>}
+                    </span>
                   </li>
                 ))}
-                {f.count > inside.length && <li className="text-ink-3">还有 {f.count - inside.length} 份</li>}
+                {f.count > inside.length && <li className="pl-7 text-[12.5px] text-ink-3">还有 {f.count - inside.length} 份</li>}
               </ul>
             )}
-          </div>
+          </FileCard>
         );
       })}
       {shown.map((a) => {
         const raw = `/api/knowledge/${a.kbId}/intakes/${a.intakeId}/items/${a.id}/raw`;
         const name = a.name.split('/').pop() || a.name;
-        return a.kind === 'image' && SHOWN.test(a.name) && a.status !== 'uploading' ? (
-          <a key={a.id} href={`${raw}?inline=1`} target="_blank" rel="noreferrer" title={name}>
-            <img src={`${raw}?inline=1`} alt={name} className="max-h-40 max-w-[220px] rounded-xl border border-line object-cover" />
-          </a>
-        ) : (
-          <div key={a.id} title={name} className="flex max-w-[220px] items-center gap-2 rounded-xl border border-line bg-surface px-3 py-2 text-left">
-            <MaterialIcon file={{ source: { kind: a.kind } }} className="size-5" />
-            <span className="min-w-0">
-              <span className="block truncate text-[13px] text-ink">{name}</span>
-              {a.status === 'uploading' && <span className="block text-[12px] text-ink-3">上传中</span>}
-              {unread(a.status) && <span className="block truncate text-[12px] text-bad">{a.reason || '没读出来'}</span>}
-              {a.status === 'same' && <span className="block truncate text-[12px] text-ink-3">{twinOf(a)}</span>}
-            </span>
-          </div>
-        );
+        if (a.kind === 'image' && SHOWN.test(a.name) && a.status !== 'uploading')
+          return (
+            <a key={a.id} href={`${raw}?inline=1`} target="_blank" rel="noreferrer" title={name} className="block">
+              <img src={`${raw}?inline=1`} alt={name} className="max-h-44 max-w-[248px] rounded-xl border border-line object-cover shadow-xs" />
+            </a>
+          );
+        const meta =
+          a.status === 'uploading'
+            ? '上传中'
+            : unread(a.status)
+              ? a.reason || '没读出来'
+              : a.status === 'same'
+                ? twinOf(a)
+                : [typeLabel(a.name, a.kind), formatSize(a.size)].filter(Boolean).join(' · ');
+        return <FileCard key={a.id} name={name} kind={a.kind} meta={meta} bad={unread(a.status)} />;
       })}
       {hidden > 0 &&
         (everything || loose.length <= shown.length ? (
@@ -235,31 +283,37 @@ function RunBlock({
           <Avatar name={user?.name} seed={user?.id} size={28} className="mt-0.5" />
         </div>
       ) : (
-        <div className="text-center text-[12.5px] leading-5 text-ink-3">
-          <p>
-            {run.task?.label || (run.kind === 'summary' ? '学期提炼' : run.kind === 'observation' ? '其他助手提交的记录' : '整理交来的资料')} · {when(run.createdAt)}
-          </p>
+        // 不是老师说话起的一轮（整理交来的资料、学期提炼）：像聊天软件里的时间那样，一行灰字夹在两道细线中间
+        <div className="text-[12px] leading-5 text-ink-3">
+          <div className="flex items-center gap-3">
+            <span className="h-px flex-1 bg-line" />
+            <span className="shrink-0">
+              {run.task?.label || (run.kind === 'summary' ? '学期提炼' : run.kind === 'observation' ? '其他助手提交的记录' : '整理交来的资料')} · {when(run.createdAt)}
+            </span>
+            <span className="h-px flex-1 bg-line" />
+          </div>
           {/* 整理交来的资料时，交了什么上面那张卡片已经写了 */}
-          {run.task?.detail && run.kind !== 'materials' && <p className="mx-auto mt-0.5 max-w-[90%] text-ink-2">{plainText(run.task.detail)}</p>}
+          {run.task?.detail && run.kind !== 'materials' && <p className="mx-auto mt-1 max-w-[90%] text-center text-[12.5px] text-ink-2">{plainText(run.task.detail)}</p>}
         </div>
       )}
       <div className="flex gap-2.5">
         <AgentAvatar agent={KEEPER} size={28} active={running} className="mt-0.5" />
         <div className="min-w-0 flex-1 space-y-2.5">
+          {/* 工作记录照 ChatGPT、Claude 的做法：收起来时就一行灰字，展开是左边一道细线串起来的一步步 */}
           {steps.length > 0 && (
-            <div className="rounded-xl border border-line bg-surface-2 px-3 py-2.5">
+            <div>
               {!running && (
                 <button
                   type="button"
                   onClick={() => setExpanded(!expanded)}
-                  className="flex w-full items-center gap-1.5 text-left text-[13px] font-medium text-ink-2 hover:text-ink"
+                  className="inline-flex items-center gap-1 py-0.5 text-[12.5px] text-ink-3 transition-colors hover:text-ink-2"
                 >
-                  <ChevronDown className={cn('size-3.5 transition-transform', !expanded && '-rotate-90')} />
+                  <ChevronRight className={cn('size-3.5 transition-transform', expanded && 'rotate-90')} />
                   工作记录 · {steps.filter((e) => e.type === 'tool').length} 步
                 </button>
               )}
               {showAll && (
-                <div className={cn('space-y-1.5', !running && 'mt-2')}>
+                <div className={cn('ml-[6px] space-y-1.5 border-l-2 border-line pl-3', !running && 'mt-1.5')}>
                   {steps.map((e) =>
                     e.type === 'say' ? (
                       <p key={e.id} className="text-[13px] leading-5 text-ink-3">
@@ -555,7 +609,9 @@ export const KeeperPanel = forwardRef<
           {inbox.data?.items
             .filter((item) => item.status !== 'running')
             .map((item) => (
-              <div key={item.id} className="rounded-xl border border-line bg-surface-2 p-3 text-[13px] leading-relaxed">
+              <div key={item.id} className="flex gap-2.5 rounded-xl bg-surface-2 px-3 py-2.5 text-[13px] leading-relaxed">
+                <Clock className={cn('mt-0.5 size-4 shrink-0', item.status === 'error' ? 'text-bad' : 'text-ink-3')} />
+                <div className="min-w-0 flex-1">
                 <p className="text-ink-2">
                   {item.task?.label || '整理任务'} · {item.status === 'error' ? '未完成' : '排队中'}
                 </p>
@@ -578,6 +634,7 @@ export const KeeperPanel = forwardRef<
                     重试
                   </Button>
                 )}
+                </div>
               </div>
             ))}
           {q.error && (
@@ -620,47 +677,39 @@ export const KeeperPanel = forwardRef<
       >
         <div ref={composer} className="rounded-2xl border border-line bg-surface shadow-xs transition-colors focus-within:border-brand/50">
           {attached.length > 0 && (
-            <div className="flex flex-wrap gap-2 px-3 pt-3">
+            // 照 ChatGPT：带的文件在输入框上方横着排一行，多了左右滑，输入框不会被顶高
+            <div className="flex items-center gap-2 overflow-x-auto px-3 pb-1 pt-3 [&>*]:shrink-0">
               {/* 拖进来、选进来的整个文件夹只占一格，叉掉就是整个文件夹不发了 */}
               {pickedFolders(attached).map((f) => (
-                <div key={f.name} className="relative">
-                  <div title={f.name} className="flex h-16 w-44 items-center gap-2 rounded-lg border border-line bg-surface-2 px-2.5">
-                    <Folder className="size-5 shrink-0 fill-amber-400/35 text-amber-500" strokeWidth={1.75} />
-                    <span className="min-w-0">
-                      <span className="line-clamp-2 break-all text-[12px] leading-4 text-ink-2">{f.name}</span>
-                      <span className="block text-[12px] leading-4 text-ink-3">{f.keys.length} 份</span>
-                    </span>
-                  </div>
-                  <button
-                    type="button"
-                    aria-label="去掉"
-                    onClick={() => f.keys.forEach(detach)}
-                    className="absolute -right-1.5 -top-1.5 flex size-5 items-center justify-center rounded-full bg-ink/70 text-white hover:bg-ink"
-                  >
-                    <X className="size-3" />
-                  </button>
-                </div>
+                <FileCard key={f.name} compact folder name={f.name} meta={`${f.keys.length} 份`} onRemove={() => f.keys.forEach(detach)} />
               ))}
-              {attached.filter((a) => !a.picked.path.includes('/')).slice(0, 12).map((a) => (
-                <div key={a.key} className="relative">
-                  {a.url ? (
-                    <img src={a.url} alt="" className="size-16 rounded-lg border border-line object-cover" />
-                  ) : (
-                    <div className="flex h-16 w-36 items-center gap-2 rounded-lg border border-line bg-surface-2 px-2.5">
-                      <FileText className="size-5 shrink-0 text-ink-3" />
-                      <span className="line-clamp-2 min-w-0 break-all text-[12px] leading-4 text-ink-2">{a.picked.path.split('/').pop()}</span>
+              {attached
+                .filter((a) => !a.picked.path.includes('/'))
+                .slice(0, 12)
+                .map((a) => {
+                  const name = a.picked.path.split('/').pop() || a.picked.path;
+                  return a.url ? (
+                    <div key={a.key} className="relative">
+                      <img src={a.url} alt="" className="size-[50px] rounded-xl border border-line object-cover shadow-xs" />
+                      <button
+                        type="button"
+                        aria-label="去掉"
+                        onClick={() => detach(a.key)}
+                        className="absolute -right-1.5 -top-1.5 flex size-5 items-center justify-center rounded-full bg-ink/70 text-white shadow-sm hover:bg-ink"
+                      >
+                        <X className="size-3" />
+                      </button>
                     </div>
-                  )}
-                  <button
-                    type="button"
-                    aria-label="去掉"
-                    onClick={() => detach(a.key)}
-                    className="absolute -right-1.5 -top-1.5 flex size-5 items-center justify-center rounded-full bg-ink/70 text-white hover:bg-ink"
-                  >
-                    <X className="size-3" />
-                  </button>
-                </div>
-              ))}
+                  ) : (
+                    <FileCard
+                      key={a.key}
+                      compact
+                      name={name}
+                      meta={[typeLabel(name), formatSize(a.picked.file.size)].filter(Boolean).join(' · ')}
+                      onRemove={() => detach(a.key)}
+                    />
+                  );
+                })}
               {attached.filter((a) => !a.picked.path.includes('/')).length > 12 && (
                 <span className="self-center text-[12px] text-ink-3">还有 {attached.filter((a) => !a.picked.path.includes('/')).length - 12} 份</span>
               )}
