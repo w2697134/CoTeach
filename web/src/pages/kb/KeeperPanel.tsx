@@ -1,6 +1,6 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowUp, BookOpen, Check, ChevronDown, ChevronRight, Clock, FilePenLine, FilePlus, FileText, FolderInput, FolderOpen, FolderSearch, MoveRight, OctagonX, Paperclip, PenLine, Search, Send, Trash2, Upload, X } from 'lucide-react';
+import { ArrowUp, BookOpen, Check, ChevronDown, ChevronRight, Clock, FilePenLine, FilePlus, FolderInput, FolderOpen, FolderSearch, MoveRight, OctagonX, Paperclip, PenLine, Search, Send, Trash2, Upload, X } from 'lucide-react';
 import { get, post } from '../../lib/api';
 import { toast, useAuth } from '../../lib/store';
 import { Markdown } from '../../components/Markdown';
@@ -46,7 +46,8 @@ function ToolLine({ line }: { line: StepLine }) {
 
 /**
  * 整理助手交上来的一次改动。
- * 还没定的：图标块、标题、状态，改了哪几篇摆成小标签，底下「看改动」「不要」「确认生效」，描一圈主题色。
+ * 还没定的：图标块、标题、状态，底下「看改动」「不要」「确认生效」，描一圈主题色。
+ * 不列改了哪几篇：好几个学生交的都叫「作业2」，列出来像重复，要看点「看改动」。
  * 定了的（已生效、没要）收成一张小卡：标题、状态、「看改动」，不再把改了哪几篇列一遍，往上翻历史不乱。
  */
 function ChangeCard({ cid, changeId, title, kbName, onOpen }: { cid: number; changeId: number; title?: string; kbName?: string; onOpen: (id: number) => void }) {
@@ -82,7 +83,6 @@ function ChangeCard({ cid, changeId, title, kbName, onOpen }: { cid: number; cha
         </div>
       </div>
     );
-  const pages = [...new Set(c.files.map((f) => fileTitle(f.path)).filter(Boolean))];
   return (
     <div className="overflow-hidden rounded-xl border border-brand/45 bg-surface shadow-xs ring-2 ring-brand/10">
       <div className="flex gap-3 px-3 pt-3">
@@ -95,17 +95,6 @@ function ChangeCard({ cid, changeId, title, kbName, onOpen }: { cid: number; cha
             <p className="min-w-0 flex-1 text-[14px] font-medium leading-snug text-ink">{name}</p>
             {status && <Badge tone={STATUS_TONE[status]}>{STATUS_TEXT[status]}</Badge>}
           </div>
-          {pages.length > 0 && (
-            <div className="mt-2 flex flex-wrap gap-1.5">
-              {pages.slice(0, 3).map((p) => (
-                <span key={p} className="inline-flex max-w-full items-center gap-1 rounded-md bg-surface-2 px-1.5 py-0.5 text-[12px] text-ink-2">
-                  <FileText className="size-3 shrink-0 text-ink-3" />
-                  <span className="truncate">{p}</span>
-                </span>
-              ))}
-              {pages.length > 3 && <span className="self-center text-[12px] text-ink-3">等 {pages.length} 篇</span>}
-            </div>
-          )}
         </div>
       </div>
       <div className="mt-3 flex items-center gap-2 border-t border-line px-3 py-1.5">

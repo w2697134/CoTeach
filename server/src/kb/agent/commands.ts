@@ -6,7 +6,7 @@ import { db, j } from '../../db/index.js';
 import { HttpError } from '../../lib/http.js';
 import { loadKb } from '../access.js';
 import { createKb, deleteKb, findKb, renameKb, transferFiles } from '../bases.js';
-import { checkMetadata, createChange, isTidy, KEEPER_AUTHOR, teacherAuthor } from '../changes.js';
+import { checkMetadata, countTitle, createChange, isTidy, KEEPER_AUTHOR, teacherAuthor } from '../changes.js';
 import { addSource, cleanPath, hashBytes, manifest, readEntry, validateOps, type FileOp } from '../repo.js';
 import { documentName } from '../teacher-text.js';
 import { readBlobText, setItem } from '../intake/store.js';
@@ -182,17 +182,8 @@ async function submit(t: Turn, title: string, reason: string): Promise<Result> {
   for (const [kbId, ws] of touched) {
     const ops = ws.ops(),
       kb = loadKb(kbId);
-    const tidy = isTidy(kbId, ops),
-      automatic = kb.kind === 'class' || tidy;
-    // 这次还直接新建、挪动过知识库，那些已经生效：改动的标题只写这份改动里的几页，免得老师以为点「不要」能把新建、挪动也撤掉
-    const pages = [...new Set(ops.map((op) => documentName(op.path)))];
-    const name =
-      t.desk.structural || touched.length > 1
-        ? `改了${pages
-            .slice(0, 3)
-            .map((p) => `「${p}」`)
-            .join('、')}${pages.length > 3 ? ` 等 ${pages.length} 份` : ''}`
-        : meta.title;
+    const tidy = isTidy(kbId, ops);
+    const name = t.desk.structural || touched.length > 1 ? countTitle(ops.length) : meta.title;
     try {
       const c = await createChange({
         kbId,
@@ -203,7 +194,8 @@ async function submit(t: Turn, title: string, reason: string): Promise<Result> {
         kind: tidy ? 'tidy' : 'keeper',
         ops,
         runId: t.runId,
-        apply: automatic ? { by: null, as: KEEPER_AUTHOR } : undefined,
+        // 交了就生效，老师不满意在卡片上撤回
+        apply: { by: null, as: KEEPER_AUTHOR },
         requestKey: t.batch?.requestKey,
       });
       t.changes.push({ kbId, changeId: c.id, status: c.status, title: c.title });
