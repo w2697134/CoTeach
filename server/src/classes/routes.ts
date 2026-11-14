@@ -213,7 +213,9 @@ classRoutes.post('/', async (c) => {
 classRoutes.get('/join/:code', (c) => {
   const u = c.get('user');
   if (u && u.role !== 'student') throw forbidden('老师账号不用加入班级');
-  rateLimit(`class-peek:${u ? `u${u.id}` : clientIp(c)}`, 60, 10 * 60_000);
+  // 一个教室的学生多半共用一个出口 IP，没登录的按 IP 放宽到够一个大班一起扫码
+  if (u) rateLimit(`class-peek:u${u.id}`, 60, 10 * 60_000);
+  else rateLimit(`class-peek:${clientIp(c)}`, 600, 10 * 60_000);
   const k = byCode(c.req.param('code'));
   const joined = !!u && !!db.get('SELECT id FROM class_students WHERE class_id=? AND user_id=?', k.id, u.id);
   return c.json({ id: k.id, name: k.name, teacher: k.teacher, joined, open: !!k.join_open && !k.archived_at, archived: !!k.archived_at });
@@ -245,7 +247,8 @@ classRoutes.post('/join', async (c) => {
  */
 classRoutes.post('/join/register', async (c) => {
   if (c.get('user')) throw bad('已经登录了，刷新一下页面');
-  rateLimit(`class-register:${clientIp(c)}`, 10, 60 * 60_000);
+  // 同上，一个大班在同一个 IP 后面一起注册也够用
+  rateLimit(`class-register:${clientIp(c)}`, 300, 60 * 60_000);
   const d = await body(c, z.object({ code: z.string().max(20), studentNo: z.string().max(40), name: z.string().max(40), password: z.string().max(128) }));
   const { no, name } = identity(d);
   if (d.password.length < MIN_PASSWORD) throw bad(`密码至少 ${MIN_PASSWORD} 位`);

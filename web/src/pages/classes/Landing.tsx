@@ -8,11 +8,11 @@ import { toast, useAuth, useTheme, type User } from '../../lib/store';
 import { Logo } from '../../components/layout/AppShell';
 import { Button, Input, PageLoading, Skeleton } from '../../components/ui';
 import { normalCode, type ClassPeek } from './data';
-import { ThemeBanner, themeOf } from './look';
+import { themeBackground, themeOf } from './look';
 
 /**
  * 扫码、点链接、输加课码打开的加入页，不用先登录（照课堂派、雨课堂的加入页，手机上用得多）。
- * 上面是这个班的封面，下面没账号的填学号、姓名、设密码，注册加入一步做完；有账号的切到登录。
+ * 上面是这个班的彩色头（跟班级卡片一样，窄卡片上不放插图，免得字压在画上），下面没账号的填学号、姓名、设密码，注册加入一步做完；有账号的切到登录。
  * 已经登录的学生转到班级页的加入框，老师回班级。
  */
 export function JoinLandingPage() {
@@ -150,12 +150,10 @@ function JoinForm({ k, code, onLeaving }: { k: ClassPeek; code: string; onLeavin
   };
   return (
     <div className="overflow-hidden rounded-xl border border-line bg-surface shadow-xs">
-      <ThemeBanner theme={themeOf(k.id)} className="min-h-36">
-        <div className="flex min-h-36 flex-col justify-end px-6 pb-5 pt-8">
-          <h1 className="break-words text-[24px] font-semibold leading-tight tracking-tight">{k.name}</h1>
-          <p className="mt-1 text-[14.5px] text-white/90">{k.teacher}</p>
-        </div>
-      </ThemeBanner>
+      <div className="flex min-h-36 flex-col justify-end px-6 pb-5 pt-8 text-white" style={themeBackground(themeOf(k.id))}>
+        <h1 className="break-words text-[24px] font-semibold leading-tight tracking-tight">{k.name}</h1>
+        <p className="mt-1 text-[14.5px] text-white/90">{k.teacher}</p>
+      </div>
       {!k.open ? (
         <div className="px-6 py-8 text-center">
           <p className="text-[15px] text-ink-2">{k.archived ? '这个班已经归档了，不能再加入' : '这个班已经停止加入了，问问老师'}</p>

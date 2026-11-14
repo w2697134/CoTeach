@@ -27,7 +27,8 @@ authRoutes.get('/config', c => {
 
 authRoutes.post('/login', async c => {
   const { username, password } = await body(c, z.object({ username: z.string().min(1).max(64), password: z.string().min(1).max(128) }));
-  rateLimit(`login:${clientIp(c)}`, 20, 10 * 60_000);
+  // 按 IP 放宽（一个教室共用出口 IP），按账号的限制不变，挡住对一个账号猜密码
+  rateLimit(`login:${clientIp(c)}`, 300, 10 * 60_000);
   rateLimit(`login:${username.toLowerCase()}`, 10, 10 * 60_000);
   const row = db.get<{ id: number; password_hash: string; status: string }>('SELECT id, password_hash, status FROM users WHERE username = ?', username.trim());
   if (!row || !verifyPassword(password, row.password_hash)) throw unauthorized('账号或密码不正确');
