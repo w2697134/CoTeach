@@ -90,9 +90,9 @@ async function ensureDemo() {
   console.log('[bootstrap] 已创建演示老师和演示课程');
 }
 
-/** 演示学生：不在任何名单里，能进演示老师的每个班（见 classes/routes.ts） */
+/** 演示学生；演示老师设成正式账号以后，演示学生也不再补（tools/test-accounts 会把它改成 s0） */
 function ensureDemoStudent() {
-  if (!config.demoMode || db.get("SELECT id FROM users WHERE username = 'student'")) return;
+  if (!config.demoMode || getSetting('demo_teacher_claimed', false) || db.get("SELECT id FROM users WHERE username = 'student'")) return;
   db.insert('users', {
     username: 'student',
     name: '李明',
