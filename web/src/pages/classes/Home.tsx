@@ -88,7 +88,9 @@ function ClassCard({ item, student }: { item: ClassItem; student: boolean }) {
       <div className={`flex items-center gap-2 px-4 pb-3.5 ${student ? 'pt-6' : 'pt-3'}`}>
         <Avatar name={surname(teacher)} size={26} />
         <span className="min-w-0 truncate text-[13.5px] text-ink">{teacher}</span>
-        <span className="ml-auto flex shrink-0 items-center gap-1 text-[13px] text-ink-3">
+        {student && !!item.todo && <span className="ml-auto shrink-0 rounded-full bg-warn-soft px-2 py-0.5 text-[12.5px] text-warn">{item.todo} 份待交</span>}
+        {!student && !!item.pending && <span className="ml-auto shrink-0 rounded-full bg-info-soft px-2 py-0.5 text-[12.5px] text-info">{item.pending} 份待批</span>}
+        <span className={cn('flex shrink-0 items-center gap-1 text-[13px] text-ink-3', !(student ? item.todo : item.pending) && 'ml-auto')}>
           <UserRound className="size-3.5" />
           {count}
         </span>

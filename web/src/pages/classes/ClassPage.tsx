@@ -1,11 +1,13 @@
 import { useState, type ReactNode } from 'react';
-import { Link, useNavigate, useParams } from 'react-router';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, Copy, Download, KeyRound, LogOut, MoreHorizontal, MoreVertical, Upload, UserMinus, UserPlus } from 'lucide-react';
 import { api, post } from '../../lib/api';
 import { toast, useAuth } from '../../lib/store';
-import { Avatar, Button, Card, Empty, ErrorState, IconButton, MenuItem, Modal, Popover, SearchInput, Skeleton, cn, useConfirm } from '../../components/ui';
+import { Avatar, Button, Card, Empty, ErrorState, IconButton, MenuItem, Modal, Popover, SearchInput, Skeleton, Tabs, cn, useConfirm } from '../../components/ui';
 import { useClass, type ClassDetail, type ClassStudent } from './data';
+import { GradesTab } from './GradesTab';
+import { HomeworkList } from './HomeworkList';
 import { CodeLine, InviteModal, InvitePanel, Projector, copyText } from './Invite';
 import { EmptyArt, ThemeBanner, themeOf, type Theme } from './look';
 import { RosterInput } from './RosterInput';
@@ -301,7 +303,8 @@ function NewPassword({ shown, onClose }: { shown: { name: string; password: stri
   );
 }
 
-/** 一个班：顶上是这个班的封面，班名白字写在上面，老师还看到加课码；下面是成员 */
+type Tab = 'homework' | 'grades' | 'people';
+/** 一个班：顶上是这个班的封面，班名白字写在上面，老师还看到加课码；下面分栏：作业、成绩、成员（照 Google Classroom） */
 export function ClassPage() {
   const id = Number(useParams().id);
   const navigate = useNavigate();
@@ -310,6 +313,9 @@ export function ClassPage() {
   const me = useAuth((s) => s.user);
   const student = me?.role === 'student';
   const q = useClass(id);
+  const [params, setParams] = useSearchParams();
+  const asked = params.get('tab');
+  const tab: Tab = asked === 'people' || asked === 'grades' ? asked : 'homework';
   const [importing, setImporting] = useState(false),
     [inviting, setInviting] = useState(false),
     [projecting, setProjecting] = useState(false),
@@ -400,7 +406,20 @@ export function ClassPage() {
               )}
             </div>
           </ThemeBanner>
-          {student ? (
+          <Tabs
+            value={tab}
+            onChange={(v) => setParams(v === 'homework' ? {} : { tab: v }, { replace: true })}
+            items={[
+              { value: 'homework', label: '作业' },
+              { value: 'grades', label: '成绩' },
+              { value: 'people', label: '成员' },
+            ]}
+          />
+          {tab === 'homework' ? (
+            <HomeworkList classId={id} theme={theme} student={student} archived={!!k.archived} />
+          ) : tab === 'grades' ? (
+            <GradesTab classId={id} theme={theme} student={student} />
+          ) : student ? (
             <StudentPeople theme={theme} teacher={k.teacher || ''} classmates={k.classmates || []} />
           ) : (
             <TeacherPeople

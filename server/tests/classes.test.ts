@@ -138,7 +138,7 @@ test('建班、加课码、学生自己加入、导名单对一对', async (t) =
     assert.match(k.code, /^[A-HJ-NP-Z2-9]{6}$/);
     assert.deepEqual(k.students, []);
     code = k.code;
-    assert.deepEqual((await req('/classes')).json.classes, [{ id, name: '计科2505', count: 0, code, joinOpen: true, archived: false, preview: [] }]);
+    assert.deepEqual((await req('/classes')).json.classes, [{ id, name: '计科2505', count: 0, code, joinOpen: true, archived: false, pending: 0, preview: [] }]);
     assert.equal((await req('/classes', 'teacher', { name: '计科2505' })).status, 409);
   });
   await t.test('老师导教务名单：都记成还没加入', async () => {
@@ -163,7 +163,7 @@ test('建班、加课码、学生自己加入、导名单对一对', async (t) =
     const res = await req('/classes/join', 'student', { code, studentNo: '2025120502', name: '王 磊' });
     assert.equal(res.status, 200);
     assert.deepEqual(res.json, { id, name: '计科2505' });
-    assert.deepEqual((await req('/classes', 'student')).json.classes, [{ id, name: '计科2505', teacher: '王建国', count: 1, archived: false }]);
+    assert.deepEqual((await req('/classes', 'student')).json.classes, [{ id, name: '计科2505', teacher: '王建国', count: 1, archived: false, todo: 0 }]);
     const mine = (await req(`/classes/${id}`, 'student')).json;
     assert.deepEqual({ ...mine, classmates: mine.classmates.map((s: any) => ({ name: s.name, me: s.me })) }, {
       id,

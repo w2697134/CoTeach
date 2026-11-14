@@ -406,3 +406,51 @@ migrations.push(`
 ALTER TABLE classes ADD COLUMN join_open INTEGER NOT NULL DEFAULT 1;
 ALTER TABLE classes ADD COLUMN archived_at INTEGER;
 `);
+
+// 第 11 次：作业（2026-11-14）。照 Google Classroom、课堂派：老师布置（可定时发布、一次发几个班，每个班一份），
+// 学生交文字和文件，老师打分、写评语、退回重交。全是程序，不经过模型。
+// 文件放在数据目录 homework/ 下，表里只记名字、大小、位置；老师的附件挂在作业上，学生的挂在提交上。
+migrations.push(`
+CREATE TABLE assignments (
+  id INTEGER PRIMARY KEY,
+  class_id INTEGER NOT NULL REFERENCES classes(id),
+  teacher_id INTEGER NOT NULL REFERENCES users(id),
+  title TEXT NOT NULL,
+  body TEXT NOT NULL DEFAULT '',
+  points REAL NOT NULL DEFAULT 100,
+  due_at INTEGER,
+  allow_late INTEGER NOT NULL DEFAULT 1,
+  publish_at INTEGER NOT NULL,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  deleted_at INTEGER
+);
+CREATE INDEX idx_assignments_class ON assignments(class_id);
+CREATE TABLE submissions (
+  id INTEGER PRIMARY KEY,
+  assignment_id INTEGER NOT NULL REFERENCES assignments(id),
+  user_id INTEGER NOT NULL REFERENCES users(id),
+  text TEXT NOT NULL DEFAULT '',
+  submitted_at INTEGER NOT NULL,
+  late INTEGER NOT NULL DEFAULT 0,
+  score REAL,
+  comment TEXT,
+  graded_at INTEGER,
+  returned_at INTEGER,
+  updated_at INTEGER NOT NULL,
+  UNIQUE(assignment_id, user_id)
+);
+CREATE INDEX idx_submissions_user ON submissions(user_id);
+CREATE TABLE homework_files (
+  id INTEGER PRIMARY KEY,
+  owner_id INTEGER NOT NULL REFERENCES users(id),
+  assignment_id INTEGER REFERENCES assignments(id),
+  submission_id INTEGER REFERENCES submissions(id),
+  name TEXT NOT NULL,
+  size INTEGER NOT NULL,
+  path TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX idx_homework_files_assignment ON homework_files(assignment_id);
+CREATE INDEX idx_homework_files_submission ON homework_files(submission_id);
+`);

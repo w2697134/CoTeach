@@ -39,6 +39,8 @@ const Classes = page(() => import('./pages/classes/Home'), 'ClassesPage');
 const ClassDetail = page(() => import('./pages/classes/ClassPage'), 'ClassPage');
 const JoinClass = page(() => import('./pages/classes/Home'), 'JoinPage');
 const JoinLanding = page(() => import('./pages/classes/Landing'), 'JoinLandingPage');
+const HomeworkDetail = page(() => import('./pages/classes/HomeworkPage'), 'HomeworkPage');
+const HomeworkEdit = page(() => import('./pages/classes/HomeworkEdit'), 'HomeworkEditPage');
 
 function S({ children }: { children: ReactNode }) {
   return <Suspense fallback={<PageLoading />}>{children}</Suspense>;
@@ -118,6 +120,31 @@ export const router = createBrowserRouter([
         element: (
           <S>
             <ClassDetail />
+          </S>
+        ),
+      },
+      // 作业：布置、看、改（布置和改只有老师能进）
+      {
+        path: 'classes/:id/homework/new',
+        element: (
+          <S>
+            <TeacherOnly><HomeworkEdit /></TeacherOnly>
+          </S>
+        ),
+      },
+      {
+        path: 'classes/:id/homework/:hid',
+        element: (
+          <S>
+            <HomeworkDetail />
+          </S>
+        ),
+      },
+      {
+        path: 'classes/:id/homework/:hid/edit',
+        element: (
+          <S>
+            <TeacherOnly><HomeworkEdit /></TeacherOnly>
           </S>
         ),
       },

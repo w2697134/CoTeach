@@ -11,6 +11,9 @@ export interface ClassItem {
   code?: string;
   joinOpen?: boolean;
   archived?: boolean;
+  /** 学生：还要交几份作业；老师：交上来还没批的有几份 */
+  todo?: number;
+  pending?: number;
 }
 /** joined：学生自己用加课码加入了；inRoster：老师导的名单上有他；canReset：自己注册的账号，老师能帮他重置密码 */
 export interface ClassStudent {

@@ -155,6 +155,7 @@ export function Modal({
 }
 
 /* ---------------- Drawer ---------------- */
+/** 侧边抽屉，样子跟对话框一样：标题、内容、底下按钮，不加灰底栏；内容滚动时才出细线。actions 放在关闭按钮旁边（上一个、下一个） */
 export function Drawer({
   open,
   onClose,
@@ -164,7 +165,7 @@ export function Drawer({
   footer,
   width = 480,
   side = 'right',
-  icon,
+  actions,
   keepMounted = false,
 }: {
   open: boolean;
@@ -175,10 +176,11 @@ export function Drawer({
   footer?: ReactNode;
   width?: number;
   side?: 'right' | 'left';
-  icon?: ReactNode;
+  actions?: ReactNode;
   keepMounted?: boolean;
 }) {
   useEscape(open, onClose);
+  const { edges, content, measure } = useScrollEdges();
   return createPortal(
     <AnimatePresence>
       {(open || keepMounted) && (
@@ -205,23 +207,25 @@ export function Drawer({
             transition={{ type: 'spring', stiffness: 360, damping: 36 }}
           >
             {(title || desc) && (
-              <div className="flex items-start gap-3 border-b border-line px-5 py-4">
-                {icon && (
-                  <span className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-lg bg-brand-soft text-brand-ink [&>svg]:size-[18px]">
-                    {icon}
-                  </span>
-                )}
+              <div className={cn('flex items-start gap-3 border-b px-6 pb-3 pt-5 transition-colors', edges.top ? 'border-line' : 'border-transparent')}>
                 <div className="min-w-0 flex-1">
-                  {title && <h2 className="text-[16px] font-semibold text-ink">{title}</h2>}
+                  {title && <h2 className="text-[18px] font-semibold leading-7 text-ink">{title}</h2>}
                   {desc && <p className="mt-0.5 text-[14px] text-ink-3">{desc}</p>}
                 </div>
-                <IconButton size="sm" label="关闭" onClick={onClose}>
-                  <X className="size-4" />
+                {actions}
+                <IconButton size="sm" label="关闭" onClick={onClose} className="-mr-2 mt-0.5 text-ink-3">
+                  <X className="size-[18px]" />
                 </IconButton>
               </div>
             )}
-            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">{children}</div>
-            {footer && <div className="flex items-center justify-end gap-2 border-t border-line bg-surface-2 px-5 py-3">{footer}</div>}
+            <div onScroll={measure} className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+              <div ref={content}>{children}</div>
+            </div>
+            {footer && (
+              <div className={cn('flex items-center justify-end gap-2 border-t px-6 pb-5 pt-4 transition-colors', edges.bottom ? 'border-line' : 'border-transparent')}>
+                {footer}
+              </div>
+            )}
           </motion.aside>
         </div>
       )}

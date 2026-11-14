@@ -6,6 +6,7 @@ import { audit, createSession, loadUserById, me, publicUser, requireRole, type A
 import { db, now } from '../db/index.js';
 import { hashPassword } from '../lib/crypto.js';
 import { bad, body, clientIp, conflict, forbidden, intParam, notFound, rateLimit, HttpError } from '../lib/http.js';
+import { homeworkCounts } from './homework.js';
 import { cleanName, looksName, looksNo, rosterFromFile, rosterFromText, tableFromFile, type RosterStudent } from './roster.js';
 
 /**
@@ -144,17 +145,17 @@ function enroll(classId: number, userId: number, no: string, name: string): 'alr
 /** 自己用学号注册的账号，学号就是账号名，加别的班也只能用这个学号 */
 const ownNo = (u: User) => (u.student_no && u.username.toLowerCase() === u.student_no.toLowerCase() ? u.student_no : null);
 
+/** 班级列表；卡片上学生看到还要交几份作业（todo），老师看到交上来还没批的有几份（pending） */
 classRoutes.get('/', (c) => {
   const u = me(c);
-  if (u.role === 'student')
-    return c.json({
-      classes: db
-        .all<{ id: number; name: string; teacher: string; count: number; archived: number }>(
-          `SELECT c.id, c.name, t.name AS teacher, ${COUNT} AS count, c.archived_at IS NOT NULL AS archived FROM classes c JOIN users t ON t.id=c.teacher_id WHERE ${JOINED} ORDER BY c.id`,
-          u.id,
-        )
-        .map((k) => ({ ...k, archived: !!k.archived })),
-    });
+  if (u.role === 'student') {
+    const list = db.all<{ id: number; name: string; teacher: string; count: number; archived: number }>(
+      `SELECT c.id, c.name, t.name AS teacher, ${COUNT} AS count, c.archived_at IS NOT NULL AS archived FROM classes c JOIN users t ON t.id=c.teacher_id WHERE ${JOINED} ORDER BY c.id`,
+      u.id,
+    );
+    const todo = homeworkCounts(u, list.filter((k) => !k.archived).map((k) => k.id));
+    return c.json({ classes: list.map((k) => ({ ...k, archived: !!k.archived, todo: todo.get(k.id) || 0 })) });
+  }
   requireRole(c, 'teacher', 'admin');
   // 每个班带前 5 个已经加入的学生，班级卡片上摆他们的头像
   const preview = new Map<number, { id: number; name: string }[]>();
@@ -164,13 +165,20 @@ classRoutes.get('/', (c) => {
     u.id,
   ))
     preview.set(s.class_id, [...(preview.get(s.class_id) || []), { id: s.id, name: s.name }]);
+  const list = db.all<{ id: number; name: string; count: number; code: string | null; join_open: number; archived: number }>(
+    `SELECT c.id, c.name, ${COUNT} AS count, c.join_code AS code, c.join_open, c.archived_at IS NOT NULL AS archived FROM classes c WHERE c.teacher_id=? AND c.deleted_at IS NULL ORDER BY c.id`,
+    u.id,
+  );
+  const pending = homeworkCounts(u, list.filter((k) => !k.archived).map((k) => k.id));
   return c.json({
-    classes: db
-      .all<{ id: number; name: string; count: number; code: string | null; join_open: number; archived: number }>(
-        `SELECT c.id, c.name, ${COUNT} AS count, c.join_code AS code, c.join_open, c.archived_at IS NOT NULL AS archived FROM classes c WHERE c.teacher_id=? AND c.deleted_at IS NULL ORDER BY c.id`,
-        u.id,
-      )
-      .map(({ join_open, ...k }) => ({ ...k, code: k.code || codeOf(k.id), joinOpen: !!join_open, archived: !!k.archived, preview: preview.get(k.id) || [] })),
+    classes: list.map(({ join_open, ...k }) => ({
+      ...k,
+      code: k.code || codeOf(k.id),
+      joinOpen: !!join_open,
+      archived: !!k.archived,
+      pending: pending.get(k.id) || 0,
+      preview: preview.get(k.id) || [],
+    })),
   });
 });
 

@@ -167,7 +167,8 @@ export function InvitePanel({ k, onProject, vertical }: { k: { id: number; name:
   );
 }
 
-function Switch({ checked, onChange, disabled, label }: { checked: boolean; onChange: (v: boolean) => void; disabled?: boolean; label: string }) {
+/** 开关（允许加入、截止后还能交这类） */
+export function Switch({ checked, onChange, disabled, label }: { checked: boolean; onChange: (v: boolean) => void; disabled?: boolean; label: string }) {
   return (
     <button
       type="button"
