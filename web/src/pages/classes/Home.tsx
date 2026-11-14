@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router';
+import { Navigate, useNavigate, useParams } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { motion } from 'motion/react';
 import { Plus, UserRound, Users } from 'lucide-react';
@@ -7,8 +7,8 @@ import { post } from '../../lib/api';
 import { useAuth } from '../../lib/store';
 import { Avatar, Button, Card, ErrorState, Input, Modal, Skeleton } from '../../components/ui';
 import { useClasses, type ClassItem } from './data';
+import { JoinModal } from './Join';
 import { EmptyArt, themeBackground, themeOf } from './look';
-import { RosterInput } from './RosterInput';
 import { ClassTools } from './Tools';
 
 const stop = (e: React.SyntheticEvent) => e.stopPropagation();
@@ -29,13 +29,13 @@ function ClassCard({ item, student }: { item: ClassItem; student: boolean }) {
   const teacher = student ? item.teacher : me;
   return (
     <Card
-      hover={!student}
+      hover
       padded={false}
-      role={student ? undefined : 'link'}
-      tabIndex={student ? undefined : 0}
-      className={`flex h-full flex-col overflow-hidden rounded-lg ${student ? '' : 'cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40'}`}
-      onClick={student ? undefined : open}
-      onKeyDown={student ? undefined : (e) => e.key === 'Enter' && open()}
+      role="link"
+      tabIndex={0}
+      className="flex h-full cursor-pointer flex-col overflow-hidden rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40"
+      onClick={open}
+      onKeyDown={(e) => e.key === 'Enter' && open()}
     >
       <div className="relative h-[116px] shrink-0 px-4 pt-3.5 text-white" style={themeBackground(theme)}>
         <div className="flex items-start gap-1">
@@ -80,17 +80,15 @@ function ClassCard({ item, student }: { item: ClassItem; student: boolean }) {
   );
 }
 
-/** 新建班级：起个名字，名单可以粘贴，也可以把教务网导出的表拖进来；班名从表里带出来 */
+/** 新建班级：照课堂派、Google Classroom，只起个名字；建好进班级页，那里有加课码，学生自己加入 */
 function NewClassModal({ open, onClose, onCreated }: { open: boolean; onClose: () => void; onCreated: (id: number) => void }) {
   const qc = useQueryClient();
   const [name, setName] = useState(''),
-    [roster, setRoster] = useState(''),
     [busy, setBusy] = useState(false),
     [error, setError] = useState('');
   useEffect(() => {
     if (!open) return;
     setName('');
-    setRoster('');
     setError('');
   }, [open]);
   const create = async () => {
@@ -98,7 +96,7 @@ function NewClassModal({ open, onClose, onCreated }: { open: boolean; onClose: (
     setBusy(true);
     setError('');
     try {
-      const r = await post<{ id: number }>('/classes', { name, roster });
+      const r = await post<{ id: number }>('/classes', { name });
       await qc.invalidateQueries({ queryKey: ['classes'] });
       onCreated(r.id);
     } catch (e) {
@@ -126,10 +124,16 @@ function NewClassModal({ open, onClose, onCreated }: { open: boolean; onClose: (
     >
       <div className="space-y-4">
         <label className="block text-[14px] text-ink">
-          名称
-          <Input autoFocus className="mt-1.5" value={name} maxLength={40} onChange={(e) => setName(e.target.value)} />
+          班级名称
+          <Input
+            autoFocus
+            className="mt-1.5"
+            value={name}
+            maxLength={40}
+            onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && create()}
+          />
         </label>
-        <RosterInput value={roster} onChange={setRoster} onName={(n) => setName((old) => (old.trim() ? old : n))} />
         {error && (
           <p role="alert" className="text-[14px] text-bad">
             {error}
@@ -140,27 +144,25 @@ function NewClassModal({ open, onClose, onCreated }: { open: boolean; onClose: (
   );
 }
 
-/** 班级：老师左上角一个「新建班级」，下面一排四张卡片；学生只看到自己在的班 */
-export function ClassesPage() {
+/** 班级：老师左上角「新建班级」，学生左上角「加入班级」；下面一排四张卡片，学生只看到自己加入了的班 */
+export function ClassesPage({ joinCode }: { joinCode?: string }) {
   const navigate = useNavigate();
   const student = useAuth((s) => s.user?.role) === 'student';
   const classes = useClasses();
   const list = classes.data?.classes || [];
   const [creating, setCreating] = useState(false);
+  // 扫码、点链接进来的直接打开加入框，加课码填好
+  const [joining, setJoining] = useState(!!joinCode);
+  const pill =
+    'inline-flex h-9 items-center gap-1.5 rounded-full border border-line-strong bg-surface px-4 text-[14px] text-ink-2 shadow-xs transition-colors hover:border-brand/50 hover:text-brand';
   return (
     <div>
-      {!student && (
-        <div className="mb-5">
-          <button
-            type="button"
-            onClick={() => setCreating(true)}
-            className="inline-flex h-9 items-center gap-1.5 rounded-full border border-line-strong bg-surface px-4 text-[14px] text-ink-2 shadow-xs transition-colors hover:border-brand/50 hover:text-brand"
-          >
-            <Plus className="size-4" />
-            新建班级
-          </button>
-        </div>
-      )}
+      <div className="mb-5">
+        <button type="button" onClick={() => (student ? setJoining(true) : setCreating(true))} className={pill}>
+          <Plus className="size-4" />
+          {student ? '加入班级' : '新建班级'}
+        </button>
+      </div>
       {classes.error ? (
         <ErrorState error={classes.error} onRetry={() => classes.refetch()} />
       ) : !classes.data ? (
@@ -170,7 +172,17 @@ export function ClassesPage() {
         </div>
       ) : !list.length ? (
         <Card padded={false}>
-          <EmptyArt src="/illustrations/classes/empty-classes.webp" title="还没有班级" />
+          <EmptyArt
+            src="/illustrations/classes/empty-classes.webp"
+            title={student ? '还没有加入班级' : '还没有班级'}
+            action={
+              student && (
+                <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setJoining(true)}>
+                  加入班级
+                </Button>
+              )
+            }
+          />
         </Card>
       ) : (
         <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
@@ -191,6 +203,24 @@ export function ClassesPage() {
           }}
         />
       )}
+      {student && (
+        <JoinModal
+          open={joining}
+          initialCode={joinCode}
+          onClose={() => {
+            setJoining(false);
+            if (joinCode) navigate('/classes', { replace: true });
+          }}
+        />
+      )}
     </div>
   );
+}
+
+/** 加入链接 /join/加课码（二维码扫出来的就是它）：学生打开加入框；老师打开就回班级 */
+export function JoinPage() {
+  const { code } = useParams();
+  const role = useAuth((s) => s.user?.role);
+  if (role !== 'student') return <Navigate replace to="/classes" />;
+  return <ClassesPage joinCode={code} />;
 }
