@@ -69,7 +69,8 @@ function ensureProviderFromEnv() {
 }
 
 async function ensureDemo() {
-  if (!config.demoMode || db.get("SELECT id FROM users WHERE username = 'teacher'")) return;
+  // 演示老师被设成正式账号以后不再补一个新的
+  if (!config.demoMode || getSetting('demo_teacher_claimed', false) || db.get("SELECT id FROM users WHERE username = 'teacher'")) return;
   const tid = db.insert('users', {
     username: 'teacher',
     name: '王建国',

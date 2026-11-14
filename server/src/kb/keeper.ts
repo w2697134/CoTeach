@@ -428,6 +428,15 @@ const turns = new Map<string, Turn>();
 export const lookupTurn = (token: string) => (token ? (turns.get(token) ?? null) : null);
 export const teacherBusy = (teacherId: number) => busy.get(teacherId) ?? null;
 export const activeRun = (kbId: number) => busy.get(teacherOfKb(kbId))?.runId ?? null;
+/** 整理助手每个老师每天最多跑几轮：调模型要花钱，谁都能注册老师以后靠它挡住乱用；管理员不限 */
+function checkKeeperQuota(userId: number) {
+  const limit = config.keeperDailyTurns;
+  if (!limit || db.get('SELECT id FROM users WHERE id=? AND is_super=1', userId)) return;
+  const since = new Date();
+  since.setHours(0, 0, 0, 0);
+  const used = db.value<number>("SELECT count(*) FROM llm_calls WHERE user_id=? AND agent_key='keeper' AND created_at>=?", userId, since.getTime()) || 0;
+  if (used >= limit) throw new HttpError(429, `整理助手今天已经用了 ${limit} 次，明天再来`, 'rate_limited');
+}
 export function startRun(
   kbId: number,
   kind: 'materials' | 'chat' | 'summary' | 'observation',
@@ -437,6 +446,7 @@ export function startRun(
   inboxId?: number,
   studentId?: number,
 ): number {
+  checkKeeperQuota(user.id);
   // 老师跟整理助手说话走 Claude Code 外壳；学期提炼、其他助手的记录（现在没在用）照旧
   if (kind === 'chat' && !sourceKbId && studentId === undefined && !inboxId) return startChat(user, kbId, request);
   const kb = writableKb(kbId);

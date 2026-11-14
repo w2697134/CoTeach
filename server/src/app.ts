@@ -13,6 +13,7 @@ import { teacherError } from './kb/teacher-text.js';
 import { authRoutes } from './routes/auth.js';
 import { classRoutes } from './classes/routes.js';
 import { homeworkRoutes } from './classes/homework.js';
+import { adminRoutes } from './routes/admin.js';
 
 export function createApp() {
   const app = new Hono<AppEnv>();
@@ -53,6 +54,7 @@ export function createApp() {
   app.route('/api/keeper', keeperRoutes);
   app.route('/api/classes', classRoutes);
   app.route('/api/homework', homeworkRoutes);
+  app.route('/api/admin', adminRoutes);
 
   app.get('/api/health', (c) => c.json({ ok: true, time: Date.now() }));
   app.all('/api/*', (c) => c.json({ error: '接口不存在' }, 404));

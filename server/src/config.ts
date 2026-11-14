@@ -54,6 +54,8 @@ export const config = {
   demoMode: env.CT_DEMO_MODE !== '0',
   /** 每个用户每天调用模型的次数上限，0 为不限 */
   dailyCallLimit: Number(env.CT_DAILY_CALL_LIMIT || 400),
+  /** 整理助手每个老师每天最多跑几轮（一轮里会调好多次模型），0 为不限；管理员不限 */
+  keeperDailyTurns: Number(env.CT_KEEPER_DAILY_TURNS || 200),
   sessionDays: Number(env.CT_SESSION_DAYS || 14),
   /** 交资料：单个文件、一次交的总量、单份资料、压缩包里的文件数和解开后的总量 */
   intake: {

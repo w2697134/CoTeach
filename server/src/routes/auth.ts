@@ -3,10 +3,10 @@ import { getCookie } from 'hono/cookie';
 import { z } from 'zod';
 import { audit, createSession, destroySession, loadUserById, me, publicUser, type AppEnv } from '../auth.js';
 import { config } from '../config.js';
-import { db } from '../db/index.js';
+import { db, getSetting, now, setSetting } from '../db/index.js';
 import { startingKb } from '../kb/repo.js';
 import { hashPassword, sha256, verifyPassword } from '../lib/crypto.js';
-import { bad, body, clientIp, forbidden, rateLimit, unauthorized } from '../lib/http.js';
+import { bad, body, clientIp, conflict, forbidden, HttpError, rateLimit, unauthorized } from '../lib/http.js';
 
 export const authRoutes = new Hono<AppEnv>();
 
@@ -22,7 +22,65 @@ authRoutes.get('/config', c => {
         return u ? { ...d, name: u.name } : null;
       }).filter(Boolean)
     : [];
-  return c.json({ demoMode: config.demoMode, demoAccounts: demos });
+  return c.json({ demoMode: config.demoMode, demoAccounts: demos, teacherSignup: getSetting('teacher_signup', true) });
+});
+
+/** 老师的账号用手机号（照课堂派、学习通）；现在不发验证码，以后接短信也还是这个号 */
+function phoneOf(raw: string) {
+  const phone = raw.replace(/[\s-]/g, '');
+  if (!/^1\d{10}$/.test(phone)) throw bad('手机号填 11 位数字');
+  return phone;
+}
+function nameOf(raw: string) {
+  const name = raw.replace(/\s+/g, ' ').trim();
+  if (!name || name.length > 20) throw bad('姓名填得不对');
+  return name;
+}
+function passwordOf(raw: string) {
+  if (raw.length < 6) throw bad('密码至少 6 位');
+  return raw;
+}
+
+/**
+ * 老师注册：手机号、姓名、密码，注册完直接登录，给一个空的「我的知识库」。照课堂派、雨课堂，不审核、不要邀请码；
+ * 管理员可以在管理页关掉老师注册。学生不在这里注册，拿加课码在加入页注册。
+ */
+authRoutes.post('/register', async c => {
+  if (c.get('user')) throw bad('已经登录了，先退出再注册');
+  if (!getSetting('teacher_signup', true)) throw forbidden('现在不开放老师注册');
+  rateLimit(`register:${clientIp(c)}`, 30, 60 * 60_000);
+  const d = await body(c, z.object({ phone: z.string().max(30), name: z.string().max(40), password: z.string().max(128) }));
+  const phone = phoneOf(d.phone),
+    name = nameOf(d.name),
+    password = passwordOf(d.password);
+  if (db.get('SELECT id FROM users WHERE username = ?', phone)) throw new HttpError(409, '这个手机号已经注册过了，直接登录就行', 'registered');
+  const id = db.insert('users', { username: phone, phone, name, role: 'teacher', password_hash: hashPassword(password), created_at: now() });
+  await startingKb(id);
+  createSession(c, id);
+  c.set('user', loadUserById(id));
+  audit(c, 'user.register', `user:${id}`, { role: 'teacher' });
+  return c.json({ user: publicUser(loadUserById(id)!) });
+});
+
+/**
+ * 演示老师设成自己的正式账号：填手机号、姓名、密码，以后用手机号登录，里面的东西都还在。
+ * 设好以后别人登着的这个演示账号都退出，演示入口也不再补一个新的演示老师。
+ */
+authRoutes.post('/claim', async c => {
+  const u = me(c);
+  if (!u.is_demo || u.role !== 'teacher') throw forbidden('这个账号不用设');
+  rateLimit(`claim:${u.id}`, 10, 10 * 60_000);
+  const d = await body(c, z.object({ phone: z.string().max(30), name: z.string().max(40), password: z.string().max(128) }));
+  const phone = phoneOf(d.phone),
+    name = nameOf(d.name),
+    password = passwordOf(d.password);
+  if (db.get('SELECT id FROM users WHERE username = ? AND id <> ?', phone, u.id)) throw conflict('这个手机号已经注册过了');
+  db.update('users', u.id, { username: phone, phone, name, title: null, password_hash: hashPassword(password), is_demo: 0 });
+  const token = getCookie(c, 'ct_sid');
+  db.run('DELETE FROM sessions WHERE user_id = ? AND id <> ?', u.id, token ? sha256(token) : '');
+  setSetting('demo_teacher_claimed', true);
+  audit(c, 'user.claim', `user:${u.id}`);
+  return c.json({ user: publicUser(loadUserById(u.id)!) });
 });
 
 authRoutes.post('/login', async c => {

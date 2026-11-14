@@ -32,6 +32,8 @@ const page = <P extends object = {}>(loader: () => Promise<any>, name: string) =
 export const preloadPages = () => loaders.forEach((load) => load().catch(() => {}));
 
 const Login = page(() => import('./pages/Login'), 'LoginPage');
+const Register = page(() => import('./pages/Register'), 'RegisterPage');
+const Admin = page(() => import('./pages/admin/Admin'), 'AdminPage');
 const KnowledgeHome = page(() => import('./pages/kb/Home'), 'KnowledgeHomePage');
 const KnowledgeBase = page(() => import('./pages/kb/KnowledgeBase'), 'KnowledgeBasePage');
 const LegacyCourse = page(() => import('./pages/kb/LegacyCourse'), 'LegacyCoursePage');
@@ -51,6 +53,13 @@ function Start() {
   const role = useAuth((s) => s.user?.role);
   if (role !== 'teacher' && role !== 'admin' && role !== 'student') return <Empty title="这个账号没有可用的页面" />;
   return <Navigate replace to="/classes" />;
+}
+
+/** 管理页只给管理员 */
+function AdminOnly({ children }: { children: ReactNode }) {
+  const role = useAuth((s) => s.user?.role);
+  if (role !== 'admin') return <Navigate replace to="/classes" />;
+  return <>{children}</>;
 }
 
 /** 知识库只给老师；学生打开知识库的网址，带回班级 */
@@ -75,6 +84,15 @@ export const router = createBrowserRouter([
     element: (
       <S>
         <Login />
+      </S>
+    ),
+  },
+  {
+    path: '/register',
+    errorElement: <RouteError />,
+    element: (
+      <S>
+        <Register />
       </S>
     ),
   },
@@ -162,6 +180,14 @@ export const router = createBrowserRouter([
         element: (
           <S>
             <TeacherOnly><LegacyCourse /></TeacherOnly>
+          </S>
+        ),
+      },
+      {
+        path: 'admin',
+        element: (
+          <S>
+            <AdminOnly><Admin /></AdminOnly>
           </S>
         ),
       },

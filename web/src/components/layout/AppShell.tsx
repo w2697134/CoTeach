@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router';
 import { AnimatePresence, motion } from 'motion/react';
-import { BookOpen, KeyRound, LogOut, Menu, Monitor, Moon, Sun, Users } from 'lucide-react';
+import { BookOpen, KeyRound, LogOut, Menu, Monitor, Moon, ShieldCheck, Smartphone, Sun, Users } from 'lucide-react';
 import { APP_NAME, APP_SHORT_NAME } from '../../lib/brand';
 import { post } from '../../lib/api';
 import { toast, useAuth, useTheme, useUi } from '../../lib/store';
@@ -26,7 +26,9 @@ export function Logo({ size = 32, className }: { size?: number; className?: stri
 
 /** 左边栏：上面是「班级」（往后的作业等也放上面）；老师的「知识库」固定在最下面。学生只有「班级」 */
 function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
-  const student = useAuth((s) => s.user?.role) === 'student';
+  const role = useAuth((s) => s.user?.role);
+  const student = role === 'student',
+    admin = role === 'admin';
   const bases = useKnowledgeBases(!student).data?.knowledgeBases || [];
   const pending = bases.reduce((n, k) => n + k.pending, 0);
   const item = (active: boolean) =>
@@ -56,6 +58,17 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
             </>
           )}
         </NavLink>
+        {admin && (
+          <NavLink to="/admin" onClick={onNavigate} className={({ isActive }) => item(isActive)}>
+            {({ isActive }) => (
+              <>
+                {isActive && mark}
+                <ShieldCheck className={cn('size-[18px] shrink-0', isActive ? 'text-brand' : 'text-ink-3')} />
+                <span className="min-w-0 flex-1">管理</span>
+              </>
+            )}
+          </NavLink>
+        )}
       </nav>
       {!student && (
         <div className="shrink-0 border-t border-line px-3 py-3">
@@ -177,10 +190,74 @@ function PasswordModal({ open, onClose }: { open: boolean; onClose: () => void }
   );
 }
 
+/** 演示老师设成自己的正式账号：手机号、姓名、密码；设好以后用手机号登录，里面的东西都还在 */
+function ClaimModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const { user, adopt } = useAuth();
+  const [phone, setPhone] = useState(''),
+    [name, setName] = useState(user?.name || ''),
+    [password, setPassword] = useState(''),
+    [busy, setBusy] = useState(false),
+    [error, setError] = useState('');
+  const save = async () => {
+    if (!phone.trim() || !name.trim() || !password || busy) return;
+    setBusy(true);
+    setError('');
+    try {
+      const r = await post<{ user: NonNullable<typeof user> }>('/auth/claim', { phone, name, password });
+      await adopt(r.user);
+      toast.success('设好了，以后用手机号登录');
+      setBusy(false);
+      onClose();
+    } catch (e) {
+      setError((e as Error).message);
+      setBusy(false);
+    }
+  };
+  return (
+    <Modal
+      open={open}
+      onClose={() => !busy && onClose()}
+      title="设置手机号和密码"
+      width={420}
+      footer={
+        <>
+          <Button disabled={busy} onClick={onClose}>
+            取消
+          </Button>
+          <Button variant="primary" loading={busy} disabled={!phone.trim() || !name.trim() || !password} onClick={save}>
+            保存
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-4">
+        <label className="block text-[14px] text-ink">
+          手机号
+          <Input autoFocus className="mt-1.5" inputMode="tel" value={phone} maxLength={20} onChange={(e) => setPhone(e.target.value)} />
+        </label>
+        <label className="block text-[14px] text-ink">
+          姓名
+          <Input className="mt-1.5" value={name} maxLength={20} onChange={(e) => setName(e.target.value)} />
+        </label>
+        <label className="block text-[14px] text-ink">
+          密码
+          <Input type="password" className="mt-1.5" value={password} placeholder="至少 6 位" autoComplete="new-password" onChange={(e) => setPassword(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && save()} />
+        </label>
+        {error && (
+          <p role="alert" className="text-[14px] text-bad">
+            {error}
+          </p>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
 function UserMenu() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
-  const [changing, setChanging] = useState(false);
+  const [changing, setChanging] = useState(false),
+    [claiming, setClaiming] = useState(false);
   if (!user) return null;
   return (
     <>
@@ -191,7 +268,7 @@ function UserMenu() {
           <Avatar name={user.name} seed={user.id} size={30} />
           <span className="hidden text-left leading-tight md:block">
             <span className="block text-[14px] font-medium text-ink">{user.name}</span>
-            <span className="block text-[12.5px] text-ink-3">{user.role === 'student' ? '学生' : user.title || '教师'}</span>
+            <span className="block text-[12.5px] text-ink-3">{user.role === 'student' ? '学生' : user.role === 'admin' ? '管理员' : user.title || '教师'}</span>
           </span>
         </button>
       )}
@@ -209,6 +286,17 @@ function UserMenu() {
               修改密码
             </MenuItem>
           )}
+          {user.isDemo && user.role === 'teacher' && (
+            <MenuItem
+              icon={<Smartphone />}
+              onClick={() => {
+                close();
+                setClaiming(true);
+              }}
+            >
+              设置手机号和密码
+            </MenuItem>
+          )}
           <MenuItem
             icon={<LogOut />}
             danger
@@ -224,6 +312,7 @@ function UserMenu() {
       )}
     </Popover>
     <PasswordModal open={changing} onClose={() => setChanging(false)} />
+    {user.isDemo && <ClaimModal open={claiming} onClose={() => setClaiming(false)} />}
     </>
   );
 }
