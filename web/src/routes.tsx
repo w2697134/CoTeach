@@ -37,6 +37,8 @@ const KnowledgeBase = page(() => import('./pages/kb/KnowledgeBase'), 'KnowledgeB
 const LegacyCourse = page(() => import('./pages/kb/LegacyCourse'), 'LegacyCoursePage');
 const Classes = page(() => import('./pages/classes/Home'), 'ClassesPage');
 const ClassDetail = page(() => import('./pages/classes/ClassPage'), 'ClassPage');
+const JoinClass = page(() => import('./pages/classes/Home'), 'JoinPage');
+const JoinLanding = page(() => import('./pages/classes/Landing'), 'JoinLandingPage');
 
 function S({ children }: { children: ReactNode }) {
   return <Suspense fallback={<PageLoading />}>{children}</Suspense>;
@@ -74,6 +76,25 @@ export const router = createBrowserRouter([
       </S>
     ),
   },
+  // 扫码、点加入链接打开的页面，不用先登录；没有加课码的先输码
+  {
+    path: '/join',
+    errorElement: <RouteError />,
+    element: (
+      <S>
+        <JoinLanding />
+      </S>
+    ),
+  },
+  {
+    path: '/join/:code',
+    errorElement: <RouteError />,
+    element: (
+      <S>
+        <JoinLanding />
+      </S>
+    ),
+  },
   {
     path: '/',
     errorElement: <RouteError />,
@@ -97,6 +118,15 @@ export const router = createBrowserRouter([
         element: (
           <S>
             <ClassDetail />
+          </S>
+        ),
+      },
+      // 登录了的学生扫码、点链接：在班级页上打开加入框
+      {
+        path: 'classes/join/:code',
+        element: (
+          <S>
+            <JoinClass />
           </S>
         ),
       },

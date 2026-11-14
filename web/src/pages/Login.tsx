@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { useNavigate, useSearchParams } from 'react-router';
+import { Link, useNavigate, useSearchParams } from 'react-router';
 import { ArrowRight, Eye, EyeOff, Lock, User as UserIcon, Users2 } from 'lucide-react';
 import { get } from '../lib/api';
 import { APP_NAME, APP_SHORT_NAME, HOST_ART, HOST_NAME } from '../lib/brand';
@@ -99,7 +99,7 @@ export function LoginPage() {
             </div>
           </div>
           <form onSubmit={submit} className="mt-7 space-y-3.5">
-            <Input sizeVariant="lg" icon={<UserIcon />} placeholder="账号" value={username} onChange={e => setUsername(e.target.value)} autoComplete="username" />
+            <Input sizeVariant="lg" icon={<UserIcon />} placeholder="账号或学号" value={username} onChange={e => setUsername(e.target.value)} autoComplete="username" />
             <Input
               sizeVariant="lg"
               icon={<Lock />}
@@ -118,6 +118,12 @@ export function LoginPage() {
               登录
             </Button>
           </form>
+          <p className="mt-4 text-center text-[14px] text-ink-3">
+            有加课码？
+            <Link to="/join" className="text-brand hover:underline">
+              加入班级
+            </Link>
+          </p>
 
           {cfg?.demoMode && cfg.demoAccounts.length > 0 && (
             <div className="mt-9">

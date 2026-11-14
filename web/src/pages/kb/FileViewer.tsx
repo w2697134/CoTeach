@@ -527,7 +527,7 @@ export function FileViewer({
           </p>
         )}
       </Modal>
-      <Modal open={latestOpen} onClose={() => setLatestOpen(false)} title="最新内容">
+      <Modal open={latestOpen} onClose={() => setLatestOpen(false)} title="最新内容" width={640}>
         <Markdown plugins={PLAIN_NAMES}>{f?.text || ''}</Markdown>
       </Modal>
     </div>

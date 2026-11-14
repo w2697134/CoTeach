@@ -1,10 +1,11 @@
 import { Hono } from 'hono';
+import { getCookie } from 'hono/cookie';
 import { z } from 'zod';
-import { audit, createSession, destroySession, loadUserById, publicUser, type AppEnv } from '../auth.js';
+import { audit, createSession, destroySession, loadUserById, me, publicUser, type AppEnv } from '../auth.js';
 import { config } from '../config.js';
 import { db } from '../db/index.js';
 import { startingKb } from '../kb/repo.js';
-import { verifyPassword } from '../lib/crypto.js';
+import { hashPassword, sha256, verifyPassword } from '../lib/crypto.js';
 import { bad, body, clientIp, forbidden, rateLimit, unauthorized } from '../lib/http.js';
 
 export const authRoutes = new Hono<AppEnv>();
@@ -51,6 +52,22 @@ authRoutes.post('/demo', async c => {
 
 authRoutes.post('/logout', c => {
   destroySession(c);
+  return c.json({ ok: true });
+});
+
+/** 自己改密码：要对上原密码；改完别的地方登着的都退出，这里的留着 */
+authRoutes.post('/password', async c => {
+  const u = me(c);
+  if (u.is_demo) throw forbidden('演示账号不能改密码');
+  const d = await body(c, z.object({ old: z.string().max(128), password: z.string().max(128) }));
+  rateLimit(`password:${u.id}`, 10, 10 * 60_000);
+  if (d.password.length < 6) throw bad('新密码至少 6 位');
+  const row = db.get<{ password_hash: string }>('SELECT password_hash FROM users WHERE id = ?', u.id);
+  if (!row || !verifyPassword(d.old, row.password_hash)) throw bad('原密码不对');
+  db.run('UPDATE users SET password_hash = ? WHERE id = ?', hashPassword(d.password), u.id);
+  const token = getCookie(c, 'ct_sid');
+  db.run('DELETE FROM sessions WHERE user_id = ? AND id <> ?', u.id, token ? sha256(token) : '');
+  audit(c, 'user.password', `user:${u.id}`);
   return c.json({ ok: true });
 });
 

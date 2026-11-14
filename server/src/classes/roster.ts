@@ -13,6 +13,8 @@ export interface Roster {
   unread: string[];
   /** 班名是从「班级」列或班号认出来的（不是整个标题） */
   sure?: boolean;
+  /** 认出了「学号」「姓名」表头（不是一行行猜的） */
+  headed?: boolean;
 }
 
 /** 一格里的字：数字照原样写出来（学号不能变成 2.0251E+9），去掉看不见的字符和两头的引号 */
@@ -27,13 +29,13 @@ function cell(v: unknown): string {
     .trim();
 }
 /** 学号：字母、数字、短横，至少带三位数字 */
-const looksNo = (s: string) => /^[A-Za-z0-9][A-Za-z0-9_-]{2,31}$/.test(s) && /\d{3}/.test(s);
+export const looksNo = (s: string) => /^[A-Za-z0-9][A-Za-z0-9_-]{2,31}$/.test(s) && /\d{3}/.test(s);
 /** 名单里两个字的名字常常中间垫空格对齐（「王  磊」）；全是汉字的去掉空格，外文名留一个空格 */
-function cleanName(s: string): string {
+export function cleanName(s: string): string {
   const t = s.replace(/\s+/g, ' ').trim();
   return /^[\p{Script=Han}·•\s]+$/u.test(t) ? t.replace(/\s/g, '').replace(/•/g, '·') : t;
 }
-const looksName = (s: string) => s.length > 0 && s.length <= 30 && /[\p{Script=Han}A-Za-z]/u.test(s) && !/\d/.test(s);
+export const looksName = (s: string) => s.length > 0 && s.length <= 30 && /[\p{Script=Han}A-Za-z]/u.test(s) && !/\d/.test(s);
 
 const label = (s: string) => s.replace(/[\s*＊:：()（）]/g, '');
 function headerOf(row: string[]) {
@@ -92,7 +94,8 @@ export function rosterFromRows(input: unknown[][]): Roster {
       if (header.cls >= 0 && row[header.cls]) classes.add(row[header.cls]);
     } else {
       const i = row.findIndex(looksNo);
-      const j = row.findIndex((c, k) => k !== i && looksName(cleanName(c)));
+      // 「男」「女」是性别那格，不是名字（2026-11-14 实测：没表头的点名册把性别当了姓名）
+      const j = row.findIndex((c, k) => k !== i && looksName(cleanName(c)) && !/^[男女]$/.test(c));
       if (i < 0) {
         // 名单前面不带学号的那行当标题
         if (!students.size && !unread.length && !title) title = text;
@@ -113,27 +116,61 @@ export function rosterFromRows(input: unknown[][]): Roster {
   const onlyClass = classes.size === 1 ? [...classes][0] : null;
   // 班名先认「班级」那列，再认标题里的班号；都没有才拿整个标题（成绩表的标题多半是课程名，不可靠）
   const sure = className(onlyClass) || classToken(title);
-  return { name: sure || className(title), students: [...students.values()], unread, sure: !!sure };
+  return { name: sure || className(title), students: [...students.values()], unread, sure: !!sure, headed: !!header };
 }
 
 export const rosterFromText = (text: string): Roster => rosterFromRows(text.split(/\r?\n/).map(splitLine));
 
-/** 教务网导出的表（xlsx、xls、ods）或文字文件（csv、txt）。几张表的取第一张有学生的；班名表里没有就用文件名 */
-export function rosterFromFile(fileName: string, bytes: Uint8Array): Roster {
+/** 文件里的几张表，每张是一行行的格子 */
+function tablesOf(fileName: string, bytes: Uint8Array): unknown[][][] {
   const ext = (fileName.split('.').pop() || '').toLowerCase();
-  let tables: unknown[][][];
-  if (['csv', 'txt', 'tsv'].includes(ext)) tables = [decodeText(bytes).split(/\r?\n/).map(splitLine)];
-  else {
-    let wb: XLSX.WorkBook;
-    try {
-      wb = XLSX.read(bytes, { type: 'buffer', dense: true, cellDates: false, cellHTML: false, cellFormula: false, cellText: false });
-    } catch {
-      throw bad('这个文件里没认出学号和姓名');
-    }
-    tables = wb.SheetNames.map((n) => XLSX.utils.sheet_to_json<unknown[]>(wb.Sheets[n], { header: 1, raw: true, defval: '', blankrows: false }));
+  if (['csv', 'txt', 'tsv'].includes(ext)) return [decodeText(bytes).split(/\r?\n/).map(splitLine)];
+  let wb: XLSX.WorkBook;
+  try {
+    wb = XLSX.read(bytes, { type: 'buffer', dense: true, cellDates: false, cellHTML: false, cellFormula: false, cellText: false });
+  } catch {
+    throw bad('这个文件打不开，换成 Excel 或 csv 再试');
   }
-  const found = tables.map(rosterFromRows).find((r) => r.students.length);
+  return wb.SheetNames.map((n) => XLSX.utils.sheet_to_json<unknown[]>(wb.Sheets[n], { header: 1, raw: true, defval: '', blankrows: false }));
+}
+
+/**
+ * 教务网导出的表（xlsx、xls、ods）或文字文件（csv、txt）。几张表的取第一张认出表头、有学生的；班名表里没有就用文件名。
+ * 文件里认不出「学号」「姓名」表头的不一行行猜（会把性别、专业当名字），交给 tableFromFile 让老师选列。
+ */
+export function rosterFromFile(fileName: string, bytes: Uint8Array): Roster {
+  const found = tablesOf(fileName, bytes)
+    .map(rosterFromRows)
+    .find((r) => r.headed && r.students.length);
   if (!found) throw bad('这个文件里没认出学号和姓名');
-  const { sure, ...roster } = found;
+  const { sure, headed: _, ...roster } = found;
   return { ...roster, name: (sure ? found.name : classToken(fileName) || found.name) || className(fileName) };
+}
+
+/**
+ * 表头里没有「学号」「姓名」的表：像飞书导入那样，把表原样给老师看，让老师选哪一列是学号、哪一列是姓名。
+ * 先猜好：像学号的格子最多的那列当学号，像人名的格子最多的那列当姓名（「男」「女」不算）。
+ */
+export function tableFromFile(fileName: string, bytes: Uint8Array): { rows: string[][]; noCol: number; nameCol: number } {
+  const rows = (tablesOf(fileName, bytes).find((t) => t.filter((r) => r.some((c) => cell(c))).length >= 2) || [])
+    .map((r) => r.slice(0, 20).map(cell))
+    .filter((r) => r.some(Boolean))
+    .slice(0, 1000);
+  if (!rows.length) throw bad('这个文件里没有内容');
+  const width = Math.max(...rows.map((r) => r.length));
+  const score = (ok: (s: string) => boolean) => Array.from({ length: width }, (_, i) => rows.filter((r) => ok(r[i] || '')).length);
+  /** 分数最高的那一列（跳过 skip 那列）；一样高取靠左的 */
+  const best = (scores: number[], skip = -1) => {
+    let at = -1;
+    scores.forEach((s, i) => {
+      if (i !== skip && (at < 0 || s > scores[at])) at = i;
+    });
+    return Math.max(at, 0);
+  };
+  const noCol = best(score(looksNo));
+  const nameCol = best(
+    score((s) => looksName(cleanName(s)) && !/^[男女]$/.test(s)),
+    noCol,
+  );
+  return { rows, noCol, nameCol };
 }

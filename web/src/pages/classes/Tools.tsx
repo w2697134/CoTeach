@@ -1,18 +1,18 @@
 import { useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { MoreHorizontal, MoreVertical, PenLine, Trash2 } from 'lucide-react';
+import { Archive, ArchiveRestore, MoreHorizontal, MoreVertical, PenLine, Trash2 } from 'lucide-react';
 import { api } from '../../lib/api';
 import { toast } from '../../lib/store';
 import { Button, IconButton, Input, MenuItem, Modal, Popover, useConfirm } from '../../components/ui';
 
-/** 每个班右上角的「⋮」：改名、删除。在卡片彩色头上传 onPicture（白点）；在横幅插图上传 onImage（白底圆钮） */
+/** 每个班右上角的「⋮」：改名、归档或恢复、删除。在卡片彩色头上传 onPicture（白点）；在横幅插图上传 onImage（白底圆钮） */
 export function ClassTools({
   item,
   onDeleted,
   onPicture,
   onImage,
 }: {
-  item: { id: number; name: string };
+  item: { id: number; name: string; archived?: boolean };
   onDeleted?: () => void;
   onPicture?: boolean;
   onImage?: boolean;
@@ -34,6 +34,20 @@ export function ClassTools({
       setRenaming(false);
     } catch (e) {
       setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  // 归档、恢复都能再改回来，不弹确认
+  const archive = async (archived: boolean) => {
+    setBusy(true);
+    try {
+      await api(`/classes/${item.id}`, { method: 'PATCH', body: { archived } });
+      qc.setQueryData(['class', item.id], (old: object | undefined) => (old ? { ...old, archived } : old));
+      await qc.invalidateQueries({ queryKey: ['classes'] });
+      toast.success(archived ? '已归档' : '已恢复');
+    } catch (e) {
+      toast.fromError(e);
     } finally {
       setBusy(false);
     }
@@ -86,6 +100,15 @@ export function ClassTools({
             >
               改名
             </MenuItem>
+            {item.archived ? (
+              <MenuItem icon={<ArchiveRestore />} onClick={() => archive(false)}>
+                恢复
+              </MenuItem>
+            ) : (
+              <MenuItem icon={<Archive />} onClick={() => archive(true)}>
+                归档
+              </MenuItem>
+            )}
             <MenuItem icon={<Trash2 />} danger onClick={remove}>
               删除这个班
             </MenuItem>

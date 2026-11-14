@@ -26,7 +26,39 @@ function useBodyLock(open: boolean) {
   }, [open]);
 }
 
+/** 内容滚动时，上面或下面还有没露出来的部分吗（有才在标题下、按钮上画细线） */
+function useScrollEdges() {
+  const [edges, setEdges] = useState({ top: false, bottom: false });
+  const box = useRef<HTMLElement | null>(null);
+  const measure = useCallback(() => {
+    const el = box.current;
+    if (!el) return;
+    const top = el.scrollTop > 0,
+      bottom = el.scrollTop + el.clientHeight < el.scrollHeight - 1;
+    setEdges((e) => (e.top === top && e.bottom === bottom ? e : { top, bottom }));
+  }, []);
+  const observer = useRef<ResizeObserver | null>(null);
+  // 挂在内容上：外面的滚动盒子和里面的内容，哪个变高变矮都重新量
+  const content = useCallback(
+    (el: HTMLDivElement | null) => {
+      observer.current?.disconnect();
+      observer.current = null;
+      box.current = el?.parentElement ?? null;
+      if (!el || !box.current) return;
+      observer.current = new ResizeObserver(measure);
+      observer.current.observe(box.current);
+      observer.current.observe(el);
+    },
+    [measure],
+  );
+  return { edges, content, measure };
+}
+
 /* ---------------- Modal ---------------- */
+/**
+ * 对话框照飞书、课堂派的样子：标题、内容、右下角按钮，中间不加分隔线和灰底栏；背景只压暗，不糊。
+ * 内容长到要滚动时，标题下、按钮上才出细线。
+ */
 export function Modal({
   open,
   onClose,
@@ -34,9 +66,8 @@ export function Modal({
   desc,
   children,
   footer,
-  width = 520,
+  width = 460,
   className,
-  icon,
   closeOnOverlay = true,
 }: {
   open: boolean;
@@ -47,18 +78,19 @@ export function Modal({
   footer?: ReactNode;
   width?: number;
   className?: string;
-  icon?: ReactNode;
   closeOnOverlay?: boolean;
 }) {
   const titleId = useId();
   useEscape(open, onClose);
   useBodyLock(open);
+  const { edges, content, measure } = useScrollEdges();
+  const head = !!(title || desc);
   return createPortal(
     <AnimatePresence>
       {open && (
         <div className="fixed inset-0 z-[80] flex items-end justify-center p-0 sm:items-center sm:p-6">
           <motion.div
-            className="absolute inset-0 bg-[var(--c-overlay)] backdrop-blur-[2px]"
+            className="absolute inset-0 bg-[var(--c-overlay)]"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
@@ -78,28 +110,42 @@ export function Modal({
             exit={{ opacity: 0, y: 16, scale: 0.98 }}
             transition={{ type: 'spring', stiffness: 380, damping: 32 }}
           >
-            {(title || desc) && (
-              <div className="flex items-start gap-3 border-b border-line px-5 py-4">
-                {icon && (
-                  <span className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-lg bg-brand-soft text-brand-ink [&>svg]:size-[18px]">
-                    {icon}
-                  </span>
+            {head && (
+              <div
+                className={cn(
+                  'flex items-start gap-3 border-b px-6 pb-3 pt-5 transition-colors',
+                  edges.top ? 'border-line' : 'border-transparent',
                 )}
+              >
                 <div className="min-w-0 flex-1">
                   {title && (
-                    <h2 id={titleId} className="text-[16px] font-semibold text-ink">
+                    <h2 id={titleId} className="text-[18px] font-semibold leading-7 text-ink">
                       {title}
                     </h2>
                   )}
-                  {desc && <p className="mt-0.5 text-[14px] text-ink-3">{desc}</p>}
+                  {desc && <p className="mt-1 text-[14px] text-ink-3">{desc}</p>}
                 </div>
-                <IconButton size="sm" label="关闭" onClick={onClose}>
-                  <X className="size-4" />
+                <IconButton size="sm" label="关闭" onClick={onClose} className="-mr-2 mt-0.5 text-ink-3">
+                  <X className="size-[18px]" />
                 </IconButton>
               </div>
             )}
-            <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">{children}</div>
-            {footer && <div className="flex items-center justify-end gap-2 border-t border-line bg-surface-2 px-5 py-3">{footer}</div>}
+            <div
+              onScroll={measure}
+              className={cn('min-h-0 flex-1 overflow-y-auto px-6', head ? 'pt-1' : 'pt-6', footer ? 'pb-2' : 'pb-6')}
+            >
+              <div ref={content}>{children}</div>
+            </div>
+            {footer && (
+              <div
+                className={cn(
+                  'flex items-center justify-end gap-2 border-t px-6 pb-5 pt-4 transition-colors',
+                  edges.bottom ? 'border-line' : 'border-transparent',
+                )}
+              >
+                {footer}
+              </div>
+            )}
           </motion.div>
         </div>
       )}
@@ -210,7 +256,6 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
         onClose={() => close(false)}
         width={420}
         title={state?.title}
-        icon={state?.danger ? <AlertTriangle className="text-bad" /> : <Info />}
         footer={
           <>
             <Button variant="ghost" onClick={() => close(false)}>

@@ -389,3 +389,20 @@ CREATE TABLE class_students (
 );
 CREATE INDEX idx_class_students_user ON class_students(user_id);
 `);
+
+// 第 9 次：学生自己加入班级（2026-11-14）。照课堂派、雨课堂：建班只填名字，系统给加课码，学生输码加入、填学号姓名；
+// 名单不再是建班必填，老师导进来只为对一对谁还没加入。in_roster：老师名单上有这个人；joined_at：学生自己加入的时间。
+// 原来的名单行都是老师导的，in_roster 记 1；加课码没有的班在用到时补上。
+migrations.push(`
+ALTER TABLE classes ADD COLUMN join_code TEXT;
+CREATE UNIQUE INDEX idx_classes_join_code ON classes(join_code);
+ALTER TABLE class_students ADD COLUMN in_roster INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE class_students ADD COLUMN joined_at INTEGER;
+`);
+
+// 第 10 次：班级补全（2026-11-14）。老师可以关掉加入（join_open），学期完了可以归档（archived_at，归档后只能看）。
+// 学生用加课码自己注册：账号名就是学号，账号放在 users 里，不另建表。
+migrations.push(`
+ALTER TABLE classes ADD COLUMN join_open INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE classes ADD COLUMN archived_at INTEGER;
+`);

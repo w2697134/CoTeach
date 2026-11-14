@@ -2,10 +2,10 @@ import { useEffect, useState } from 'react';
 import { Navigate, useNavigate, useParams } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { motion } from 'motion/react';
-import { Plus, UserRound, Users } from 'lucide-react';
+import { ChevronRight, Plus, UserRound } from 'lucide-react';
 import { post } from '../../lib/api';
 import { useAuth } from '../../lib/store';
-import { Avatar, Button, Card, ErrorState, Input, Modal, Skeleton } from '../../components/ui';
+import { Avatar, Button, Card, ErrorState, Input, Modal, Skeleton, cn } from '../../components/ui';
 import { useClasses, type ClassItem } from './data';
 import { JoinModal } from './Join';
 import { EmptyArt, themeBackground, themeOf } from './look';
@@ -17,7 +17,8 @@ const surname = (name?: string | null) => (name || '').trim().slice(0, 1);
 
 /**
  * 一个班一张卡片，照课堂派的课程卡片：
- * 上面彩色头写班名，右下角压一个「教 / 学」小圆标；中间老师看到前几个学生的头像；底栏是老师和人数。
+ * 上面彩色头写班名，左下角是加课码，右下角压一个「教 / 学」小圆标；中间老师看到前几个学生的头像；底栏是老师和人数。
+ * 归档的班头变灰，左下角写「已归档」。
  */
 function ClassCard({ item, student }: { item: ClassItem; student: boolean }) {
   const navigate = useNavigate();
@@ -37,7 +38,10 @@ function ClassCard({ item, student }: { item: ClassItem; student: boolean }) {
       onClick={open}
       onKeyDown={(e) => e.key === 'Enter' && open()}
     >
-      <div className="relative h-[116px] shrink-0 px-4 pt-3.5 text-white" style={themeBackground(theme)}>
+      <div
+        className="relative h-[116px] shrink-0 px-4 pt-3.5 text-white"
+        style={{ ...themeBackground(theme), ...(item.archived ? { filter: 'grayscale(.85)', opacity: 0.8 } : {}) }}
+      >
         <div className="flex items-start gap-1">
           <h3 className="line-clamp-2 min-w-0 flex-1 break-words pt-0.5 text-[19px] font-medium leading-[1.4]">{item.name}</h3>
           {!student && (
@@ -47,6 +51,19 @@ function ClassCard({ item, student }: { item: ClassItem; student: boolean }) {
             </div>
           )}
         </div>
+        {(item.archived || (!student && item.code)) && (
+          <p className="absolute bottom-3 left-4 text-[12.5px] text-white/85">
+            {item.archived ? (
+              '已归档'
+            ) : item.joinOpen === false ? (
+              '已停止加入'
+            ) : (
+              <>
+                加课码 <span className="ml-0.5 font-mono text-[13.5px] font-semibold tracking-[0.08em] text-white">{item.code}</span>
+              </>
+            )}
+          </p>
+        )}
         <span
           className="absolute -bottom-[18px] right-4 flex size-9 items-center justify-center rounded-full bg-surface text-[15px] font-semibold shadow-[0_2px_6px_rgba(15,23,42,.15)]"
           style={{ color: theme.ink }}
@@ -80,7 +97,7 @@ function ClassCard({ item, student }: { item: ClassItem; student: boolean }) {
   );
 }
 
-/** 新建班级：照课堂派、Google Classroom，只起个名字；建好进班级页，那里有加课码，学生自己加入 */
+/** 新建班级：照课堂派、Google Classroom，只起个名字；创建后进班级页，那里有加课码，学生自己加入 */
 function NewClassModal({ open, onClose, onCreated }: { open: boolean; onClose: () => void; onCreated: (id: number) => void }) {
   const qc = useQueryClient();
   const [name, setName] = useState(''),
@@ -110,14 +127,13 @@ function NewClassModal({ open, onClose, onCreated }: { open: boolean; onClose: (
       open={open}
       onClose={() => !busy && onClose()}
       title="新建班级"
-      icon={<Users />}
       footer={
         <>
           <Button disabled={busy} onClick={onClose}>
             取消
           </Button>
           <Button variant="primary" loading={busy} disabled={!name.trim()} onClick={create}>
-            建好
+            创建
           </Button>
         </>
       }
@@ -150,7 +166,19 @@ export function ClassesPage({ joinCode }: { joinCode?: string }) {
   const student = useAuth((s) => s.user?.role) === 'student';
   const classes = useClasses();
   const list = classes.data?.classes || [];
-  const [creating, setCreating] = useState(false);
+  const active = list.filter((k) => !k.archived),
+    archived = list.filter((k) => k.archived);
+  const [creating, setCreating] = useState(false),
+    [showArchived, setShowArchived] = useState(false);
+  const grid = (items: ClassItem[]) => (
+    <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+      {items.map((k, i) => (
+        <motion.div key={k.id} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.04 }}>
+          <ClassCard item={k} student={student} />
+        </motion.div>
+      ))}
+    </div>
+  );
   // 扫码、点链接进来的直接打开加入框，加课码填好
   const [joining, setJoining] = useState(!!joinCode);
   const pill =
@@ -170,7 +198,7 @@ export function ClassesPage({ joinCode }: { joinCode?: string }) {
           <Skeleton className="h-60 rounded-lg" />
           <Skeleton className="h-60 rounded-lg" />
         </div>
-      ) : !list.length ? (
+      ) : !active.length ? (
         <Card padded={false}>
           <EmptyArt
             src="/illustrations/classes/empty-classes.webp"
@@ -185,13 +213,22 @@ export function ClassesPage({ joinCode }: { joinCode?: string }) {
           />
         </Card>
       ) : (
-        <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          {list.map((k, i) => (
-            <motion.div key={k.id} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.04 }}>
-              <ClassCard item={k} student={student} />
-            </motion.div>
-          ))}
-        </div>
+        grid(active)
+      )}
+      {archived.length > 0 && (
+        <section className="mt-9">
+          <button
+            type="button"
+            onClick={() => setShowArchived((v) => !v)}
+            aria-expanded={showArchived}
+            className="mb-4 inline-flex items-center gap-1 text-[15px] text-ink-2 transition-colors hover:text-ink"
+          >
+            <ChevronRight className={cn('size-4 transition-transform', showArchived && 'rotate-90')} />
+            已归档
+            <span className="ml-1 text-ink-3">{archived.length}</span>
+          </button>
+          {showArchived && grid(archived)}
+        </section>
       )}
       {!student && (
         <NewClassModal
@@ -217,7 +254,7 @@ export function ClassesPage({ joinCode }: { joinCode?: string }) {
   );
 }
 
-/** 加入链接 /join/加课码（二维码扫出来的就是它）：学生打开加入框；老师打开就回班级 */
+/** 登录了的学生扫码、点链接（/join/加课码 转到 /classes/join/加课码）：打开加入框；老师打开就回班级 */
 export function JoinPage() {
   const { code } = useParams();
   const role = useAuth((s) => s.user?.role);

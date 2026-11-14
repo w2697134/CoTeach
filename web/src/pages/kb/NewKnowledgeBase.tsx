@@ -40,7 +40,7 @@ export function NewKnowledgeBaseModal({ open, onClose, onCreated }: { open: bool
             取消
           </Button>
           <Button variant="primary" loading={busy} disabled={!name.trim()} onClick={create}>
-            建好
+            创建
           </Button>
         </>
       }

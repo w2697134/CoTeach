@@ -1,10 +1,11 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router';
 import { AnimatePresence, motion } from 'motion/react';
-import { BookOpen, LogOut, Menu, Monitor, Moon, Sun, Users } from 'lucide-react';
+import { BookOpen, KeyRound, LogOut, Menu, Monitor, Moon, Sun, Users } from 'lucide-react';
 import { APP_NAME, APP_SHORT_NAME } from '../../lib/brand';
-import { useAuth, useTheme, useUi } from '../../lib/store';
-import { Avatar, IconButton, MenuItem, MenuLabel, Popover, cn } from '../ui';
+import { post } from '../../lib/api';
+import { toast, useAuth, useTheme, useUi } from '../../lib/store';
+import { Avatar, Button, IconButton, Input, MenuItem, MenuLabel, Modal, Popover, cn } from '../ui';
 import { useKnowledgeBases } from '../../pages/kb/data';
 
 /** 现在打开的是哪个知识库（不在某个知识库里时为 null） */
@@ -103,11 +104,86 @@ function ThemeMenu() {
   );
 }
 
+/** 改密码：原密码、新密码；改完别处登着的会退出 */
+function PasswordModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const [old, setOld] = useState(''),
+    [fresh, setFresh] = useState(''),
+    [busy, setBusy] = useState(false),
+    [error, setError] = useState('');
+  const close = () => {
+    if (busy) return;
+    setOld('');
+    setFresh('');
+    setError('');
+    onClose();
+  };
+  const save = async () => {
+    if (!old || !fresh || busy) return;
+    setBusy(true);
+    setError('');
+    try {
+      await post('/auth/password', { old, password: fresh });
+      toast.success('密码改好了');
+      setBusy(false);
+      setOld('');
+      setFresh('');
+      onClose();
+    } catch (e) {
+      setError((e as Error).message);
+      setBusy(false);
+    }
+  };
+  return (
+    <Modal
+      open={open}
+      onClose={close}
+      title="修改密码"
+      width={400}
+      footer={
+        <>
+          <Button disabled={busy} onClick={close}>
+            取消
+          </Button>
+          <Button variant="primary" loading={busy} disabled={!old || !fresh} onClick={save}>
+            保存
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-4">
+        <label className="block text-[14px] text-ink">
+          原密码
+          <Input autoFocus type="password" className="mt-1.5" value={old} autoComplete="current-password" onChange={(e) => setOld(e.target.value)} />
+        </label>
+        <label className="block text-[14px] text-ink">
+          新密码
+          <Input
+            type="password"
+            className="mt-1.5"
+            value={fresh}
+            placeholder="至少 6 位"
+            autoComplete="new-password"
+            onChange={(e) => setFresh(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && save()}
+          />
+        </label>
+        {error && (
+          <p role="alert" className="text-[14px] text-bad">
+            {error}
+          </p>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
 function UserMenu() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const [changing, setChanging] = useState(false);
   if (!user) return null;
   return (
+    <>
     <Popover
       width={220}
       trigger={({ toggle }) => (
@@ -121,19 +197,34 @@ function UserMenu() {
       )}
     >
       {(close) => (
-        <MenuItem
-          icon={<LogOut />}
-          danger
-          onClick={async () => {
-            close();
-            await logout();
-            navigate('/login');
-          }}
-        >
-          退出登录
-        </MenuItem>
+        <>
+          {!user.isDemo && (
+            <MenuItem
+              icon={<KeyRound />}
+              onClick={() => {
+                close();
+                setChanging(true);
+              }}
+            >
+              修改密码
+            </MenuItem>
+          )}
+          <MenuItem
+            icon={<LogOut />}
+            danger
+            onClick={async () => {
+              close();
+              await logout();
+              navigate('/login');
+            }}
+          >
+            退出登录
+          </MenuItem>
+        </>
       )}
     </Popover>
+    <PasswordModal open={changing} onClose={() => setChanging(false)} />
+    </>
   );
 }
 
