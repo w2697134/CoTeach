@@ -9,7 +9,7 @@ import { AgentAvatar, Button, Input, cn } from '../components/ui';
 
 interface PublicConfig {
   demoMode: boolean;
-  demoAccounts: { role: 'teacher'; username: string; label: string; name: string }[];
+  demoAccounts: { role: 'teacher' | 'student'; username: string; label: string; name: string }[];
 }
 
 export function LoginPage() {
@@ -48,10 +48,10 @@ export function LoginPage() {
     }
   };
 
-  const quick = async () => {
-    setLoading('teacher');
+  const quick = async (role: 'teacher' | 'student') => {
+    setLoading(role);
     try {
-      await demo('teacher');
+      await demo(role);
       go();
     } catch (err) {
       toast.fromError(err);
@@ -129,10 +129,10 @@ export function LoginPage() {
               {cfg.demoAccounts.map(d => (
                 <button
                   key={d.role}
-                  onClick={quick}
+                  onClick={() => quick(d.role)}
                   disabled={!!loading}
                   className={cn(
-                    'group flex w-full items-center gap-3.5 rounded-xl border border-line bg-surface px-4 py-3 text-left shadow-xs transition-all hover:-translate-y-0.5 hover:border-brand/40 hover:shadow-md disabled:opacity-60',
+                    'group mt-2.5 flex w-full items-center gap-3.5 rounded-xl border border-line bg-surface px-4 py-3 text-left shadow-xs transition-all first-of-type:mt-0 hover:-translate-y-0.5 hover:border-brand/40 hover:shadow-md disabled:opacity-60',
                     loading === d.role && 'border-brand/50',
                   )}
                 >

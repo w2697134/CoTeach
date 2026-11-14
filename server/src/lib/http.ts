@@ -39,6 +39,7 @@ export async function body<T extends z.ZodType>(c: Context, schema: T): Promise<
       studentNo: '学号',
       aliases: '曾用名',
       students: '名单',
+      roster: '名单',
       path: '名称',
       from: '原位置',
       to: '新位置',

@@ -11,6 +11,7 @@ export async function bootstrap() {
   ensureRoot();
   ensureProviderFromEnv();
   await ensureDemo();
+  ensureDemoStudent();
   await migrateOwnership();
   for (const u of db.all<{ id: number }>("SELECT id FROM users WHERE role='teacher'")) await startingKb(u.id);
   recoverRepositoryRefs();
@@ -86,4 +87,18 @@ async function ensureDemo() {
     created_at: now(),
   });
   console.log('[bootstrap] 已创建演示老师和演示课程');
+}
+
+/** 演示学生：不在任何名单里，能进演示老师的每个班（见 classes/routes.ts） */
+function ensureDemoStudent() {
+  if (!config.demoMode || db.get("SELECT id FROM users WHERE username = 'student'")) return;
+  db.insert('users', {
+    username: 'student',
+    name: '李明',
+    role: 'student',
+    password_hash: hashPassword(randomToken(12)),
+    is_demo: 1,
+    created_at: now(),
+  });
+  console.log('[bootstrap] 已创建演示学生');
 }

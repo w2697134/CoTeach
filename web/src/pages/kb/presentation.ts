@@ -53,21 +53,65 @@ const LABELS: Record<string, string> = {
   rename_knowledge_base: '知识库改名',
   move_to_knowledge_base: '挪到别的知识库',
   delete_knowledge_base: '删除知识库',
+  list_changes: '查看改动',
+  revert_change: '撤回改动',
 };
 const quoted = (v: unknown) => (typeof v === 'string' && v ? `「${plainText(v)}」` : '');
+/** 它读、存的多是原件转出来的文字（「第1章 教案.docx.md」），两层扩展名都去掉 */
+const stepTarget = (path: unknown) => fileTitle(path).replace(EXT, '');
 export function toolPresentation(data: Record<string, unknown> = {}) {
   const name = typeof data.name === 'string' ? data.name : '';
-  let target = fileTitle(data.path);
-  if (name === 'move_file') target = [fileTitle(data.from), fileTitle(data.to)].filter(Boolean).join('，移到');
+  let target = stepTarget(data.path);
+  if (name === 'move_file') target = [stepTarget(data.from), stepTarget(data.to)].filter(Boolean).join('，移到');
   if (name === 'finish') target = plainText(data.title);
+  if (name === 'revert_change') target = quoted(data.title);
   if (name === 'search') target = typeof data.text === 'string' ? `「${plainText(data.text)}」` : '';
   if (name === 'create_knowledge_base' || name === 'delete_knowledge_base') target = quoted(data.base);
   if (name === 'rename_knowledge_base') target = data.to ? `${quoted(data.from)}改成${quoted(data.to)}` : quoted(data.base);
   if (name === 'move_to_knowledge_base') {
-    const what = typeof data.path === 'string' ? `「${fileTitle(data.path)}」` : typeof data.count === 'number' ? `${data.count} 份` : '';
+    const what = typeof data.path === 'string' ? `「${stepTarget(data.path)}」` : typeof data.count === 'number' ? `${data.count} 份` : '';
     target = data.to ? `${data.from ? `从${quoted(data.from)}` : ''}${what}挪到${quoted(data.to)}` : '';
   }
   return { label: Object.hasOwn(LABELS, name) ? LABELS[name] : '整理', target, error: data.error ? readableError(data.error) : '' };
+}
+
+/** 工作记录里的一行：它说的一句话（label 为空），或者连着做的同一类事（label 是做的事，text 是做在哪几份上） */
+export type StepLine = { kind: 'say' | 'tool'; id: number; name: string; label: string; text: string };
+const BY_FILE = new Set(['阅读', '整理', '修改', '移除', '移动']);
+/**
+ * 工作记录照 Claude、Codex 的做法：同一类事连着做的并成一行（「阅读 A、B、C 等 8 份」）。
+ * 没做成的一步（找的目录不存在、读的文件不在）什么也没改，它自己会换个办法，不摆出来。
+ */
+export function stepLines(events: { id: number; type: string; data?: Record<string, unknown> }[]): StepLine[] {
+  const lines: StepLine[] = [];
+  let group: { id: number; name: string; label: string; targets: string[] } | null = null;
+  const flush = () => {
+    if (!group) return;
+    const { label, targets } = group;
+    const names = targets.length <= 3 ? targets.join('、') : `${targets.slice(0, 3).join('、')} 等 ${targets.length} ${BY_FILE.has(label) ? '份' : '个'}`;
+    lines.push({ kind: 'tool', id: group.id, name: group.name, label, text: names });
+    group = null;
+  };
+  for (const e of events) {
+    const d = e.data || {};
+    if (e.type === 'say') {
+      const text = plainText(d.text);
+      // 没有中文的是它自言自语（偶尔冒一句英文），不摆出来
+      if (!/[㐀-鿿]/.test(text)) continue;
+      flush();
+      lines.push({ kind: 'say', id: e.id, name: '', label: '', text });
+      continue;
+    }
+    if (e.type !== 'tool' || d.error) continue;
+    const view = toolPresentation(d);
+    if (!group || group.label !== view.label) {
+      flush();
+      group = { id: e.id, name: typeof d.name === 'string' ? d.name : '', label: view.label, targets: [] };
+    }
+    if (view.target && !group.targets.includes(view.target)) group.targets.push(view.target);
+  }
+  flush();
+  return lines;
 }
 
 /* ---------- 中间一格一格摆着的文件夹和文件 ---------- */

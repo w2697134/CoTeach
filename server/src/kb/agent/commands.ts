@@ -6,7 +6,7 @@ import { db, j } from '../../db/index.js';
 import { HttpError } from '../../lib/http.js';
 import { loadKb } from '../access.js';
 import { createKb, deleteKb, findKb, renameKb, transferFiles } from '../bases.js';
-import { checkMetadata, countTitle, createChange, isTidy, KEEPER_AUTHOR, teacherAuthor } from '../changes.js';
+import { checkMetadata, countTitle, createChange, isTidy, KEEPER_AUTHOR, revertChange, shownTitle, teacherAuthor } from '../changes.js';
 import { addSource, cleanPath, hashBytes, manifest, readEntry, validateOps, type FileOp } from '../repo.js';
 import { documentName } from '../teacher-text.js';
 import { readBlobText, setItem } from '../intake/store.js';
@@ -49,10 +49,12 @@ export interface Turn extends RunRef {
   };
 }
 
-export const USAGE = `ct 交 "改了什么" "依据"     把这次的改动交给老师：内容改动等老师确认，只挪位置的直接生效
+export const USAGE = `ct 交 "改了什么" "依据"     把这次的改动交给老师
 ct 存 <老师发来的文件或文件夹> <知识库文件夹/路径>   把老师发来的文件存进知识库（存进去就生效，算老师交的原件）
 ct 挪 <从> <到>              挪动或改名文件、文件夹，也能挪到别的知识库的文件夹里
 ct 删 <路径>                 删掉文件或文件夹（老师能撤回）
+ct 改动 [知识库]             看最近的改动：编号、时间、谁改的、改了哪几份、生效没有
+ct 撤回 <编号>               把一次已经生效的改动原样改回去（照历史记录恢复，撤回也能再撤回）
 ct 新建库 <名字>             新建一个知识库
 ct 改名库 <现在的名字> <新名字>
 ct 删库 <名字>               删掉一个已经清空的知识库
@@ -80,6 +82,15 @@ const ALIASES: Record<string, string> = {
   存: '存',
   保存: '存',
   save: '存',
+  改动: '改动',
+  历史: '改动',
+  history: '改动',
+  log: '改动',
+  撤回: '撤回',
+  改回: '撤回',
+  回退: '撤回',
+  revert: '撤回',
+  undo: '撤回',
   帮助: '帮助',
   help: '帮助',
 };
@@ -107,6 +118,11 @@ export async function runCommand(t: Turn, argv: string[]): Promise<Result> {
       case '存':
         if (args.length !== 2) return fail('用法：ct 存 <老师发来的文件或文件夹> <知识库文件夹/路径>');
         return await save(t, args[0], args[1]);
+      case '改动':
+        return changeLog(t, args.join(' '));
+      case '撤回':
+        if (args.length !== 1) return fail('用法：ct 撤回 <编号>');
+        return await revert(t, args[0]);
       case '帮助':
         return ok(USAGE);
       default:
@@ -133,10 +149,72 @@ const LABEL: Record<string, string> = {
   delete_knowledge_base: '删除知识库',
   move_to_knowledge_base: '挪到别的知识库',
   save_file: '存进知识库',
+  list_changes: '查看改动',
+  revert_change: '撤回改动',
 };
 const toolName = (cmd: string) =>
-  ({ 交: 'finish', 挪: 'move_file', 删: 'delete_file', 新建库: 'create_knowledge_base', 改名库: 'rename_knowledge_base', 删库: 'delete_knowledge_base', 存: 'save_file' })[cmd] ||
-  'help';
+  (
+    {
+      交: 'finish',
+      挪: 'move_file',
+      删: 'delete_file',
+      新建库: 'create_knowledge_base',
+      改名库: 'rename_knowledge_base',
+      删库: 'delete_knowledge_base',
+      存: 'save_file',
+      改动: 'list_changes',
+      撤回: 'revert_change',
+    } as Record<string, string>
+  )[cmd] || 'help';
+
+const STATUS_WORD: Record<string, string> = { applied: '已生效', reverted: '已撤回', rejected: '老师没要', pending: '等老师确认', conflict: '没生效' };
+const at = (ms: number) =>
+  new Date(ms).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false });
+
+/** 最近的改动（老师的、整理助手的都算）：编号、时间、谁改的、改了哪几份、生效没有；撤回时按编号认 */
+function changeLog(t: Turn, raw: string): Result {
+  const kbIds = raw.trim() ? [t.desk.locate(raw).kbId] : [...t.desk.folders.keys()];
+  if (!kbIds.length) return ok('现在没有知识库');
+  const rows = db.all<{ id: number; kb_id: number; title: string; author_name: string; status: string; created_at: number; paths: string }>(
+    `SELECT c.id, c.kb_id, c.title, c.author_name, c.status, c.created_at,
+       (SELECT json_group_array(json_extract(value, '$.path')) FROM json_each(c.ops)) AS paths
+     FROM kb_changes c WHERE c.kb_id IN (${kbIds.map(() => '?').join(',')}) ORDER BY c.id DESC LIMIT 15`,
+    ...kbIds,
+  );
+  record(t, 'tool', { name: 'list_changes', label: LABEL.list_changes });
+  if (!rows.length) return ok('还没有改动');
+  return ok(
+    rows
+      .map((r) => {
+        const paths = (j(r.paths, []) as string[]).filter(Boolean);
+        const files = paths.length > 5 ? `${paths.slice(0, 5).join('、')} 等 ${paths.length} 份` : paths.join('、');
+        return `#${r.id} ${at(r.created_at)} ${r.author_name}｜「${t.desk.folderOf(r.kb_id)}」${shownTitle(r.title, paths.length)}（${STATUS_WORD[r.status] || r.status}）${files ? `：${files}` : ''}`;
+      })
+      .join('\n'),
+  );
+}
+
+/** 把一次已生效的改动原样改回去：照 git 里改之前的样子再交一次，当场生效；这个库的文件夹跟着重新摆 */
+async function revert(t: Turn, raw: string): Promise<Result> {
+  const id = Number(String(raw).trim().replace(/^#/, ''));
+  if (!Number.isInteger(id) || id <= 0) return fail('用法：ct 撤回 <编号>，编号用 ct 改动 看');
+  const row = db.get<{ kb_id: number; status: string; title: string; paths: number }>(
+    'SELECT kb_id, status, title, json_array_length(ops) AS paths FROM kb_changes WHERE id=?',
+    id,
+  );
+  if (!row || !t.desk.folders.has(row.kb_id)) return fail(`没有 #${id} 这次改动，编号用 ct 改动 看`);
+  const folder = t.desk.folderOf(row.kb_id),
+    title = shownTitle(row.title, row.paths);
+  if (row.status !== 'applied') return fail(`#${id} 现在是「${STATUS_WORD[row.status] || row.status}」，只有已经生效的改动能撤回`);
+  await t.desk.sync();
+  if (t.desk.spaces.get(row.kb_id)!.ops().length) return fail(`「${folder}」这次还有没交的改动，先 ct 交，再撤回`);
+  const r = await revertChange(row.kb_id, id, t.user, { runId: t.runId });
+  await t.desk.reload(row.kb_id);
+  record(t, 'tool', { name: 'revert_change', label: LABEL.revert_change, title });
+  record(t, 'change', { changeId: r.id, kbId: row.kb_id, kbName: loadKb(row.kb_id).name, status: r.status, title: r.title, files: r.ops.length });
+  t.changes.push({ kbId: row.kb_id, changeId: r.id, status: r.status, title: r.title });
+  return ok(`已撤回「${title}」：「${folder}」里这次动过的 ${r.ops.length} 份回到了改之前（已生效，老师能再撤回）`);
+}
 
 /** 这次交的原件在这个库里的条目（按内容指纹认） */
 function handedIn(kbId: number, hashes: Set<string>, ids: { id: string; sourceId?: string }[]) {

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash, randomUUID } from 'node:crypto';
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 
@@ -82,4 +82,82 @@ test('存进知识库：一模一样的原件一个库里只留一份，告诉�
   assert.equal(again.ok, true, again.text);
   assert.match(again.text, /^没有存：/);
   assert.equal(repo.manifest(kbId).filter((e) => e.sourceId).length, 2);
+});
+
+test('交了就生效：整理助手交的内容改动不用老师点确认，老师能撤回', async () => {
+  const desk = await Desk.open(teacher);
+  const runId = db.insert('kb_runs', { kb_id: kbId, teacher_id: teacher, kind: 'chat', status: 'running', request: '', created_by: teacher, created_at: Date.now() });
+  const turn = {
+    teacherId: teacher,
+    runId,
+    kbId,
+    token: 'test',
+    user: owner,
+    inbox: { root: INBOX, intakeId: 0, items: new Map() },
+    kind: 'chat' as const,
+    desk,
+    contextKbId: kbId,
+    submitted: false,
+    finish: null,
+    changes: [],
+  };
+  writeFileSync(desk.abs(kbId, '规矩.md'), '# 规矩\n\n作业迟交一天扣 20%，超过三天不收。\n');
+  const r = await runCommand(turn, ['交', '规矩里加了迟交的规定', '老师这次说的']);
+  assert.equal(r.ok, true, r.text);
+  assert.match(r.text, /（已生效）/);
+  const made = db.get<{ id: number; status: string }>("SELECT id, status FROM kb_changes WHERE run_id=? AND author='keeper'", runId)!;
+  assert.equal(made.status, 'applied');
+  assert.ok(repo.manifest(kbId).some((e) => e.path === '规矩.md'));
+  // 老师撤回：回到改之前
+  await changes.revertChange(kbId, made.id, owner);
+  assert.equal(
+    repo.manifest(kbId).some((e) => e.path === '规矩.md'),
+    false,
+  );
+});
+
+test('整理助手照老师的话撤回：ct 改动 查到编号，ct 撤回 按 git 原样改回，桌面上的文件跟着变', async () => {
+  // 每一轮都像线上那样重新摆一次桌面
+  const turnOf = async () => {
+    const desk = await Desk.open(teacher);
+    const runId = db.insert('kb_runs', { kb_id: kbId, teacher_id: teacher, kind: 'chat', status: 'running', request: '', created_by: teacher, created_at: Date.now() });
+    return {
+      teacherId: teacher,
+      runId,
+      kbId,
+      token: 'test',
+      user: owner,
+      inbox: { root: INBOX, intakeId: 0, items: new Map() },
+      kind: 'chat' as const,
+      desk,
+      contextKbId: kbId,
+      submitted: false,
+      finish: null,
+      changes: [] as { kbId: number; changeId: number; status: string; title: string }[],
+    };
+  };
+  const first = await turnOf();
+  const file = first.desk.abs(kbId, '进度.md');
+  writeFileSync(file, '# 进度\n\n讲到第 6 章。\n');
+  assert.equal((await runCommand(first, ['交', '进度写到第 6 章', '老师说的'])).ok, true);
+  const second = await turnOf();
+  writeFileSync(file, '# 进度\n\n讲到第 7 章。\n');
+  assert.equal((await runCommand(second, ['交', '进度改到第 7 章', '老师说的'])).ok, true);
+  const latest = db.get<{ id: number }>("SELECT id FROM kb_changes WHERE run_id=? AND author='keeper'", second.runId)!.id;
+
+  const undo = await turnOf();
+  const log = await runCommand(undo, ['改动']);
+  assert.equal(log.ok, true, log.text);
+  assert.match(log.text, new RegExp(`#${latest} .*进度改到第 7 章（已生效）：进度\\.md`));
+  const r = await runCommand(undo, ['撤回', `#${latest}`]);
+  assert.equal(r.ok, true, r.text);
+  assert.match(r.text, /^已撤回/);
+  // 回到第 6 章：库里、桌面上都是
+  assert.match(readFileSync(file, 'utf8'), /第 6 章/);
+  const back = db.get<{ author: string; run_id: number; status: string }>("SELECT author, run_id, status FROM kb_changes WHERE reverts=?", latest)!;
+  assert.deepEqual({ ...back }, { author: 'keeper', run_id: undo.runId, status: 'applied' });
+  assert.equal(db.get<{ status: string }>('SELECT status FROM kb_changes WHERE id=?', latest)!.status, 'reverted');
+  assert.equal(undo.changes.length, 1);
+  // 已经撤回过的不能再撤
+  assert.match((await runCommand(undo, ['撤回', String(latest)])).text, /只有已经生效的改动能撤回/);
 });

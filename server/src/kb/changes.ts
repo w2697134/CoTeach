@@ -226,7 +226,8 @@ export function rejectChange(kbId: number, id: number, by: number): ChangeRow {
   publish(kbId, id, 'rejected');
   return loadChange(id);
 }
-export async function revertChange(kbId: number, id: number, by: { id: number; name: string }): Promise<ChangeRow> {
+/** 撤回一次已生效的改动：按 git 里改之前的样子再提交一次。老师点的记老师；整理助手照老师的话撤的记整理助手和那一轮 */
+export async function revertChange(kbId: number, id: number, by: { id: number; name: string }, keeper?: { runId: number | null }): Promise<ChangeRow> {
   return withRepo(kbId, async () => {
     writableKb(kbId);
     const c = loadChange(id, kbId);
@@ -312,16 +313,17 @@ export async function revertChange(kbId: number, id: number, by: { id: number; n
       kb_id: kbId,
       course_id: null,
       title: `撤回：${c.title}`.slice(0, 120),
-      author: 'teacher',
-      author_name: by.name,
+      author: keeper ? 'keeper' : 'teacher',
+      author_name: keeper ? KEEPER_AUTHOR.name : by.name,
       kind: 'revert',
       status: 'pending',
       ops,
       reverts: id,
+      ...(keeper ? { run_id: keeper.runId } : {}),
       created_at: now(),
     });
     try {
-      return applyLocked(loadChange(rid), by.id, teacherAuthor(by), true);
+      return applyLocked(loadChange(rid), keeper ? null : by.id, keeper ? KEEPER_AUTHOR : teacherAuthor(by), true);
     } catch (err) {
       db.update('kb_changes', rid, {
         status: 'conflict',
@@ -351,6 +353,16 @@ export async function changeDiff(c: ChangeRow): Promise<{ files: FileDiff[]; sta
     stale: ['pending', 'conflict'].includes(c.status) ? checkOps(c.kb_id, c.ops) : [],
   };
 }
+/**
+ * 整理助手一次动了好几个知识库，或者新建、挪动过知识库时，每个库那份改动的标题只说改了几份：
+ * 那些新建、挪动已经生效，标题照它的总结写，老师会以为点「不要」能一起撤掉。
+ * 以前这种标题列文件名，好几个学生交的都叫「作业2」，列出来像重复、数也对不上；
+ * 那时存下的标题，读出来时也换成这个说法。
+ */
+export const countTitle = (files: number) => `改了 ${files} 份`;
+const LISTED = /^改了「[^」]*」(?:、「[^」]*」)+(?: 等 \d+ 份)?$/;
+export const shownTitle = (title: string, files: number) => (LISTED.test(title) ? countTitle(files) : title);
+
 export function publicChange(c: ChangeRow) {
   const source = c.run_id
     ? db.get<any>(
@@ -361,7 +373,7 @@ export function publicChange(c: ChangeRow) {
     : null;
   return {
     id: c.id,
-    title: c.title,
+    title: shownTitle(c.title, c.ops.length),
     reason: c.reason,
     source: source || null,
     author: c.author,

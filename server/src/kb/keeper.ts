@@ -16,7 +16,7 @@ import { publish as publishEvent, record as recordEvent, type RunRef } from './a
 import { fileOriginals } from './agent/filing.js';
 export { planFiling } from './agent/filing.js';
 import { streamChat, type Msg, type ToolCall, type ToolSpec } from '../llm/index.js';
-import { createChange, isTidy, KEEPER_AUTHOR, checkMetadata } from './changes.js';
+import { createChange, isTidy, KEEPER_AUTHOR, checkMetadata, countTitle, shownTitle } from './changes.js';
 import { loadKb, studentIn, students, writableKb, type KnowledgeBase } from './access.js';
 import { cleanPath, isTextEntry, isTextPath, manifest, validateOps } from './repo.js';
 import { createKb, deleteKb, findKb, listKbs, renameKb, transferFiles } from './bases.js';
@@ -1297,9 +1297,7 @@ async function execute(
     const meta = batch.commitMeta ? batch.commitMeta(finish) : finish!;
     const tidy = isTidy(kb.id, ops),
       automatic = kb.kind === 'class' || tidy;
-    // 这次还直接新建、挪动过知识库，那些已经生效：改动的标题只写这份改动里的几页，免得老师以为点「不要」能把新建、挪动也撤掉
-    const pages = [...new Set(ops.map((op) => documentName(op.path)))];
-    const title = ws.structural ? `改了${pages.slice(0, 3).map((p) => `「${p}」`).join('、')}${pages.length > 3 ? ` 等 ${pages.length} 份` : ''}` : meta.title;
+    const title = ws.structural ? countTitle(ops.length) : meta.title;
     const c = await createChange({
       kbId: kb.id,
       title: title.slice(0, 120),
@@ -1354,8 +1352,11 @@ export function publicRun(r: any) {
       : null;
   // 一轮可能在好几个知识库里各交一份改动
   const changes = db
-    .all<any>('SELECT c.id, c.kb_id, c.status, c.title, k.name FROM kb_changes c JOIN knowledge_bases k ON k.id=c.kb_id WHERE c.run_id=? ORDER BY c.id', r.id)
-    .map((c) => ({ id: c.id, kbId: c.kb_id, kbName: c.name, status: c.status, title: c.title }));
+    .all<any>(
+      'SELECT c.id, c.kb_id, c.status, c.title, json_array_length(c.ops) AS files, k.name FROM kb_changes c JOIN knowledge_bases k ON k.id=c.kb_id WHERE c.run_id=? ORDER BY c.id',
+      r.id,
+    )
+    .map((c) => ({ id: c.id, kbId: c.kb_id, kbName: c.name, status: c.status, title: shownTitle(c.title, c.files) }));
   const files = r.kind === 'chat' && r.intake_id ? attachmentsOf(r.intake_id) : null;
   return {
     id: r.id,

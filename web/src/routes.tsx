@@ -35,16 +35,25 @@ const Login = page(() => import('./pages/Login'), 'LoginPage');
 const KnowledgeHome = page(() => import('./pages/kb/Home'), 'KnowledgeHomePage');
 const KnowledgeBase = page(() => import('./pages/kb/KnowledgeBase'), 'KnowledgeBasePage');
 const LegacyCourse = page(() => import('./pages/kb/LegacyCourse'), 'LegacyCoursePage');
+const Classes = page(() => import('./pages/classes/Home'), 'ClassesPage');
+const ClassDetail = page(() => import('./pages/classes/ClassPage'), 'ClassPage');
 
 function S({ children }: { children: ReactNode }) {
   return <Suspense fallback={<PageLoading />}>{children}</Suspense>;
 }
 
-/** 进来先看老师所有的知识库（最外层），像打开「此电脑」 */
-function MyKnowledgeBase() {
+/** 进来先看班级（左边栏第一项）；知识库在左边栏最下面 */
+function Start() {
   const role = useAuth((s) => s.user?.role);
-  if (role !== 'teacher' && role !== 'admin') return <Empty title="这个账号没有知识库" />;
-  return <Navigate replace to="/knowledge" />;
+  if (role !== 'teacher' && role !== 'admin' && role !== 'student') return <Empty title="这个账号没有可用的页面" />;
+  return <Navigate replace to="/classes" />;
+}
+
+/** 知识库只给老师；学生打开知识库的网址，带回班级 */
+function TeacherOnly({ children }: { children: ReactNode }) {
+  const role = useAuth((s) => s.user?.role);
+  if (role === 'student') return <Navigate replace to="/classes" />;
+  return <>{children}</>;
 }
 
 function RequireUser({ children }: { children: ReactNode }) {
@@ -74,12 +83,28 @@ export const router = createBrowserRouter([
       </RequireUser>
     ),
     children: [
-      { index: true, element: <MyKnowledgeBase /> },
+      { index: true, element: <Start /> },
+      {
+        path: 'classes',
+        element: (
+          <S>
+            <Classes />
+          </S>
+        ),
+      },
+      {
+        path: 'classes/:id',
+        element: (
+          <S>
+            <ClassDetail />
+          </S>
+        ),
+      },
       {
         path: 'c/:id',
         element: (
           <S>
-            <LegacyCourse />
+            <TeacherOnly><LegacyCourse /></TeacherOnly>
           </S>
         ),
       },
@@ -87,7 +112,7 @@ export const router = createBrowserRouter([
         path: 'knowledge',
         element: (
           <S>
-            <KnowledgeHome />
+            <TeacherOnly><KnowledgeHome /></TeacherOnly>
           </S>
         ),
       },
@@ -95,7 +120,7 @@ export const router = createBrowserRouter([
         path: 'knowledge/:id',
         element: (
           <S>
-            <KnowledgeBase />
+            <TeacherOnly><KnowledgeBase /></TeacherOnly>
           </S>
         ),
       },

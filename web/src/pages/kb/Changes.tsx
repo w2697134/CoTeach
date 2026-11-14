@@ -5,9 +5,9 @@ import { ArrowLeft, Check, FileStack, Undo2, X } from 'lucide-react';
 import { post } from '../../lib/api';
 import { fromNow } from '../../lib/format';
 import { toast } from '../../lib/store';
-import { AgentAvatar, Alert, Avatar, Badge, Button, Empty, Skeleton, Spinner, Tabs, useConfirm } from '../../components/ui';
+import { AgentAvatar, Alert, Avatar, Badge, Button, Empty, Skeleton, Spinner, Tabs } from '../../components/ui';
 import { FileDiffView } from './DiffView';
-import { KEEPER, STATUS_TEXT, STATUS_TONE, fileTitle, plainPath, plainText, useChange, useChanges, useCourse, type Change } from './data';
+import { KEEPER, STATUS_TEXT, STATUS_TONE, plainPath, plainText, useChange, useChanges, useCourse, type Change } from './data';
 
 export function AuthorAvatar({ change, size = 32 }: { change: Pick<Change, 'author' | 'authorName'>; size?: number }) {
   return change.author === 'keeper' ? (
@@ -17,28 +17,14 @@ export function AuthorAvatar({ change, size = 32 }: { change: Pick<Change, 'auth
   );
 }
 
-/** 改了哪几页：最多列三页的名字 */
-export function changedPages(c: Pick<Change, 'files'>) {
-  const names = [...new Set(c.files.map((f) => fileTitle(f.path)).filter(Boolean))];
-  if (!names.length) return '';
-  return names.length > 3 ? `${names.slice(0, 3).join('、')} 等 ${names.length} 篇` : names.join('、');
-}
-
-/** 确认、不要、撤回三个动作，整理助手那边的卡片和改动详情共用 */
+/**
+ * 确认、不要、撤回三个动作，整理助手那边的卡片和改动详情共用。
+ * 撤回不弹确认框：撤错了 git 里有记录，撤回本身也能再撤回。
+ */
 export function useChangeActions(cid: number) {
   const qc = useQueryClient();
-  const confirm = useConfirm();
   const [busy, setBusy] = useState<string | null>(null);
   const act = async (c: Pick<Change, 'id' | 'title'>, action: 'apply' | 'reject' | 'revert') => {
-    if (
-      action === 'revert' &&
-      !(await confirm({
-        title: '撤回这次改动？',
-        desc: `「${plainText(c.title)}」会被撤回，恢复改动前的内容。`,
-        okText: '撤回',
-      }))
-    )
-      return;
     setBusy(`${c.id}:${action}`);
     try {
       await post(`/knowledge/${cid}/kb/changes/${c.id}/${action}`, {});
@@ -212,9 +198,9 @@ export function ChangesList({ cid, onOpen, onBack }: { cid: number; onOpen: (id:
                   <AuthorAvatar change={c} />
                   <div className="min-w-0 flex-1">
                     <p className="text-[14.5px] font-medium leading-snug text-ink">{plainText(c.title)}</p>
+                    {/* 不列改了哪几篇：好几个学生交的都叫「作业2」，列出来像重复（2026-11-12），点进去看 */}
                     <p className="mt-1 truncate text-[13px] text-ink-3">
                       {c.authorName} · {fromNow(c.createdAt)}
-                      {changedPages(c) && ` · ${changedPages(c)}`}
                     </p>
                   </div>
                   <Badge tone={STATUS_TONE[c.status]} className="mt-0.5 shrink-0">

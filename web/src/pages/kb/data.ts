@@ -105,6 +105,8 @@ export interface Attachment {
   kbId: number;
   name: string;
   kind: string;
+  /** 文件大小（字节）；旧的记录可能没有 */
+  size?: number;
   status: string;
   reason: string | null;
   path: string | null;
@@ -175,11 +177,13 @@ export interface KnowledgeBase {
   pending: number;
   archivedAt: number | null;
 }
-export const useKnowledgeBases = () =>
+/** 学生没有知识库，左边栏那里不去取 */
+export const useKnowledgeBases = (enabled = true) =>
   useQuery({
     queryKey: ['knowledge-bases'],
     queryFn: () => get<{ knowledgeBases: KnowledgeBase[] }>('/knowledge'),
     refetchInterval: 15000,
+    enabled,
   });
 export const treeQuery = (cid: number) =>
   queryOptions({

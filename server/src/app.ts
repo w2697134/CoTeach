@@ -11,6 +11,7 @@ import { runCommand } from './kb/agent/commands.js';
 import { HttpError } from './lib/http.js';
 import { teacherError } from './kb/teacher-text.js';
 import { authRoutes } from './routes/auth.js';
+import { classRoutes } from './classes/routes.js';
 
 export function createApp() {
   const app = new Hono<AppEnv>();
@@ -49,6 +50,7 @@ export function createApp() {
   app.route('/api/courses', courseRoutes);
   app.route('/api/knowledge', kbRoutes);
   app.route('/api/keeper', keeperRoutes);
+  app.route('/api/classes', classRoutes);
 
   app.get('/api/health', (c) => c.json({ ok: true, time: Date.now() }));
   app.all('/api/*', (c) => c.json({ error: '接口不存在' }, 404));

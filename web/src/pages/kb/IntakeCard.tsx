@@ -5,6 +5,7 @@ import { get } from '../../lib/api';
 import { toast, useAuth } from '../../lib/store';
 import { Avatar, Badge, Button, Progress, cn, useConfirm } from '../../components/ui';
 import { readableError, when } from './presentation';
+import { FileTypeIcon, formatSize } from './FileCard';
 import { fileTitle, plainPath, plainText } from './data';
 import {
   KIND_LABEL,
@@ -156,22 +157,28 @@ export function IntakeCard({ cid, intake }: { cid: number; intake: Intake }) {
     .join(' · ');
   const retryable = items.some((i) => i.status === 'failed' && i.retryable);
 
+  // 老师交的资料：跟老师说的话一样靠右放，样子跟对话里带的文件一样（图标块、名字、下面一行灰字）
+  const first = intake.items[0];
   return (
-    <div className="space-y-3">
+    <div className="flex justify-end gap-2">
+      <div className="flex min-w-0 max-w-[85%] flex-col items-end gap-1.5">
       {intake.message && (
-        <div className="flex justify-end gap-2">
-          <div className="max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-tr-md bg-brand px-3.5 py-2 text-[14px] leading-relaxed text-white">
+          <div className="max-w-full whitespace-pre-wrap rounded-2xl rounded-tr-md bg-brand px-3.5 py-2 text-[14px] leading-relaxed text-white">
             {plainText(intake.message)}
           </div>
-          <Avatar name={user?.name} seed={user?.id} size={28} className="mt-0.5" />
-        </div>
       )}
-      <div className="rounded-xl border border-line bg-surface-2 px-3 py-2.5">
-        <div className="flex items-start gap-2">
-          <p className="min-w-0 flex-1 text-[13.5px] text-ink">
-            {single ? `交了「${fileTitle(intake.items[0].name)}」` : `交了 ${intake.total} 份资料`}
-            <span className="text-ink-3"> · {when(intake.createdAt)}</span>
-          </p>
+      <div className="w-[264px] max-w-full rounded-xl border border-line bg-surface px-3 py-2.5 text-left shadow-xs">
+        <div className="flex items-center gap-3">
+          <FileTypeIcon name={single && first ? first.name : ''} kind={single && first ? first.kind : null} folder={!single} />
+          <div className="min-w-0 flex-1">
+            <p className="line-clamp-2 break-all text-[13.5px] font-medium leading-[1.35] text-ink">
+              {single && first ? fileTitle(first.name) : `${intake.total} 份资料`}
+            </p>
+            <p className="mt-0.5 truncate text-[12px] leading-4 text-ink-3">
+              {single && first && first.size ? `${formatSize(first.size)} · ` : ''}
+              {when(intake.createdAt)}
+            </p>
+          </div>
           <Badge tone={status.tone}>{status.text}</Badge>
         </div>
 
@@ -287,6 +294,8 @@ export function IntakeCard({ cid, intake }: { cid: number; intake: Intake }) {
           )}
         </div>
       </div>
+      </div>
+      <Avatar name={user?.name} seed={user?.id} size={28} className="mt-0.5" />
     </div>
   );
 }

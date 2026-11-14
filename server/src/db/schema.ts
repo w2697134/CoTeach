@@ -365,3 +365,27 @@ ALTER TABLE kb_intakes ADD COLUMN route INTEGER NOT NULL DEFAULT 0;
 migrations.push(`
 ALTER TABLE kb_intakes ADD COLUMN run_id INTEGER REFERENCES kb_runs(id);
 `);
+
+// 第 8 次：班级（2026-11-12）。班级和名单由程序管，跟知识库分开存；名单按学号认人，一个班里学号不重复。
+// 学生账号以后按学号挂到名单上（user_id）；现在只有演示学生，它能进演示老师的每个班，不写进名单。
+migrations.push(`
+CREATE TABLE classes (
+  id INTEGER PRIMARY KEY,
+  teacher_id INTEGER NOT NULL REFERENCES users(id),
+  name TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  deleted_at INTEGER
+);
+CREATE INDEX idx_classes_teacher ON classes(teacher_id);
+CREATE TABLE class_students (
+  id INTEGER PRIMARY KEY,
+  class_id INTEGER NOT NULL REFERENCES classes(id),
+  student_no TEXT NOT NULL,
+  name TEXT NOT NULL,
+  user_id INTEGER REFERENCES users(id),
+  created_at INTEGER NOT NULL,
+  UNIQUE(class_id, student_no)
+);
+CREATE INDEX idx_class_students_user ON class_students(user_id);
+`);

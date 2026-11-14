@@ -1,6 +1,30 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { toolPresentation, plainPath, plainText, parseRoster, readableError, fileTitle, folderItems, withoutFrontMatter, splitTitle, rehypeKbLinks, kbTarget, KB_LINK } from '../../web/src/pages/kb/presentation.js';
+import { toolPresentation, stepLines, plainPath, plainText, parseRoster, readableError, fileTitle, folderItems, withoutFrontMatter, splitTitle, rehypeKbLinks, kbTarget, KB_LINK } from '../../web/src/pages/kb/presentation.js';
+
+test('工作记录：同一类事连着做的并成一行，没做成的和英文自言自语不摆，名字不带扩展名', () => {
+  const ev = (id: number, type: string, data: Record<string, unknown>) => ({ id, type, data });
+  const lines = stepLines([
+    ev(1, 'say', { text: "I'll start by surveying the directory" }),
+    ev(2, 'tool', { name: 'list_files', path: '' }),
+    ev(3, 'tool', { name: 'list_files', path: '计科5班', error: '没有这个文件' }),
+    ev(4, 'tool', { name: 'read_file', path: '老师发来的/资料/第1章 教案.docx.md' }),
+    ev(5, 'tool', { name: 'read_file', path: '老师发来的/资料/第2章 教案.docx.md' }),
+    ev(6, 'tool', { name: 'read_file', path: '老师发来的/资料/第3章 程序控制结构.pptx.md' }),
+    ev(7, 'tool', { name: 'read_file', path: '老师发来的/资料/学生名单.xlsx.md' }),
+    ev(8, 'say', { text: '先写总览。' }),
+    ev(9, 'tool', { name: 'write_file', path: '计科5班/00 总览.md' }),
+  ]);
+  assert.deepEqual(
+    lines.map((l) => [l.kind, l.label, l.text]),
+    [
+      ['tool', '查看目录', ''],
+      ['tool', '阅读', '第1章 教案、第2章 教案、第3章 程序控制结构 等 4 份'],
+      ['say', '', '先写总览。'],
+      ['tool', '整理', '00 总览'],
+    ],
+  );
+});
 
 test('资料名去掉扩展名，名字本身一个字不吃', () => {
   const cases: [string, string][] = [

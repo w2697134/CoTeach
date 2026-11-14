@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router';
 import { AnimatePresence, motion } from 'motion/react';
-import { BookOpen, LogOut, Menu, Monitor, Moon, Sun } from 'lucide-react';
+import { BookOpen, LogOut, Menu, Monitor, Moon, Sun, Users } from 'lucide-react';
 import { APP_NAME, APP_SHORT_NAME } from '../../lib/brand';
 import { useAuth, useTheme, useUi } from '../../lib/store';
 import { Avatar, IconButton, MenuItem, MenuLabel, Popover, cn } from '../ui';
@@ -23,15 +23,17 @@ export function Logo({ size = 32, className }: { size?: number; className?: stri
   );
 }
 
-/** 左边栏只有一个「知识库」入口；一个个知识库摆在知识库页面里，像电脑里的 C 盘、D 盘 */
+/** 左边栏：上面是「班级」（往后的作业等也放上面）；老师的「知识库」固定在最下面。学生只有「班级」 */
 function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
-  const bases = useKnowledgeBases().data?.knowledgeBases || [];
+  const student = useAuth((s) => s.user?.role) === 'student';
+  const bases = useKnowledgeBases(!student).data?.knowledgeBases || [];
   const pending = bases.reduce((n, k) => n + k.pending, 0);
   const item = (active: boolean) =>
     cn(
       'group relative flex h-9 items-center gap-3 rounded-md px-3 text-[14.5px] font-medium transition-colors',
       active ? 'bg-brand-soft text-brand-ink' : 'text-ink-2 hover:bg-surface-3 hover:text-ink',
     );
+  const mark = <motion.span layoutId="nav-indicator" className="absolute -left-3 top-1.5 h-6 w-[3px] rounded-r-full bg-brand" />;
   return (
     <div className="flex h-full flex-col">
       <div className="flex h-16 shrink-0 items-center gap-3 px-4">
@@ -40,21 +42,34 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
           <p className="truncate text-[17px] font-semibold tracking-tight text-ink" title={APP_NAME}>
             {APP_SHORT_NAME}
           </p>
-          <p className="mt-0.5 text-[12.5px] text-ink-3">教师工作台</p>
+          <p className="mt-0.5 text-[12.5px] text-ink-3">{student ? '学生' : '教师工作台'}</p>
         </div>
       </div>
-      <nav className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-3 pb-4 pt-2">
-        <NavLink to="/knowledge" onClick={onNavigate} className={({ isActive }) => item(isActive)}>
+      <nav className="no-scrollbar min-h-0 flex-1 space-y-1 overflow-y-auto px-3 pb-4 pt-2">
+        <NavLink to="/classes" onClick={onNavigate} className={({ isActive }) => item(isActive)}>
           {({ isActive }) => (
             <>
-              {isActive && <motion.span layoutId="nav-indicator" className="absolute -left-3 top-1.5 h-6 w-[3px] rounded-r-full bg-brand" />}
-              <BookOpen className={cn('size-[18px] shrink-0', isActive ? 'text-brand' : 'text-ink-3')} />
-              <span className="min-w-0 flex-1">知识库</span>
-              {pending > 0 && <span className="rounded-full bg-brand px-1.5 text-[11.5px] font-semibold text-white">{pending}</span>}
+              {isActive && mark}
+              <Users className={cn('size-[18px] shrink-0', isActive ? 'text-brand' : 'text-ink-3')} />
+              <span className="min-w-0 flex-1">班级</span>
             </>
           )}
         </NavLink>
       </nav>
+      {!student && (
+        <div className="shrink-0 border-t border-line px-3 py-3">
+          <NavLink to="/knowledge" onClick={onNavigate} className={({ isActive }) => item(isActive)}>
+            {({ isActive }) => (
+              <>
+                {isActive && mark}
+                <BookOpen className={cn('size-[18px] shrink-0', isActive ? 'text-brand' : 'text-ink-3')} />
+                <span className="min-w-0 flex-1">知识库</span>
+                {pending > 0 && <span className="rounded-full bg-brand px-1.5 text-[11.5px] font-semibold text-white">{pending}</span>}
+              </>
+            )}
+          </NavLink>
+        </div>
+      )}
     </div>
   );
 }
@@ -100,7 +115,7 @@ function UserMenu() {
           <Avatar name={user.name} seed={user.id} size={30} />
           <span className="hidden text-left leading-tight md:block">
             <span className="block text-[14px] font-medium text-ink">{user.name}</span>
-            <span className="block text-[12.5px] text-ink-3">{user.title || '教师'}</span>
+            <span className="block text-[12.5px] text-ink-3">{user.role === 'student' ? '学生' : user.title || '教师'}</span>
           </span>
         </button>
       )}
@@ -125,12 +140,13 @@ function UserMenu() {
 export function AppShell() {
   const { mobileNav, setMobileNav } = useUi();
   const location = useLocation();
-  // 手机上左边栏收起来了，现在在哪写在最上面：某个知识库里写它的名字，最外层写「知识库」
+  // 手机上左边栏收起来了，现在在哪写在最上面：某个知识库里写它的名字，最外层写「知识库」；班级那边写「班级」
+  const student = useAuth((s) => s.user?.role) === 'student';
   const kbId = openKb(location.pathname);
-  const kbName = useKnowledgeBases().data?.knowledgeBases.find((k) => k.id === kbId)?.name;
-  const title = kbId ? kbName : /^\/knowledge\/?$/.test(location.pathname) ? '知识库' : undefined;
+  const kbName = useKnowledgeBases(!student).data?.knowledgeBases.find((k) => k.id === kbId)?.name;
+  const title = kbId ? kbName : /^\/knowledge\/?$/.test(location.pathname) ? '知识库' : /^\/classes(\/|$)/.test(location.pathname) ? '班级' : undefined;
   useEffect(() => setMobileNav(false), [location.pathname, setMobileNav]);
-  // 知识库页面要占满整屏高度，自己管滚动
+  // 知识库页面占满整屏高度，自己管滚动；班级页面是普通页面
   const full = location.pathname.startsWith('/c/') || /^\/knowledge(\/|$)/.test(location.pathname);
   return (
     <div className="min-h-screen bg-bg">

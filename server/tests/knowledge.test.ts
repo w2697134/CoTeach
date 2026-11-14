@@ -833,6 +833,14 @@ test('知识库归属、系统隔离与变更生命周期', async (t) => {
   });
 });
 
+test('改动标题不列文件名：以前存下的列名标题读出来也只说改了几份', () => {
+  assert.equal(changes.countTitle(15), '改了 15 份');
+  assert.equal(changes.shownTitle('改了「作业2」、「作业2.docx」、「课程概览」 等 11 份', 15), '改了 15 份');
+  assert.equal(changes.shownTitle('改了「课程概览与教学要点」、「目录」', 2), '改了 2 份');
+  assert.equal(changes.shownTitle('改了「进度」', 1), '改了「进度」');
+  assert.equal(changes.shownTitle('规矩 第五节迟交扣分改为 20%', 1), '规矩 第五节迟交扣分改为 20%');
+});
+
 test.after(async () => {
   await new Promise<void>((resolve) => setImmediate(resolve));
   db.raw.close();

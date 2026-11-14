@@ -314,6 +314,13 @@ export class Desk {
     }
   }
 
+  /** 撤回一次改动以后：这个库的文件夹按新的版本重新摆一遍（撤回前已经确认这个库没有暂存的改动） */
+  async reload(kbId: number) {
+    wipe(this.abs(kbId, ''));
+    this.rebase(kbId, []);
+    await this.writeOut(kbId);
+  }
+
   /** 新建的知识库摆上桌面 */
   addBase(kbId: number) {
     this.place(loadKb(kbId), new Workspace(kbId));

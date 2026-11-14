@@ -1,6 +1,6 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowUp, BookOpen, Check, ChevronDown, ChevronRight, Clock, FilePenLine, FilePlus, FolderInput, FolderOpen, FolderSearch, MoveRight, OctagonX, Paperclip, PenLine, Search, Send, Trash2, Upload, X } from 'lucide-react';
+import { ArrowUp, BookOpen, Check, ChevronDown, ChevronRight, Clock, FilePenLine, FilePlus, FolderInput, FolderOpen, FolderSearch, History, MoveRight, OctagonX, Paperclip, PenLine, Search, Send, Trash2, Undo2, Upload, X } from 'lucide-react';
 import { get, post } from '../../lib/api';
 import { toast, useAuth } from '../../lib/store';
 import { Markdown } from '../../components/Markdown';
@@ -30,6 +30,8 @@ const TOOL_ICON: Record<string, typeof BookOpen> = {
   rename_knowledge_base: PenLine,
   move_to_knowledge_base: MoveRight,
   delete_knowledge_base: Trash2,
+  list_changes: History,
+  revert_change: Undo2,
 };
 
 function ToolLine({ line }: { line: StepLine }) {
@@ -48,7 +50,8 @@ function ToolLine({ line }: { line: StepLine }) {
  * 整理助手交上来的一次改动。
  * 还没定的：图标块、标题、状态，底下「看改动」「不要」「确认生效」，描一圈主题色。
  * 不列改了哪几篇：好几个学生交的都叫「作业2」，列出来像重复，要看点「看改动」。
- * 定了的（已生效、没要）收成一张小卡：标题、状态、「看改动」，不再把改了哪几篇列一遍，往上翻历史不乱。
+ * 定了的（已生效、没要）收成一张小卡：标题、状态、「看改动」，往上翻历史不乱；已生效的旁边有「撤回」。
+ * 整理助手交的改动现在交了就生效（2026-11-12 起），等确认的只剩以前留下的和撞上老师同时改的。
  */
 function ChangeCard({ cid, changeId, title, kbName, onOpen }: { cid: number; changeId: number; title?: string; kbName?: string; onOpen: (id: number) => void }) {
   const changes = useChanges(cid);
@@ -79,7 +82,19 @@ function ChangeCard({ cid, changeId, title, kbName, onOpen }: { cid: number; cha
         </div>
         <div className="flex shrink-0 flex-col items-end">
           {status && <Badge tone={STATUS_TONE[status]}>{STATUS_TEXT[status]}</Badge>}
-          {look}
+          <div className="flex items-center gap-3">
+            {c && status === 'applied' && (
+              <button
+                type="button"
+                disabled={busy === `${c.id}:revert`}
+                onClick={() => act(c, 'revert')}
+                className="rounded-md py-1 text-[13px] text-ink-3 transition-colors hover:text-ink disabled:opacity-50"
+              >
+                撤回
+              </button>
+            )}
+            {look}
+          </div>
         </div>
       </div>
     );

@@ -9,7 +9,10 @@ import { bad, body, clientIp, forbidden, rateLimit, unauthorized } from '../lib/
 
 export const authRoutes = new Hono<AppEnv>();
 
-const DEMO_ACCOUNTS = [{ role: 'teacher', username: 'teacher', label: '教师' }] as const;
+const DEMO_ACCOUNTS = [
+  { role: 'teacher', username: 'teacher', label: '教师' },
+  { role: 'student', username: 'student', label: '学生' },
+] as const;
 
 authRoutes.get('/config', c => {
   const demos = config.demoMode
@@ -37,7 +40,7 @@ authRoutes.post('/login', async c => {
 /** 演示模式一键登录 */
 authRoutes.post('/demo', async c => {
   if (!config.demoMode) throw forbidden('演示入口已关闭');
-  const { role } = await body(c, z.object({ role: z.enum(['teacher']) }));
+  const { role } = await body(c, z.object({ role: z.enum(['teacher', 'student']) }));
   rateLimit(`demo:${clientIp(c)}`, 30, 10 * 60_000);
   const acct = DEMO_ACCOUNTS.find(d => d.role === role)!;
   const row = db.get<{ id: number }>('SELECT id FROM users WHERE username = ? AND is_demo = 1', acct.username);
