@@ -1,7 +1,8 @@
 import { useState, type ReactNode } from 'react';
-import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
+import { useNavigate, useParams, useSearchParams } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Copy, Download, KeyRound, LogOut, MoreHorizontal, MoreVertical, Upload, UserMinus, UserPlus } from 'lucide-react';
+import { Copy, Download, KeyRound, LogOut, MoreHorizontal, MoreVertical, Upload, UserMinus, UserPlus } from 'lucide-react';
+import { useCrumbs } from '../../components/layout/Crumbs';
 import { api, post } from '../../lib/api';
 import { toast, useAuth } from '../../lib/store';
 import { Avatar, Button, Card, Empty, ErrorState, IconButton, MenuItem, Modal, Popover, SearchInput, Skeleton, Tabs, cn, useConfirm } from '../../components/ui';
@@ -353,12 +354,9 @@ export function ClassPage() {
   const k = q.data;
   const theme = themeOf(id);
   const joined = (k?.students || []).filter((s) => s.joined).length;
+  useCrumbs([{ label: '班级', to: '/classes' }, { label: k?.name }]);
   return (
     <div className="space-y-5">
-      <Link to="/classes" className="inline-flex items-center gap-1 text-[14px] text-ink-3 hover:text-ink">
-        <ArrowLeft className="size-4" />
-        班级
-      </Link>
       {q.error ? (
         <ErrorState error={q.error} onRetry={() => q.refetch()} />
       ) : !k ? (

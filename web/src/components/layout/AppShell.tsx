@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router';
 import { AnimatePresence, motion } from 'motion/react';
-import { BookOpen, KeyRound, LogOut, Menu, Monitor, Moon, ShieldCheck, Smartphone, Sun, Users } from 'lucide-react';
+import { ArrowLeft, BookOpen, KeyRound, LogOut, Menu, Monitor, Moon, ShieldCheck, Smartphone, Sun, Users } from 'lucide-react';
 import { APP_NAME, APP_SHORT_NAME } from '../../lib/brand';
 import { post } from '../../lib/api';
 import { toast, useAuth, useTheme, useUi } from '../../lib/store';
 import { Avatar, Button, IconButton, Input, MenuItem, MenuLabel, Modal, Popover, cn } from '../ui';
 import { useKnowledgeBases } from '../../pages/kb/data';
+import { CrumbTrail, useCurrentCrumbs } from './Crumbs';
 
 /** 现在打开的是哪个知识库（不在某个知识库里时为 null） */
 const openKb = (pathname: string) => Number(pathname.match(/^\/knowledge\/(\d+)/)?.[1]) || null;
@@ -325,6 +326,12 @@ export function AppShell() {
   const kbId = openKb(location.pathname);
   const kbName = useKnowledgeBases(!student).data?.knowledgeBases.find((k) => k.id === kbId)?.name;
   const title = kbId ? kbName : /^\/knowledge\/?$/.test(location.pathname) ? '知识库' : /^\/classes(\/|$)/.test(location.pathname) ? '班级' : undefined;
+  // 班级那边的页面自己报位置（useCrumbs）：电脑上顶栏写「班级 › 一班 › 测试」；
+  // 手机上最外层是菜单加「班级」，往里一层换成「← 上一层的名字」（像微信、iOS 的返回），跟下面内容的标题不重复
+  const crumbs = useCurrentCrumbs();
+  const navigate = useNavigate();
+  const parent = crumbs.length > 1 ? crumbs[crumbs.length - 2] : undefined;
+  const mobileTitle = crumbs.length ? crumbs[0].label : title;
   useEffect(() => setMobileNav(false), [location.pathname, setMobileNav]);
   // 知识库页面占满整屏高度，自己管滚动；班级页面是普通页面
   const full = location.pathname.startsWith('/c/') || /^\/knowledge(\/|$)/.test(location.pathname);
@@ -357,10 +364,29 @@ export function AppShell() {
       </AnimatePresence>
       <div className="lg:pl-[248px]">
         <header className="glass sticky top-0 z-30 flex h-16 items-center gap-3 border-b border-line px-4 sm:px-6">
-          <IconButton className="shrink-0 lg:hidden" label="菜单" onClick={() => setMobileNav(true)}>
-            <Menu className="size-5" />
-          </IconButton>
-          {title && <p className="min-w-0 truncate text-[16px] font-semibold tracking-tight text-ink lg:hidden">{title}</p>}
+          {parent?.to ? (
+            <button
+              type="button"
+              aria-label={`返回${parent.label}`}
+              onClick={() => navigate(parent.to!)}
+              className="-ml-1.5 flex min-w-0 items-center gap-1.5 rounded-md py-1.5 pl-1.5 pr-2.5 text-ink transition-colors hover:bg-surface-3 lg:hidden"
+            >
+              <ArrowLeft className="size-5 shrink-0" />
+              <span className="truncate text-[16px] font-semibold tracking-tight">{parent.label || '返回'}</span>
+            </button>
+          ) : (
+            <>
+              <IconButton className="shrink-0 lg:hidden" label="菜单" onClick={() => setMobileNav(true)}>
+                <Menu className="size-5" />
+              </IconButton>
+              {mobileTitle && <p className="min-w-0 truncate text-[16px] font-semibold tracking-tight text-ink lg:hidden">{mobileTitle}</p>}
+            </>
+          )}
+          {crumbs.length > 0 && (
+            <div className="hidden min-w-0 lg:flex">
+              <CrumbTrail crumbs={crumbs} />
+            </div>
+          )}
           <div className="ml-auto flex shrink-0 items-center gap-1.5">
             <ThemeMenu />
             <UserMenu />

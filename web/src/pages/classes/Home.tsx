@@ -3,6 +3,7 @@ import { Navigate, useNavigate, useParams } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { motion } from 'motion/react';
 import { ChevronRight, Plus, UserRound } from 'lucide-react';
+import { useCrumbs } from '../../components/layout/Crumbs';
 import { post } from '../../lib/api';
 import { useAuth } from '../../lib/store';
 import { Avatar, Button, Card, ErrorState, Input, Modal, Skeleton, cn } from '../../components/ui';
@@ -172,6 +173,7 @@ export function ClassesPage({ joinCode }: { joinCode?: string }) {
     archived = list.filter((k) => k.archived);
   const [creating, setCreating] = useState(false),
     [showArchived, setShowArchived] = useState(false);
+  useCrumbs([{ label: '班级' }]);
   const grid = (items: ClassItem[]) => (
     <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
       {items.map((k, i) => (

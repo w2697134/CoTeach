@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { Link, useNavigate, useParams } from 'react-router';
+import { useNavigate, useParams } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft } from 'lucide-react';
+import { useCrumbs } from '../../components/layout/Crumbs';
 import { api, post } from '../../lib/api';
 import { toast } from '../../lib/store';
 import { Button, Card, ErrorState, Input, Skeleton, Textarea, cn } from '../../components/ui';
@@ -110,14 +110,16 @@ export function HomeworkEditPage() {
       setBusy(false);
     }
   };
+  useCrumbs([
+    { label: '班级', to: '/classes' },
+    { label: k.data?.name, to: `/classes/${classId}` },
+    ...(editing ? [{ label: existing.data?.title, to: back }] : []),
+    { label: editing ? '改作业' : '布置作业' },
+  ]);
   if (k.error || existing.error) return <ErrorState error={k.error || existing.error} onRetry={() => (k.refetch(), existing.refetch())} />;
   if (!k.data || !loaded) return <Skeleton className="h-96 rounded-xl" />;
   return (
     <div className="space-y-5">
-      <Link to={back} className="inline-flex items-center gap-1 text-[14px] text-ink-3 hover:text-ink">
-        <ArrowLeft className="size-4" />
-        {editing ? existing.data?.title : k.data.name}
-      </Link>
       <div className="flex flex-wrap items-center gap-3">
         <h1 className="text-[24px] font-semibold tracking-tight text-ink">{editing ? '改作业' : '布置作业'}</h1>
         <div className="ml-auto flex gap-2">

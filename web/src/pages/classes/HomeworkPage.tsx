@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router';
+import { useNavigate, useParams } from 'react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, ChevronLeft, ChevronRight, MoreHorizontal, PenLine, Trash2, Undo2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, MoreHorizontal, PenLine, Trash2, Undo2 } from 'lucide-react';
+import { useCrumbs } from '../../components/layout/Crumbs';
 import { api, get, post } from '../../lib/api';
 import { toast, useAuth } from '../../lib/store';
 import { Avatar, Button, Card, Drawer, Empty, ErrorState, IconButton, Input, MenuItem, Popover, Skeleton, Tabs, Textarea, cn, useConfirm } from '../../components/ui';
@@ -425,12 +426,9 @@ export function HomeworkPage() {
     id = Number(params.hid);
   const student = useAuth((s) => s.user?.role) === 'student';
   const q = useHomework(id);
+  useCrumbs([{ label: '班级', to: '/classes' }, { label: q.data?.className, to: `/classes/${classId}` }, { label: q.data?.title }]);
   return (
     <div className="space-y-5">
-      <Link to={`/classes/${classId}`} className="inline-flex items-center gap-1 text-[14px] text-ink-3 hover:text-ink">
-        <ArrowLeft className="size-4" />
-        {q.data?.className || '班级'}
-      </Link>
       {q.error ? (
         <ErrorState error={q.error} onRetry={() => q.refetch()} />
       ) : !q.data ? (
