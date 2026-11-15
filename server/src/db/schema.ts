@@ -454,3 +454,62 @@ CREATE TABLE homework_files (
 CREATE INDEX idx_homework_files_assignment ON homework_files(assignment_id);
 CREATE INDEX idx_homework_files_submission ON homework_files(submission_id);
 `);
+
+// 第 12 次：CoT 助教（2026-11-16）。老师只跟助教说话，助教在服务器里直接调模型，按老师的话办班级、作业、成绩，
+// 要整理资料就写好交代交给后台的整理助手（还是 Claude Code）。
+// 对话一轮还记在 kb_runs 里（agent 区分是谁、parent_id 挂着助教派出去的后台活），这样以前跟整理助手说的话接着显示；
+// 发给模型的原话另记一份（agent_messages），只往后加，前面不变，模型那边的缓存才命中得上；
+// 助教办的每件事记一笔（ta_actions），连同办之前的样子，卡片上能撤回。
+migrations.push(`
+ALTER TABLE kb_runs ADD COLUMN agent TEXT NOT NULL DEFAULT 'keeper';
+ALTER TABLE kb_runs ADD COLUMN parent_id INTEGER REFERENCES kb_runs(id);
+CREATE INDEX idx_kb_runs_parent ON kb_runs(parent_id);
+CREATE TABLE agent_messages (
+  id INTEGER PRIMARY KEY,
+  owner_id INTEGER NOT NULL REFERENCES users(id),
+  thread TEXT NOT NULL,
+  run_id INTEGER REFERENCES kb_runs(id),
+  role TEXT NOT NULL,
+  content TEXT NOT NULL,
+  tool_calls TEXT,
+  tool_call_id TEXT,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX idx_agent_messages_thread ON agent_messages(owner_id, thread, id);
+CREATE TABLE agent_threads (
+  owner_id INTEGER NOT NULL REFERENCES users(id),
+  thread TEXT NOT NULL,
+  summary TEXT,
+  summary_upto INTEGER NOT NULL DEFAULT 0,
+  notes TEXT NOT NULL DEFAULT '[]',
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY(owner_id, thread)
+);
+CREATE TABLE ta_actions (
+  id INTEGER PRIMARY KEY,
+  teacher_id INTEGER NOT NULL REFERENCES users(id),
+  run_id INTEGER REFERENCES kb_runs(id),
+  kind TEXT NOT NULL,
+  title TEXT NOT NULL,
+  data TEXT NOT NULL DEFAULT '{}',
+  undo TEXT,
+  status TEXT NOT NULL DEFAULT 'done',
+  created_at INTEGER NOT NULL,
+  undone_at INTEGER
+);
+CREATE INDEX idx_ta_actions_teacher ON ta_actions(teacher_id, id);
+`);
+
+// 第 13 次：CoT 助教可以开新会话。
+// 新会话从头聊、模型那边也从头记（知识库、班级作业这些长期的东西照旧在）；以前的会话还能翻出来接着说。
+// 以前（没有会话之前）说的那些算一段，session_id 为空。
+migrations.push(`
+CREATE TABLE ta_sessions (
+  id INTEGER PRIMARY KEY,
+  owner_id INTEGER NOT NULL REFERENCES users(id),
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX idx_ta_sessions_owner ON ta_sessions(owner_id, id);
+ALTER TABLE kb_runs ADD COLUMN session_id INTEGER REFERENCES ta_sessions(id);
+CREATE INDEX idx_kb_runs_session ON kb_runs(teacher_id, session_id, id);
+`);

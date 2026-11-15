@@ -72,6 +72,10 @@ export function toolPresentation(data: Record<string, unknown> = {}) {
     const what = typeof data.path === 'string' ? `「${stepTarget(data.path)}」` : typeof data.count === 'number' ? `${data.count} 份` : '';
     target = data.to ? `${data.from ? `从${quoted(data.from)}` : ''}${what}挪到${quoted(data.to)}` : '';
   }
+  // CoT 助教看班级、作业这类：记录里自己带着说法（label）和看的是什么（text）
+  if (!Object.hasOwn(LABELS, name) && typeof data.label === 'string') {
+    return { label: data.label, target: target || (typeof data.text === 'string' ? plainText(data.text) : ''), error: data.error ? readableError(data.error) : '' };
+  }
   return { label: Object.hasOwn(LABELS, name) ? LABELS[name] : '整理', target, error: data.error ? readableError(data.error) : '' };
 }
 

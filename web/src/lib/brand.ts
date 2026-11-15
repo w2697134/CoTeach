@@ -4,7 +4,7 @@ export const APP_NAME = '师生多智能体协同教学系统';
 export const APP_VERSION = 'V1.0';
 
 /** 网站的主人：老师和学生看到的是同一个智能体，名字只在这里改 */
-export const HOST_NAME = 'CoT';
+export const HOST_NAME = 'CoT 助教';
 export const HOST_ART = '/illustrations/cot-v1.webp';
 export const HOST_ART_RATIO = 364 / 480;
 export const HOST_ART_LQIP =

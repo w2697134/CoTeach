@@ -1,16 +1,17 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowUp, BookOpen, Check, ChevronDown, ChevronRight, Clock, FilePenLine, FilePlus, FolderInput, FolderOpen, FolderSearch, History, MoveRight, OctagonX, Paperclip, PenLine, Search, Send, Trash2, Undo2, Upload, X } from 'lucide-react';
-import { get, post } from '../../lib/api';
+import { createPortal } from 'react-dom';
+import { useQueryClient } from '@tanstack/react-query';
+import { ArrowUp, BookOpen, Check, ChevronDown, ChevronRight, FilePenLine, FilePlus, FolderInput, FolderOpen, FolderSearch, History, MoveRight, Paperclip, PenLine, Search, Send, Square, SquarePen, Trash2, Undo2, Upload, X } from 'lucide-react';
+import { post } from '../../lib/api';
 import { toast, useAuth } from '../../lib/store';
 import { Markdown } from '../../components/Markdown';
-import { AgentAvatar, Alert, Avatar, Badge, Button, IconButton, MenuItem, Popover, Skeleton, Textarea, cn } from '../../components/ui';
+import { AgentAvatar, Alert, Badge, Button, IconButton, MenuItem, Popover, Skeleton, Textarea, cn } from '../../components/ui';
 import { useChangeActions } from './Changes';
-import { IntakeCard } from './IntakeCard';
-import { pastedFiles, pickedFromDrop, pickedFromList, sendMessage, uploadingHere, useKeeperIntakes, type Intake, type Picked } from './intake';
+import { pastedFiles, pickedFromDrop, pickedFromList, sendMessage, type Picked } from './intake';
 import { FileCard, FileTypeIcon, formatSize, typeLabel } from './FileCard';
 import { fileTitle, readableError, stepLines, type StepLine, when } from './presentation';
-import { KEEPER, STATUS_TEXT, STATUS_TONE, plainText, useChanges, useKeeperRuns, useKeeperStream, useKnowledgeBases, type Run } from './data';
+import { STATUS_TEXT, STATUS_TONE, TA, plainText, useChanges, useKeeperRuns, useKeeperStream, useKnowledgeBases, useTaSession, useTaSessions, type Run } from './data';
+import { ActionCard, AskCard, type ActionData, type AskData } from '../assistant/cards';
 
 const SHOWN = /\.(png|jpe?g|gif|webp)$/i;
 
@@ -234,74 +235,155 @@ function Sent({ run }: { run: Run }) {
   );
 }
 
-function RunBlock({
+/** 老师说的那句话：右边一个气泡，带的文件摆在上面 */
+function Said({ run }: { run: Run }) {
+  // 不摆头像：顶上已经写着是跟 CoT 助教说话，右边紫色的就是老师自己
+  return (
+    <div className="flex justify-end">
+      <div className="flex min-w-0 max-w-[85%] flex-col items-end gap-1.5">
+        {!!run.attachments?.length && <Sent run={run} />}
+        {run.request && (
+          <div className="whitespace-pre-wrap break-words rounded-2xl rounded-tr-md bg-brand px-3.5 py-2 text-[14px] leading-relaxed text-white">
+            {plainText(run.request)}
+          </div>
+        )}
+        {run.receiving && (
+          <p className="text-[12px] text-ink-3">
+            {run.receiving.status === 'uploading' ? '正在收文件' : `正在读文件 ${Math.min(run.receiving.done + 1, run.receiving.total)}/${run.receiving.total}`}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+const JOB_WORD: Record<string, string> = { queued: '排着队', running: '在整理', done: '整理好了', error: '没做完', canceled: '停下了' };
+
+/** CoT 助教交给后台整理助手的一件活：谁在做、做到哪了，做完的改动卡片；工作记录点开看 */
+function JobCard({ job, here, names, onOpenChange }: { job: Run; here: number | null; names: Map<number, string> | null; onOpenChange: (kbId: number, id: number) => void }) {
+  const [open, setOpen] = useState(false);
+  const [stopping, setStopping] = useState(false);
+  const lines = stepLines(job.events);
+  const latest = lines[lines.length - 1];
+  const going = job.status === 'queued' || job.status === 'running';
+  const changes = (job.changes || []).map((c) => ({ id: c.id, kbId: c.kbId, title: c.title }));
+  // 整理助手的回话常常带着路径、记录编号，卡片上只摆第一句，整段收在工作记录里
+  const first = plainText(job.reply || '')
+    .split(/\r?\n/)
+    .map((x) => x.replace(/[*#`>-]/g, '').trim())
+    .find(Boolean)
+    ?.split(/(?<=[。！？])/)[0];
+  const stop = async () => {
+    setStopping(true);
+    await post(`/keeper/runs/${job.id}/cancel`, {}).catch((err) => toast.fromError(err));
+    setStopping(false);
+  };
+  return (
+    <div className="space-y-2.5 rounded-xl border border-line bg-surface px-3.5 py-3 shadow-xs">
+      <div className="flex items-center gap-2.5">
+        {/* 后台的活看着是一件事，不再摆另一个机器人头像 */}
+        <span
+          className={cn(
+            'flex size-[26px] shrink-0 items-center justify-center rounded-lg',
+            job.status === 'running' ? 'bg-brand-soft text-brand' : job.status === 'done' ? 'bg-ok-soft text-ok' : 'bg-surface-3 text-ink-3',
+          )}
+        >
+          <FolderInput className={cn('size-4', job.status === 'running' && 'animate-pulse')} />
+        </span>
+        <div className="min-w-0 flex-1 leading-snug">
+          <p className="text-[13.5px] font-medium text-ink">整理资料 · {JOB_WORD[job.status] || '整理'}</p>
+          <p className="truncate text-[12.5px] text-ink-3">{plainText(job.request).split('\n')[0]}</p>
+        </div>
+        {going && (
+          <Button size="xs" variant="ghost" loading={stopping} onClick={stop} className="shrink-0 text-ink-3">
+            停下
+          </Button>
+        )}
+      </div>
+      {job.status === 'running' && latest && !open && (
+        <p className="truncate pl-[36px] text-[12.5px] text-ink-3">{latest.label ? `${latest.label} ${latest.text}` : latest.text}</p>
+      )}
+      {lines.length > 0 && (
+        <div className="pl-[36px]">
+          <button type="button" onClick={() => setOpen(!open)} className="inline-flex items-center gap-1 text-[12.5px] text-ink-3 transition-colors hover:text-ink-2">
+            <ChevronRight className={cn('size-3.5 transition-transform', open && 'rotate-90')} />
+            工作记录 · {lines.filter((l) => l.kind === 'tool').length} 步
+          </button>
+          {open && (
+            <div className="ml-[6px] mt-1.5 space-y-1.5 border-l-2 border-line pl-3">
+              {lines.map((l) =>
+                l.kind === 'say' ? (
+                  <p key={l.id} className="text-[13px] leading-5 text-ink-3">
+                    {l.text}
+                  </p>
+                ) : (
+                  <ToolLine key={l.id} line={l} />
+                ),
+              )}
+              {job.status === 'done' && job.reply && (
+                <div className="pt-1 text-[13px] leading-relaxed text-ink-3">
+                  <Markdown compact>{plainText(job.reply)}</Markdown>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+      {job.status === 'done' && first && <p className="pl-[36px] text-[13px] leading-relaxed text-ink-2">{first}</p>}
+      {changes
+        .filter((c) => c.kbId)
+        .map((c) => (
+          <ChangeCard key={c.id} cid={c.kbId} changeId={c.id} title={c.title} kbName={names && c.kbId !== here ? names.get(c.kbId) : undefined} onOpen={(id) => onOpenChange(c.kbId, id)} />
+        ))}
+      {job.status === 'error' && <p className="pl-[36px] text-[13px] text-bad">{readableError(job.error)}</p>}
+    </div>
+  );
+}
+
+/**
+ * 跟 CoT 助教说的一轮：老师的话在右边；左边是助教——干活时一行灰字（点开是工作记录），说完的话，
+ * 然后按发生的先后摆卡片：办成了的事、交给整理助手的后台活、问老师的问题。
+ */
+/** 11-16 早上那一版在卡片上答问题时还没记「已回答」：上一轮问的、答的话正好是这一轮说的，也算在卡片上答的 */
+function answeredOnCard(prev: Run | undefined, run: Run) {
+  const ask = prev?.events.filter((e) => e.type === 'ask').pop();
+  const said = ask?.data?.answered as { a: string }[] | undefined;
+  return !!said?.length && said.map((s) => s.a || '（没选）').join('；') === run.request;
+}
+
+function TaRunBlock({
   run,
+  prev,
   live,
   here,
   names,
   onOpenChange,
 }: {
   run: Run;
+  /** 这段会话里的上一轮 */
+  prev?: Run;
   live: string | null;
-  /** 老师现在在看的知识库（在最外层为空） */
   here: number | null;
-  /** 知识库编号 → 名字；只有一个知识库时为空，卡片上不写库名 */
   names: Map<number, string> | null;
   onOpenChange: (kbId: number, id: number) => void;
 }) {
-  const user = useAuth((s) => s.user);
   const running = run.status === 'running';
   const [expanded, setExpanded] = useState(false);
   const lines = stepLines(run.events);
   const done = run.events.filter((e) => e.type === 'tool' && !e.data?.error).length;
   const latest = lines[lines.length - 1];
-  // 交上来的改动：新的一轮服务器直接给；以前的从工作记录里找
-  const changeEvents = run.events.filter((e) => e.type === 'change');
-  const changes = run.changes?.length
-    ? run.changes.map((c) => ({ id: c.id, kbId: c.kbId, title: c.title }))
-    : changeEvents.length
-      ? changeEvents.map((e) => ({ id: Number(e.data.changeId), kbId: Number(e.data.kbId) || run.kbId || here || 0, title: String(e.data.title || '') }))
-      : run.changeId
-        ? [{ id: run.changeId, kbId: run.kbId || here || 0, title: '' }]
-        : [];
-  // 以前交了改动时回话就是改动的标题，卡片上已经有了
-  const echo = changes.length > 0 && !!run.reply && changes.some((c) => !!c.title && run.reply!.startsWith(c.title));
+  const status = new Map((run.actions || []).map((a) => [a.id, a.status]));
+  const jobs = new Map((run.jobs || []).map((j) => [j.id, j]));
+  const cards = run.events.filter((e) => e.type === 'action' || e.type === 'job' || e.type === 'ask');
   const errorEvent = run.events.find((e) => e.type === 'error');
+  // 在问题卡片上答的那一轮：不摆老师的气泡（卡片收起来那一行写着答了什么）
+  const answered = run.events.some((e) => e.type === 'answer') || answeredOnCard(prev, run);
   return (
     <div className="space-y-3">
-      {run.kind === 'chat' ? (
-        <div className="flex justify-end gap-2">
-          <div className="flex min-w-0 max-w-[85%] flex-col items-end gap-1.5">
-            {!!run.attachments?.length && <Sent run={run} />}
-            {run.request && (
-              <div className="whitespace-pre-wrap rounded-2xl rounded-tr-md bg-brand px-3.5 py-2 text-[14px] leading-relaxed text-white">{plainText(run.request)}</div>
-            )}
-            {run.receiving && (
-              <p className="text-[12px] text-ink-3">
-                {run.receiving.status === 'uploading' ? '正在收文件' : `正在读文件 ${Math.min(run.receiving.done + 1, run.receiving.total)}/${run.receiving.total}`}
-              </p>
-            )}
-          </div>
-          <Avatar name={user?.name} seed={user?.id} size={28} className="mt-0.5" />
-        </div>
-      ) : (
-        // 不是老师说话起的一轮（整理交来的资料、学期提炼）：像聊天软件里的时间那样，一行灰字夹在两道细线中间
-        <div className="text-[12px] leading-5 text-ink-3">
-          <div className="flex items-center gap-3">
-            <span className="h-px flex-1 bg-line" />
-            <span className="shrink-0">
-              {run.task?.label || (run.kind === 'summary' ? '学期提炼' : run.kind === 'observation' ? '其他助手提交的记录' : '整理交来的资料')} · {when(run.createdAt)}
-            </span>
-            <span className="h-px flex-1 bg-line" />
-          </div>
-          {/* 整理交来的资料时，交了什么上面那张卡片已经写了 */}
-          {run.task?.detail && run.kind !== 'materials' && <p className="mx-auto mt-1 max-w-[90%] text-center text-[12.5px] text-ink-2">{plainText(run.task.detail)}</p>}
-        </div>
-      )}
-      <div className="flex gap-2.5">
-        <AgentAvatar agent={KEEPER} size={28} active={running} className="mt-0.5" />
-        <div className="min-w-0 flex-1 space-y-2.5">
-          {/* 工作记录照 ChatGPT、Claude 的做法：干活时也收着，就一行灰字；展开是左边一道细线串起来的一步步 */}
+      {!answered && <Said run={run} />}
+      {/* 助教这边不摆头像：顶上那一条已经写着 CoT 助教。整页很宽时对话铺满，卡片和回话不拉得过长（照飞书的消息卡片） */}
+      <div>
+        <div className="min-w-0 space-y-2.5 [&>*]:max-w-4xl">
           {done > 0 && (
             <div>
               <button
@@ -327,7 +409,6 @@ function RunBlock({
               )}
             </div>
           )}
-          {/* 干活时只摆一行：它正在说的话，没在说就是最近做的那件事 */}
           {running && (
             <div className="flex items-start gap-2 text-[13px] text-ink-3">
               <span className="mt-1.5 flex gap-1">
@@ -335,7 +416,6 @@ function RunBlock({
                   <span key={i} className="size-1.5 animate-bounce rounded-full bg-brand/60" style={{ animationDelay: `${i * 0.15}s` }} />
                 ))}
               </span>
-              {/* 没有中文的是它自言自语（偶尔冒一句英文），不摆出来；工作记录里也不记 */}
               {live && /[㐀-鿿]/.test(live) ? (
                 <span className="min-w-0 whitespace-pre-wrap">{plainText(live)}</span>
               ) : (
@@ -343,24 +423,17 @@ function RunBlock({
               )}
             </div>
           )}
-          {!running && run.reply && !echo && (
-            <div className="rounded-2xl rounded-tl-md bg-surface-2 px-3.5 py-2.5">
+          {!running && run.reply && (
+            <div className="w-fit max-w-full rounded-2xl rounded-tl-md bg-surface-2 px-3.5 py-2.5">
               <Markdown compact>{plainText(run.reply)}</Markdown>
             </div>
           )}
-          {changes
-            .filter((c) => c.kbId)
-            .map((c) => (
-              <ChangeCard
-                key={c.id}
-                cid={c.kbId}
-                changeId={c.id}
-                title={c.title}
-                kbName={names && c.kbId !== here ? names.get(c.kbId) : undefined}
-                onOpen={(id) => onOpenChange(c.kbId, id)}
-              />
-            ))}
-          {run.status === 'done' && !changes.length && !run.reply && <p className="text-[13px] text-ink-3">这次没有改知识库</p>}
+          {cards.map((e) => {
+            if (e.type === 'action') return <ActionCard key={e.id} data={e.data as unknown as ActionData} status={status.get(Number(e.data.actionId))} />;
+            if (e.type === 'ask') return <AskCard key={e.id} runId={run.id} data={e.data as unknown as AskData} live={run.status === 'waiting'} />;
+            const job = jobs.get(Number(e.data.jobRunId));
+            return job ? <JobCard key={e.id} job={job} here={here} names={names} onOpenChange={onOpenChange} /> : null;
+          })}
           {(errorEvent || run.error) && run.status !== 'canceled' && (
             <p role="alert" className="text-[13px] text-bad">
               {readableError(run.error || errorEvent?.data.message)}
@@ -442,21 +515,96 @@ export function HandInButton({
   );
 }
 
-/** 整理助手现在在干什么，一句话 */
-function statusLine(intakes: Intake[], run: Run | undefined, pending: number, archived: boolean) {
+/** CoT 助教现在在干什么，一句话 */
+function statusLine(run: Run | undefined, pending: number, archived: boolean) {
   if (archived) return '已封存';
-  const busy = [...intakes].reverse().find((i) => i.status === 'uploading' || i.status === 'reading' || i.status === 'digesting');
-  if (busy?.status === 'uploading' && uploadingHere(busy.id))
-    return `正在上传 ${busy.upload.size ? Math.floor((busy.upload.received / busy.upload.size) * 100) : 0}%`;
-  if (busy?.status === 'reading') {
-    const c = busy.counts;
-    return `正在读第 ${Math.min(c.done + c.same + c.failed + c.skipped + 1, busy.total)}/${busy.total} 份`;
-  }
-  if (busy?.status === 'digesting') return busy.batches > 1 ? `正在整理第 ${Math.min(busy.batch + 1, busy.batches)}/${busy.batches} 批` : '正在整理';
   if (run?.receiving) return run.receiving.status === 'uploading' ? '正在收文件' : '正在读文件';
-  if (run) return run.kind === 'chat' ? '正在处理' : '正在整理';
+  if (run) return '正在回复';
   if (pending) return `有 ${pending} 处改动等你确认`;
   return '';
+}
+/** 助教交给整理助手的后台活：在整理、排着队的有几件 */
+function jobsLine(runs: Run[]) {
+  const jobs = runs.flatMap((r) => r.jobs || []);
+  const running = jobs.filter((j) => j.status === 'running').length,
+    queued = jobs.filter((j) => j.status === 'queued').length;
+  if (running) return queued ? `后台在整理资料，还有 ${queued} 件排着` : '后台在整理资料';
+  if (queued) return `后台有 ${queued} 件资料排着整理`;
+  return '';
+}
+
+/** 开启新会话、翻以前的会话（照 DeepSeek、豆包：新会话就是从头聊，以前的还能点开接着说） */
+function SessionButtons({ compact, disabled }: { compact: boolean; disabled: boolean }) {
+  const qc = useQueryClient();
+  const view = useTaSession((s) => s.view);
+  const setView = useTaSession((s) => s.set);
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const list = useTaSessions(open);
+  const shown = view === 'current' ? list.data?.current : view;
+  const startNew = async () => {
+    setBusy(true);
+    try {
+      const r = await post<{ id: number }>('/keeper/sessions', {});
+      setView(r.id);
+      qc.invalidateQueries({ queryKey: ['ta-sessions'] });
+    } catch (e) {
+      toast.fromError(e);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="flex shrink-0 items-center gap-0.5">
+      {compact ? (
+        <IconButton label="开启新会话" onClick={startNew} disabled={disabled || busy}>
+          <SquarePen className="size-[18px]" />
+        </IconButton>
+      ) : (
+        <Button size="sm" variant="ghost" icon={<SquarePen className="size-4" />} loading={busy} disabled={disabled} onClick={startNew}>
+          开启新会话
+        </Button>
+      )}
+      <Popover
+        width={300}
+        onOpenChange={setOpen}
+        trigger={({ toggle }) => (
+          <IconButton label="历史会话" onClick={toggle}>
+            <History className="size-[18px]" />
+          </IconButton>
+        )}
+      >
+        {(close) => (
+          <div className="max-h-[60vh] overflow-y-auto py-1">
+            <p className="px-3 pb-1.5 pt-1 text-[12.5px] text-ink-3">历史会话</p>
+            {!list.data ? (
+              <Skeleton className="mx-3 my-2 h-16" />
+            ) : !list.data.sessions.length ? (
+              <p className="px-3 py-3 text-[13.5px] text-ink-3">还没有</p>
+            ) : (
+              list.data.sessions.map((s) => (
+                <button
+                  key={s.id ?? 'old'}
+                  type="button"
+                  onClick={() => {
+                    setView(s.id === list.data!.current ? 'current' : s.id);
+                    close();
+                  }}
+                  className={cn(
+                    'flex w-full flex-col items-start gap-0.5 px-3 py-2 text-left transition-colors hover:bg-surface-3',
+                    s.id === shown && 'bg-brand-soft/60',
+                  )}
+                >
+                  <span className="line-clamp-1 w-full text-[14px] text-ink">{s.title || '（只发了文件）'}</span>
+                  <span className="text-[12px] text-ink-3">{when(s.updatedAt)}</span>
+                </button>
+              ))
+            )}
+          </div>
+        )}
+      </Popover>
+    </div>
+  );
 }
 
 export interface KeeperHandle {
@@ -477,8 +625,12 @@ export const KeeperPanel = forwardRef<
     onOpenChange: (kbId: number, id: number) => void;
     /** 在某个知识库里时：看这个库的全部改动 */
     onOpenChanges?: () => void;
+    /** page：CoT 助教页上占满整页，对话摆在中间一栏；panel：知识库页右边那一栏 */
+    variant?: 'panel' | 'page';
   }
->(function KeeperPanel({ kbId, file, onOpenChange, onOpenChanges }, ref) {
+>(function KeeperPanel({ kbId, file, onOpenChange, onOpenChanges, variant = 'panel' }, ref) {
+  const page = variant === 'page';
+  const me = useAuth((s) => s.user);
   const q = useKeeperRuns();
   const live = useKeeperStream();
   const list = useKnowledgeBases().data?.knowledgeBases || [];
@@ -486,34 +638,30 @@ export const KeeperPanel = forwardRef<
   const archived = current?.status === 'archived';
   const pending = kbId === null ? list.reduce((n, k) => n + k.pending, 0) : (current?.pending ?? 0);
   const names = list.length > 1 ? new Map(list.map((k) => [k.id, k.name])) : null;
-  const inbox = useQuery({
-    queryKey: ['keeper-inbox'],
-    queryFn: () =>
-      get<{
-        items: { id: number; kb_id: number; status: string; error: string | null; content: string; task?: { label: string; detail: string } }[];
-      }>('/keeper/inbox'),
-    refetchInterval: 5000,
-  });
   const qc = useQueryClient();
-  const intakes = useKeeperIntakes();
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
   const scroller = useRef<HTMLDivElement>(null);
+  // 只有跟 CoT 助教的这段会话（服务器只给这些）；助教派的后台整理挂在派它的那一轮下面
   const runs = q.data?.runs || [];
-  const intakeList = intakes.data?.intakes || [];
-  // 交资料和整理记录按时间排在一起
-  const timeline = [
-    ...runs.map((run) => ({ at: run.createdAt, key: `r${run.id}`, run })),
-    ...intakeList.filter((intake) => !intake.runId).map((intake) => ({ at: intake.createdAt, key: `i${intake.id}`, intake })),
-  ].sort((a, b) => a.at - b.at);
   const activeId = q.data?.activeRunId ?? null;
   const activeRun = runs.find((r) => r.status === 'running');
   const busy = !!activeId || !!activeRun;
-  const status = statusLine(intakeList, activeRun, pending, !!archived);
+  const status = statusLine(activeRun, pending, !!archived) || (runs.some((r) => r.status === 'waiting') ? '在等你回答' : '') || jobsLine(runs);
+  // 手机上顶栏只有菜单和「CoT 助教」，开新会话、翻以前的放到顶栏右边（照 ChatGPT 手机版）
+  const [slot, setSlot] = useState<HTMLElement | null>(null);
+  useEffect(() => setSlot(page ? document.getElementById('top-actions') : null), [page]);
 
   // 停在最新的一条：内容变长（新的一步、卡片加载出来）时跟着到底；老师往上翻着看的时候不打扰
   const content = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
+  // 换了一段会话：回到最底下
+  const shownSession = q.data?.session;
+  useEffect(() => {
+    stick.current = true;
+    const el = scroller.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [shownSession]);
   useEffect(() => {
     const el = scroller.current,
       box = content.current;
@@ -560,12 +708,13 @@ export const KeeperPanel = forwardRef<
     // 发了话就回到最新的一条，看得到自己说的和它的回答
     stick.current = true;
     try {
-      // 很长的一段（教案、讲稿）服务器会当一份文件交给它
+      // 很长的一段（教案、讲稿）服务器会当一份文件交给它；说给正看着的这段会话（翻出来的以前那段也能接着说）
       await sendMessage(
         msg,
         kbId,
         file ?? null,
         attached.map((a) => a.picked),
+        q.data ? q.data.session : undefined,
       );
       setText('');
       attached.forEach((a) => a.url && URL.revokeObjectURL(a.url));
@@ -585,10 +734,17 @@ export const KeeperPanel = forwardRef<
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex h-[60px] shrink-0 items-center gap-3 border-b border-line bg-gradient-to-r from-brand-soft/80 via-brand-soft/30 to-transparent px-4">
-        <AgentAvatar agent={KEEPER} size={38} status={busy ? 'running' : null} />
+      <div
+        className={
+          page
+            ? // 手机上顶栏已经写着「CoT 助教」，这里不再摆一遍
+              'hidden w-full shrink-0 items-center gap-3 border-b border-line px-3 pb-3 pt-1 lg:flex'
+            : 'flex h-[60px] shrink-0 items-center gap-3 border-b border-line bg-gradient-to-r from-brand-soft/80 via-brand-soft/30 to-transparent px-4'
+        }
+      >
+        <AgentAvatar agent={TA} size={38} status={busy ? 'running' : null} />
         <div className="min-w-0 flex-1 leading-tight">
-          <p className="truncate text-[15px] font-semibold text-ink">{KEEPER.name}</p>
+          <p className="truncate text-[15px] font-semibold text-ink">{TA.name}</p>
           {status && (
             <p className={cn('mt-0.5 truncate text-[12.5px]', !busy && pending && !archived ? 'text-brand-ink' : 'text-ink-3')}>{status}</p>
           )}
@@ -603,45 +759,17 @@ export const KeeperPanel = forwardRef<
             )}
           </Button>
         )}
-        {busy && activeId && (
-          <IconButton label="让它停下" onClick={stop} className="shrink-0">
-            <OctagonX className="size-[18px]" />
-          </IconButton>
-        )}
+        <SessionButtons compact={!page} disabled={busy} />
       </div>
-      <div ref={scroller} className="min-h-0 flex-1 overflow-y-auto px-4 py-5">
+      {slot && createPortal(<SessionButtons compact disabled={busy} />, slot)}
+      <div ref={scroller} className={cn('min-h-0 flex-1 overflow-y-auto py-5', page ? 'px-3 lg:px-6' : 'px-4')}>
         <div ref={content} className="space-y-6">
-          {inbox.data?.items
-            .filter((item) => item.status !== 'running')
-            .map((item) => (
-              <div key={item.id} className="flex gap-2.5 rounded-xl bg-surface-2 px-3 py-2.5 text-[13px] leading-relaxed">
-                <Clock className={cn('mt-0.5 size-4 shrink-0', item.status === 'error' ? 'text-bad' : 'text-ink-3')} />
-                <div className="min-w-0 flex-1">
-                <p className="text-ink-2">
-                  {item.task?.label || '整理任务'} · {item.status === 'error' ? '未完成' : '排队中'}
-                </p>
-                {item.task?.detail && <p className="mt-1 text-ink-2">{plainText(item.task.detail)}</p>}
-                {item.error && <p className="mt-1 text-bad">{readableError(item.error)}</p>}
-                {!archived && item.status === 'error' && (
-                  <Button
-                    size="sm"
-                    className="mt-2"
-                    onClick={async () => {
-                      try {
-                        await post(`/knowledge/${item.kb_id}/inbox/${item.id}/process`, {});
-                        await inbox.refetch();
-                        qc.invalidateQueries({ queryKey: ['keeper-runs'] });
-                      } catch (e) {
-                        toast.fromError(e);
-                      }
-                    }}
-                  >
-                    重试
-                  </Button>
-                )}
-                </div>
-              </div>
-            ))}
+          {page && q.data && !runs.length && (
+            <div className="flex flex-col items-center gap-3 pt-[12vh] text-center">
+              <AgentAvatar agent={TA} size={72} />
+              <p className="text-[18px] font-semibold text-ink">{me?.name ? `${me.name}老师好，我是 CoT 助教` : '我是 CoT 助教'}</p>
+            </div>
+          )}
           {q.error && (
             <Alert tone="bad">
               工作记录加载失败。
@@ -651,24 +779,21 @@ export const KeeperPanel = forwardRef<
             </Alert>
           )}
           {!q.data && !q.error && <Skeleton className="h-32" />}
-          {timeline.map((t) =>
-            'run' in t && t.run ? (
-              <RunBlock
-                key={t.key}
-                run={t.run}
-                live={live && live.runId === t.run.id ? live.text : null}
-                here={kbId}
-                names={names}
-                onOpenChange={onOpenChange}
-              />
-            ) : 'intake' in t && t.intake ? (
-              <IntakeCard key={t.key} cid={t.intake.kbId} intake={t.intake} />
-            ) : null,
-          )}
+          {runs.map((run, i) => (
+            <TaRunBlock
+              key={run.id}
+              run={run}
+              prev={runs[i - 1]}
+              live={live && live.runId === run.id ? live.text : null}
+              here={kbId}
+              names={names}
+              onOpenChange={onOpenChange}
+            />
+          ))}
         </div>
       </div>
       <div
-        className="shrink-0 p-3"
+        className={page ? 'w-full shrink-0 px-3 pb-1 pt-3 lg:px-6' : 'shrink-0 p-3'}
         onDragOver={(e) => {
           if (archived || !e.dataTransfer.types.includes('Files')) return;
           e.preventDefault();
@@ -738,21 +863,34 @@ export const KeeperPanel = forwardRef<
                 send();
               }
             }}
-            placeholder={archived ? '学期已封存，只能查阅' : busy ? '整理助手正在忙…' : '跟整理助手说'}
+            placeholder={archived ? '学期已封存，只能查阅' : busy ? 'CoT 助教正在回复…' : '跟 CoT 助教说'}
             disabled={busy || archived}
             className="min-h-0 resize-none border-0 bg-transparent px-3.5 pb-1 pt-3 shadow-none! focus:ring-0"
           />
           <div className="flex items-center justify-between gap-2 px-2 pb-2">
             {archived ? <span /> : <HandInButton clip onPick={attach} disabled={busy} />}
-            <button
-              type="button"
-              onClick={send}
-              disabled={(!text.trim() && !attached.length) || busy || sending || archived}
-              aria-label="发送"
-              className="inline-flex size-9 shrink-0 items-center justify-center rounded-xl bg-brand text-white transition-colors hover:bg-brand-hover disabled:opacity-40"
-            >
-              <ArrowUp className="size-4" />
-            </button>
+            {/* 照 ChatGPT：助教在回的时候发送键变成停下键（手机上也按得到） */}
+            {busy && activeId ? (
+              <button
+                type="button"
+                onClick={stop}
+                aria-label="让它停下"
+                title="让它停下"
+                className="inline-flex size-9 shrink-0 items-center justify-center rounded-xl bg-ink text-surface transition-colors hover:bg-ink/85"
+              >
+                <Square className="size-3.5 fill-current" />
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={send}
+                disabled={(!text.trim() && !attached.length) || busy || sending || archived}
+                aria-label="发送"
+                className="inline-flex size-9 shrink-0 items-center justify-center rounded-xl bg-brand text-white transition-colors hover:bg-brand-hover disabled:opacity-40"
+              >
+                <ArrowUp className="size-4" />
+              </button>
+            )}
           </div>
         </div>
       </div>

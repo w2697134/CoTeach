@@ -14,6 +14,7 @@ import { authRoutes } from './routes/auth.js';
 import { classRoutes } from './classes/routes.js';
 import { homeworkRoutes } from './classes/homework.js';
 import { adminRoutes } from './routes/admin.js';
+import { setInternalApp } from './assistant/api.js';
 
 export function createApp() {
   const app = new Hono<AppEnv>();
@@ -57,6 +58,8 @@ export function createApp() {
   app.route('/api/admin', adminRoutes);
 
   app.get('/api/health', (c) => c.json({ ok: true, time: Date.now() }));
+  // CoT 助教替老师办事时直接调上面这些接口
+  setInternalApp(app);
   app.all('/api/*', (c) => c.json({ error: '接口不存在' }, 404));
 
   app.onError((err, c) => {

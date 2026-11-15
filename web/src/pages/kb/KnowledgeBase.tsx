@@ -7,7 +7,7 @@ import { ChangeDetail, ChangesList } from './Changes';
 import { Files } from './Files';
 import { FileViewer } from './FileViewer';
 import { HandInButton, KeeperPanel, type KeeperHandle } from './KeeperPanel';
-import { useChanges, useCourse, useKbStream, useTree } from './data';
+import { TA, useChanges, useCourse, useKbStream, useTree } from './data';
 import { pickedFromDrop, type Picked } from './intake';
 
 export function KnowledgeBasePage() {
@@ -190,7 +190,7 @@ function KnowledgeBaseContent({ cid }: { cid: number }) {
           onChange={setPane}
           options={[
             { value: 'page', label: '文件' },
-            { value: 'keeper', label: '整理助手' },
+            { value: 'keeper', label: TA.name },
           ]}
         />
       </div>

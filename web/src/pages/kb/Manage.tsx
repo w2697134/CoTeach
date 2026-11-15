@@ -121,7 +121,7 @@ export function KnowledgeTools({ kb }: { kb: KnowledgeBase }) {
     try {
       const result = await post<{ kbId: number; status: string }>(`/knowledge/${kb.id}/summary`, {});
       toast.success(
-        result.status === 'done' ? '这个学期已有提炼结果' : result.status === 'running' ? '整理助手正在提炼' : '提炼任务已排队',
+        result.status === 'done' ? '这个学期已有提炼结果' : result.status === 'running' ? '正在提炼' : '提炼任务已排队',
       );
       qc.invalidateQueries({ queryKey: ['kb-runs'] });
       navigate(`/knowledge/${result.kbId}`);

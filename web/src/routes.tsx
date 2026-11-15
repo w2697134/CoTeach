@@ -43,16 +43,17 @@ const JoinClass = page(() => import('./pages/classes/Home'), 'JoinPage');
 const JoinLanding = page(() => import('./pages/classes/Landing'), 'JoinLandingPage');
 const HomeworkDetail = page(() => import('./pages/classes/HomeworkPage'), 'HomeworkPage');
 const HomeworkEdit = page(() => import('./pages/classes/HomeworkEdit'), 'HomeworkEditPage');
+const Assistant = page(() => import('./pages/assistant/AssistantPage'), 'AssistantPage');
 
 function S({ children }: { children: ReactNode }) {
   return <Suspense fallback={<PageLoading />}>{children}</Suspense>;
 }
 
-/** 进来先看班级（左边栏第一项）；知识库在左边栏最下面 */
+/** 老师进来先到 CoT 助教（左边栏第一项），学生先看班级；知识库在左边栏最下面 */
 function Start() {
   const role = useAuth((s) => s.user?.role);
   if (role !== 'teacher' && role !== 'admin' && role !== 'student') return <Empty title="这个账号没有可用的页面" />;
-  return <Navigate replace to="/classes" />;
+  return <Navigate replace to={role === 'student' ? '/classes' : '/assistant'} />;
 }
 
 /** 管理页只给管理员 */
@@ -125,6 +126,14 @@ export const router = createBrowserRouter([
     ),
     children: [
       { index: true, element: <Start /> },
+      {
+        path: 'assistant',
+        element: (
+          <S>
+            <TeacherOnly><Assistant /></TeacherOnly>
+          </S>
+        ),
+      },
       {
         path: 'classes',
         element: (

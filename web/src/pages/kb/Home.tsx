@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router';
 import { useQueries } from '@tanstack/react-query';
 import { BookOpen, Plus, Upload } from 'lucide-react';
 import { Card, ErrorState, Segmented, Skeleton, cn } from '../../components/ui';
-import { treeQuery, useKnowledgeBases, usePrefetchKb, type KnowledgeBase } from './data';
+import { TA, treeQuery, useKnowledgeBases, usePrefetchKb, type KnowledgeBase } from './data';
 import { Crumbs } from './Files';
 import { KeeperPanel, type KeeperHandle } from './KeeperPanel';
 import { KnowledgeTools } from './Manage';
@@ -90,7 +90,7 @@ export function KnowledgeHomePage() {
           onChange={setPane}
           options={[
             { value: 'page', label: '知识库' },
-            { value: 'keeper', label: '整理助手' },
+            { value: 'keeper', label: TA.name },
           ]}
         />
       </div>

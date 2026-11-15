@@ -7,11 +7,13 @@ import { fromNow } from '../../lib/format';
 import { toast } from '../../lib/store';
 import { AgentAvatar, Alert, Avatar, Badge, Button, Empty, Skeleton, Spinner, Tabs } from '../../components/ui';
 import { FileDiffView } from './DiffView';
-import { KEEPER, STATUS_TEXT, STATUS_TONE, plainPath, plainText, useChange, useChanges, useCourse, type Change } from './data';
+import { STATUS_TEXT, TA, STATUS_TONE, plainPath, plainText, useChange, useChanges, useCourse, type Change } from './data';
 
+/** 整理助手在后台替 CoT 助教改的：老师这边只认一个助教，署名和头像都写 CoT 助教 */
+export const authorLabel = (change: Pick<Change, 'author' | 'authorName'>) => (change.author === 'keeper' ? TA.name : change.authorName);
 export function AuthorAvatar({ change, size = 32 }: { change: Pick<Change, 'author' | 'authorName'>; size?: number }) {
   return change.author === 'keeper' ? (
-    <AgentAvatar agent={KEEPER} size={size} />
+    <AgentAvatar agent={TA} size={size} />
   ) : (
     <Avatar name={change.authorName} seed={change.authorName} size={size} />
   );
@@ -84,7 +86,7 @@ export function ChangeDetail({ cid, id, onBack, backLabel }: { cid: number; id: 
                 <div className="min-w-0 flex-1">
                   <p className="text-[18px] font-semibold leading-snug text-ink">{plainText(c.title)}</p>
                   <p className="mt-1 flex flex-wrap items-center gap-2 text-[13.5px] text-ink-3">
-                    <span>{c.authorName}</span>
+                    <span>{authorLabel(c)}</span>
                     <span>·</span>
                     <span>{fromNow(c.createdAt)}</span>
                     <Badge tone={STATUS_TONE[c.status]}>{STATUS_TEXT[c.status]}</Badge>
@@ -103,7 +105,7 @@ export function ChangeDetail({ cid, id, onBack, backLabel }: { cid: number; id: 
                   {c.source.name} · {c.source.term}
                 </Link>
               )}
-              {stale.length > 0 && <Alert tone="warn">{stale.map(plainPath).join('、')}已有更新，请让整理助手重新核对。</Alert>}
+              {stale.length > 0 && <Alert tone="warn">{stale.map(plainPath).join('、')}已有更新，请让 CoT 助教重新核对。</Alert>}
               {c.error && c.status === 'conflict' && !stale.length && <Alert tone="warn">{c.error}</Alert>}
               <div className="space-y-3">
                 {files.map((f, i) => (
@@ -200,7 +202,7 @@ export function ChangesList({ cid, onOpen, onBack }: { cid: number; onOpen: (id:
                     <p className="text-[14.5px] font-medium leading-snug text-ink">{plainText(c.title)}</p>
                     {/* 不列改了哪几篇：好几个学生交的都叫「作业2」，列出来像重复（2026-11-12），点进去看 */}
                     <p className="mt-1 truncate text-[13px] text-ink-3">
-                      {c.authorName} · {fromNow(c.createdAt)}
+                      {authorLabel(c)} · {fromNow(c.createdAt)}
                     </p>
                   </div>
                   <Badge tone={STATUS_TONE[c.status]} className="mt-0.5 shrink-0">

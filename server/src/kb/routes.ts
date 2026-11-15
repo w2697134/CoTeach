@@ -1,4 +1,4 @@
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { streamSSE } from 'hono/streaming';
 import { z } from 'zod';
@@ -28,17 +28,17 @@ import {
   cancelForArchive,
   cancelTeacherRun,
   attachIntake,
-  failFileRun,
   landingKb,
-  openFileRun,
   publicRun,
-  startChat,
+  publishRun,
   startRun,
   enqueueTask,
   drainInbox,
   taskSubject,
   teacherBusy,
 } from './keeper.js';
+import { answerAsk, cancelTaRun, currentSession, failTaFileTurn, newSession, openTaFileTurn, ownSession, sessionsOf, startTaTurn, taBusy } from '../assistant/runtime.js';
+import { actionsOfRun, undoAction } from '../assistant/actions.js';
 import {
   cleanPath,
   createKnowledgeBase,
@@ -801,12 +801,57 @@ courseRoutes.get('/:id', async (c) => {
  * 整理助手只有一个，管老师所有的知识库：它的工作记录、跟它说话、在最外层交资料、实时推送，都按老师来，不按知识库。
  */
 export const keeperRoutes = new Hono<AppEnv>();
+/**
+ * 老师和 CoT 助教的对话（2026-11-16 起老师只跟助教说话；以前跟整理助手说的话也在里面接着显示）。
+ * 助教派给整理助手的后台活挂在派它的那一轮下面（jobs），助教办的事带着能不能撤回（actions）。
+ */
+function threadRun(r: any) {
+  const run: any = runWithEvents(r);
+  if (r.agent === 'ta') {
+    run.actions = actionsOfRun(r.id);
+    run.jobs = db.all<any>('SELECT * FROM kb_runs WHERE parent_id=? ORDER BY id', r.id).map(runWithEvents);
+  }
+  return run;
+}
+/** 网址里的会话：不传是现在这段，old 是以前（还没有会话时）那一段，数字是哪一段 */
+function sessionParam(c: Context<AppEnv>, uid: number): number | null {
+  const raw = c.req.query('session');
+  if (raw === undefined || raw === '' || raw === 'current') return currentSession(uid);
+  if (raw === 'old') return null;
+  return ownSession(uid, Number(raw) || null);
+}
+/**
+ * 老师和 CoT 助教的一段会话。只有跟助教说的；
+ * 助教派给整理助手的后台活挂在派它的那一轮下面。
+ */
 keeperRoutes.get('/runs', (c) => {
   const u = teacher(c);
+  const session = sessionParam(c, u.id);
   return c.json({
-    runs: db.all<any>('SELECT * FROM kb_runs WHERE teacher_id=? ORDER BY id DESC LIMIT 100', u.id).reverse().map(runWithEvents),
-    activeRunId: teacherBusy(u.id)?.runId || null,
+    runs: db
+      .all<any>("SELECT * FROM kb_runs WHERE teacher_id=? AND agent='ta' AND parent_id IS NULL AND session_id IS ? ORDER BY id DESC LIMIT 100", u.id, session)
+      .reverse()
+      .map(threadRun),
+    session,
+    activeRunId: taBusy(u.id)?.runId || null,
+    keeperRunId: teacherBusy(u.id)?.runId || null,
   });
+});
+/** 会话列表（说过话的，新的在前）和现在这段 */
+keeperRoutes.get('/sessions', (c) => {
+  const u = teacher(c);
+  return c.json({ sessions: sessionsOf(u.id), current: currentSession(u.id) });
+});
+/** 开新会话：从头聊，助教也从头记（知识库、班级作业这些照旧） */
+keeperRoutes.post('/sessions', (c) => {
+  const u = teacher(c);
+  return c.json({ id: newSession(u.id) });
+});
+keeperRoutes.get('/runs/:rid', (c) => {
+  const u = teacher(c);
+  const r = db.get<any>('SELECT * FROM kb_runs WHERE id=? AND teacher_id=?', intParam(c, 'rid'), u.id);
+  if (!r) throw notFound();
+  return c.json({ run: threadRun(r) });
 });
 keeperRoutes.post('/runs', async (c) => {
   const u = teacher(c);
@@ -816,18 +861,52 @@ keeperRoutes.post('/runs', async (c) => {
       message: z.string().trim().min(1).max(2_000_000),
       kbId: z.number().int().positive().nullable().optional(),
       file: z.string().max(400).nullable().optional(),
+      session: z.number().int().positive().nullable().optional(),
     }),
   );
   const kbId = d.kbId ?? null;
   if (kbId !== null) ownKb(u, kbId);
-  // 很长的一段（教案、讲稿、整章内容）直接贴过来：原样存成一份资料，再交给整理助手消化
-  if (d.message.length > LONG_PASTE)
-    return c.json({ intakeId: createIntake(kbId ?? (await landingKb(u.id)), u, { text: d.message, files: [], route: kbId === null }).intake.id });
-  return c.json({ runId: startChat(u, kbId, d.message, d.file ?? null) });
+  // 很长的一段（教案、讲稿、整章内容）直接贴过来：当成这句话带的一份文件交给助教
+  if (d.message.length > LONG_PASTE) return c.json(await taFileTurn(u, kbId, '', d.file ?? null, [], d.message, d.session));
+  return c.json({ runId: startTaTurn(u, { message: d.message, kbId, file: d.file ?? null, session: d.session }) });
+});
+/** 这句话带文件：先登记这一轮和要传的文件，页面接着分块上传，读完交给助教 */
+async function taFileTurn(
+  u: { id: number; name: string },
+  kbId: number | null,
+  message: string,
+  file: string | null,
+  files: { name: string; size: number }[],
+  pasted: string | null,
+  session?: number | null,
+) {
+  const runId = openTaFileTurn(u, { message, kbId, file, session });
+  try {
+    const created = createIntake(kbId ?? (await landingKb(u.id)), u, { files, text: pasted, runId });
+    attachIntake(runId, created.intake.id);
+    return { runId, ...created };
+  } catch (err) {
+    failTaFileTurn(u.id, runId, (err as Error).message);
+    throw err;
+  }
+}
+/** 回答助教的问题卡片：跟问题一一对应，选了哪几个、或者自己写的话 */
+keeperRoutes.post('/runs/:rid/answer', async (c) => {
+  const u = teacher(c);
+  const d = await body(
+    c,
+    z.object({ answers: z.array(z.object({ picks: z.array(z.string().max(200)).max(10).optional(), text: z.string().max(2000).optional() })).max(6) }),
+  );
+  return c.json({ runId: answerAsk(u, intParam(c, 'rid'), d.answers) });
+});
+/** 撤回助教办的一件事 */
+keeperRoutes.post('/actions/:aid/undo', (c) => {
+  const u = teacher(c);
+  return c.json({ ok: true, message: undoAction(u.id, intParam(c, 'aid')) });
 });
 /**
- * 跟整理助手说一句话，可以带文件（像聊天发附件）：先登记这句话和要传的文件，页面接着分块上传；
- * 文件读完交给整理助手看，由它按老师的话决定存不存、存哪。很长的一段话也当一份文件交给它。
+ * 跟 CoT 助教说一句话，可以带文件（像聊天发附件）：先登记这句话和要传的文件，页面接着分块上传；
+ * 文件读完交给助教看，由它按老师的话决定怎么办（存进知识库就交给整理助手）。很长的一段话也当一份文件交给它。
  */
 keeperRoutes.post('/messages', async (c) => {
   const u = teacher(c);
@@ -838,6 +917,7 @@ keeperRoutes.post('/messages', async (c) => {
       kbId: z.number().int().positive().nullable().optional(),
       file: z.string().max(400).nullable().optional(),
       files: z.array(z.object({ name: z.string().min(1).max(1000), size: z.number().int().min(0) })).max(1000).optional(),
+      session: z.number().int().positive().nullable().optional(),
     }),
   );
   const kbId = d.kbId ?? null;
@@ -848,20 +928,21 @@ keeperRoutes.post('/messages', async (c) => {
   if (pasted) message = '';
   if (!files.length && !pasted) {
     if (!message) throw bad('写点什么，或者带上文件');
-    return c.json({ runId: startChat(u, kbId, message, d.file ?? null) });
+    return c.json({ runId: startTaTurn(u, { message, kbId, file: d.file ?? null, session: d.session }) });
   }
-  const runId = openFileRun(u, kbId, message, d.file ?? null);
-  try {
-    const created = createIntake(kbId ?? (await landingKb(u.id)), u, { files, text: pasted, runId });
-    attachIntake(runId, created.intake.id);
-    return c.json({ runId, ...created });
-  } catch (err) {
-    failFileRun(u.id, runId, (err as Error).message);
-    throw err;
-  }
+  return c.json(await taFileTurn(u, kbId, message, d.file ?? null, files, pasted, d.session));
 });
+/** 让它停下：助教这一轮（或者一张没答的问题卡片），或者后台整理助手的一件活（排着队的直接取消） */
 keeperRoutes.post('/runs/:rid/cancel', (c) => {
-  cancelTeacherRun(teacher(c).id, intParam(c, 'rid'));
+  const u = teacher(c),
+    rid = intParam(c, 'rid');
+  const r = db.get<any>('SELECT * FROM kb_runs WHERE id=? AND teacher_id=?', rid, u.id);
+  if (!r) throw notFound();
+  if (r.agent === 'ta') cancelTaRun(u.id, rid);
+  else if (r.status === 'queued') {
+    db.update('kb_runs', rid, { status: 'canceled', finished_at: now() });
+    publishRun(r.kb_id ?? null, rid);
+  } else cancelTeacherRun(u.id, rid);
   return c.json({ ok: true });
 });
 /** 在最外层交资料：先放在最早那个库的最外层，整理助手看内容再放到合适的库 */

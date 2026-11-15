@@ -1,3 +1,4 @@
+import { create } from 'zustand';
 import { useCallback, useEffect, useState, useRef } from 'react';
 import { queryOptions, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { get, subscribe } from '../../lib/api';
@@ -94,7 +95,8 @@ export const PLAIN_NAMES = [rehypePlainNames];
 
 export interface RunEvent {
   id: number;
-  type: 'say' | 'tool' | 'change' | 'error';
+  /** action：CoT 助教办成的一件事；ask：它问老师；job：它交给整理助手的后台活；job_files：后台活带了哪几份文件 */
+  type: 'say' | 'tool' | 'change' | 'error' | 'action' | 'ask' | 'answer' | 'job' | 'job_files';
   data: Record<string, any>;
   createdAt: number;
 }
@@ -124,8 +126,16 @@ export interface Run {
   attachmentFolders?: { name: string; count: number; failed: number; same?: number }[];
   /** 带的文件还在收、在读 */
   receiving?: { status: string; done: number; total: number } | null;
-  kind: 'materials' | 'chat' | 'summary' | 'observation';
-  status: 'running' | 'done' | 'error' | 'canceled';
+  kind: 'materials' | 'chat' | 'summary' | 'observation' | 'job';
+  /** waiting：CoT 助教问了老师，在等回答；queued：交给整理助手的后台活排着队 */
+  status: 'running' | 'done' | 'error' | 'canceled' | 'waiting' | 'queued';
+  /** 谁的一轮：老师跟 CoT 助教说的（ta）；整理助手的（keeper，助教派给它的后台活带 parentId） */
+  agent?: 'ta' | 'keeper';
+  parentId?: number | null;
+  /** 助教办的事：能不能撤回、撤回了没有 */
+  actions?: { id: number; kind: string; status: 'done' | 'undone'; undoable: boolean }[];
+  /** 助教派给整理助手的后台活 */
+  jobs?: Run[];
   request: string;
   task?: { label: string; detail: string } | null;
   reply: string | null;
@@ -137,6 +147,8 @@ export interface Run {
 }
 
 export const KEEPER = { key: 'keeper', name: '整理助手', color: '#6366f1' };
+/** 老师只跟 CoT 助教说话（2026-11-16 起）；整理助手在后台接它交来的活 */
+export const TA = { key: 'tutor', name: 'CoT 助教', color: '#14b8a6' };
 
 export const STATUS_TEXT: Record<ChangeStatus, string> = {
   pending: '待确认',
@@ -204,13 +216,29 @@ const runsQuery = (cid: number) =>
     queryFn: () => get<{ runs: Run[]; activeRunId: number | null }>(`/knowledge/${cid}/kb/runs`),
   });
 export const useRuns = (cid: number) => useQuery(runsQuery(cid));
-/** 整理助手只有一个：老师所有知识库里的工作记录排在一起 */
-export const keeperRunsQuery = () =>
+/**
+ * 正在看 CoT 助教的哪段会话：current 是现在这段（最近开的），null 是以前（还没有会话时）那一段，数字是哪一段。
+ * 助教页和知识库页右边那一栏看的是同一段。
+ */
+export type SessionView = 'current' | number | null;
+export const useTaSession = create<{ view: SessionView; set: (v: SessionView) => void }>((set) => ({ view: 'current', set: (view) => set({ view }) }));
+/** 老师和 CoT 助教的一段会话：每一轮、干了什么、卡片 */
+export const keeperRunsQuery = (view: SessionView = 'current') =>
   queryOptions({
-    queryKey: ['keeper-runs'],
-    queryFn: () => get<{ runs: Run[]; activeRunId: number | null }>('/keeper/runs'),
+    queryKey: ['keeper-runs', view],
+    queryFn: () =>
+      get<{ runs: Run[]; activeRunId: number | null; session: number | null }>(
+        `/keeper/runs${view === 'current' ? '' : view === null ? '?session=old' : `?session=${view}`}`,
+      ),
   });
-export const useKeeperRuns = () => useQuery(keeperRunsQuery());
+export const useKeeperRuns = () => useQuery(keeperRunsQuery(useTaSession((s) => s.view)));
+/** 会话列表：说过话的，新的在前，第一句话当标题 */
+export const useTaSessions = (enabled: boolean) =>
+  useQuery({
+    queryKey: ['ta-sessions'],
+    queryFn: () => get<{ sessions: { id: number | null; title: string; createdAt: number; updatedAt: number }[]; current: number | null }>('/keeper/sessions'),
+    enabled,
+  });
 const changesQuery = (cid: number, status?: 'pending') =>
   queryOptions({
     queryKey: ['kb-changes', cid, status || 'all'],
@@ -226,7 +254,7 @@ let keeperAvatar: HTMLImageElement | null = null;
 export function prefetchKb(qc: QueryClient, cid: number) {
   keeperAvatar ??= Object.assign(new Image(), { src: '/agents/keeper.webp' });
   void qc.prefetchQuery(courseQuery(cid));
-  void qc.prefetchQuery(keeperRunsQuery());
+  void qc.prefetchQuery(keeperRunsQuery(useTaSession.getState().view));
   void qc.prefetchQuery(intakesQuery(cid));
   void qc.prefetchQuery(changesQuery(cid));
   void qc.prefetchQuery(changesQuery(cid, 'pending'));
@@ -267,14 +295,19 @@ export function useKeeperStream() {
         }
       },
       event: (e: RunEvent & { runId: number }) => {
-        qc.setQueryData<{ runs: Run[]; activeRunId: number | null }>(['keeper-runs'], (old) =>
-          old
-            ? {
-                ...old,
-                runs: old.runs.map((r) => (r.id === e.runId && !r.events.some((x) => x.id === e.id) ? { ...r, events: [...r.events, e] } : r)),
-              }
-            : old,
+        // 助教派出去的后台活挂在派它的那一轮下面，它的每一步也接上
+        const add = (r: Run): Run => (r.id === e.runId && !r.events.some((x) => x.id === e.id) ? { ...r, events: [...r.events, e] } : r);
+        qc.setQueriesData<{ runs: Run[]; activeRunId: number | null }>({ queryKey: ['keeper-runs'] }, (old) =>
+          old ? { ...old, runs: old.runs.map((r) => ({ ...add(r), ...(r.jobs ? { jobs: r.jobs.map(add) } : {}) })) } : old,
         );
+        // 助教办成了一件事（建班、发作业、打分……）：班级、作业那几页跟着变
+        if (e.type === 'action') {
+          qc.invalidateQueries({ queryKey: ['classes'] });
+          qc.invalidateQueries({ queryKey: ['class'] });
+          qc.invalidateQueries({ queryKey: ['homework'] });
+        }
+        // 派了后台活、问了老师：这一轮的样子（后台活、等回答）重取一次
+        if (e.type === 'job' || e.type === 'ask') qc.invalidateQueries({ queryKey: ['keeper-runs'] });
         setLive(null);
         if (e.type === 'change') {
           const kb = Number(e.data?.kbId) || null;
@@ -293,7 +326,7 @@ export function useKeeperStream() {
         if (!intake.runId) return;
         const reading = intake.status === 'uploading' || intake.status === 'reading';
         const c = intake.counts;
-        qc.setQueryData<{ runs: Run[]; activeRunId: number | null }>(['keeper-runs'], (old) =>
+        qc.setQueriesData<{ runs: Run[]; activeRunId: number | null }>({ queryKey: ['keeper-runs'] }, (old) =>
           old
             ? {
                 ...old,
@@ -313,6 +346,13 @@ export function useKeeperStream() {
             : old,
         );
         if (!reading) qc.invalidateQueries({ queryKey: ['keeper-runs'] });
+      },
+      // 助教办的一件事撤回了：卡片上跟着变，班级、作业那边也重取
+      action: () => {
+        qc.invalidateQueries({ queryKey: ['keeper-runs'] });
+        qc.invalidateQueries({ queryKey: ['classes'] });
+        qc.invalidateQueries({ queryKey: ['class'] });
+        qc.invalidateQueries({ queryKey: ['homework'] });
       },
     });
   }, [qc, userId]);

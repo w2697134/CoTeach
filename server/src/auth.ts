@@ -105,9 +105,24 @@ export function sessionStillActive(c: Context<AppEnv>): boolean {
 
 const lastTouch = new Map<number, number>();
 
+/**
+ * 助教替老师办事时，在服务器里直接调这些接口（app.request 的第三个参数带 ctInternalUser）：
+ * 跟老师在页面上点按钮走同一套检查，老师能做的它才能做。外面来的请求带不上这个参数。
+ */
+export interface InternalEnv {
+  ctInternalUser?: number;
+}
+
 /** 根据会话 Cookie 取出当前用户 */
 export const sessionMiddleware: MiddlewareHandler<AppEnv> = async (c, next) => {
   c.set('user', null);
+  const internal = (c.env as InternalEnv | undefined)?.ctInternalUser;
+  if (typeof internal === 'number') {
+    const u = loadUserById(internal);
+    if (u && u.status === 'active') c.set('user', u);
+    await next();
+    return;
+  }
   const token = getCookie(c, COOKIE);
   if (token) {
     const s = db.get<{ user_id: number; expires_at: number }>('SELECT user_id, expires_at FROM sessions WHERE id = ?', sha256(token));

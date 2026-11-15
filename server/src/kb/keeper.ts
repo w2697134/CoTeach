@@ -2,7 +2,8 @@ import { randomBytes } from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join, sep, resolve } from 'node:path';
 import { config } from '../config.js';
-import { db, now } from '../db/index.js';
+import { db, j, now } from '../db/index.js';
+import { addNote } from '../assistant/notes.js';
 import { bad, conflict, notFound, HttpError } from '../lib/http.js';
 import { Desk, type SpaceState } from './agent/desk.js';
 import { runTurn, type TurnResult } from './agent/harness.js';
@@ -215,7 +216,7 @@ function record(kbId: number, runId: number, type: string, data: Record<string, 
   recordEvent({ teacherId: teacherOfKb(kbId), runId, kbId }, type, data);
 }
 /** 一轮的状态变了：推给老师（整理助手只有一个，按老师推），挂着的知识库也推一份 */
-function publishRun(kbId: number | null, runId: number) {
+export function publishRun(kbId: number | null, runId: number) {
   const row = db.get<any>('SELECT * FROM kb_runs WHERE id=?', runId);
   if (!row) return;
   const teacherId: number | null = row.teacher_id ?? (row.kb_id ? teacherOfKb(row.kb_id) : kbId ? teacherOfKb(kbId) : null);
@@ -543,13 +544,94 @@ export function drainInbox(kbId: number) {
     });
   }
 }
-/** 整理助手空下来了：老师各个知识库里排着的事接着做 */
+/** 整理助手空下来了：先做 CoT 助教交来的活，再做老师各个知识库里排着的事 */
 export function drainTeacher(teacherId: number) {
+  if (busy.has(teacherId)) return;
+  const job = db.get<any>("SELECT * FROM kb_runs WHERE teacher_id=? AND agent='keeper' AND kind='job' AND status='queued' ORDER BY id LIMIT 1", teacherId);
+  if (job) return runJob(job);
   for (const k of listKbs(teacherId)) {
     if (busy.has(teacherId)) return;
     drainInbox(k.id);
   }
 }
+
+/**
+ * CoT 助教交给整理助手的一件活（2026-11-16）：助教写好的交代，可带老师发来的几份文件（只摆这几份）。
+ * 在后台排队做，整理助手同一时间只做一件；接着它自己那段对话说（还记得老师的库是怎么摆的）。
+ * 做完把结果记给助教，老师下回说话时助教就知道了。
+ */
+export function startKeeperJob(user: { id: number; name: string }, parentRunId: number, brief: string, kbId: number | null, itemIds: number[] | null): number {
+  if (kbId !== null) {
+    const kb = writableKb(kbId);
+    if (kb.teacher_id !== user.id) throw bad('整理任务归属不正确');
+  }
+  const ids = [...new Set(itemIds || [])];
+  const intakeId = ids.length ? (db.value<number>('SELECT intake_id FROM kb_intake_items WHERE id=?', ids[0]) ?? null) : null;
+  const runId = db.insert('kb_runs', {
+    kb_id: kbId,
+    teacher_id: user.id,
+    agent: 'keeper',
+    kind: 'job',
+    parent_id: parentRunId,
+    status: 'queued',
+    request: brief,
+    intake_id: intakeId,
+    created_by: user.id,
+    created_at: now(),
+  });
+  if (ids.length) recordEvent({ teacherId: user.id, runId, kbId }, 'job_files', { ids });
+  publishRun(kbId, runId);
+  queueMicrotask(() => drainTeacher(user.id));
+  return runId;
+}
+
+function runJob(job: any) {
+  const user = db.get<{ id: number; name: string }>("SELECT id, name FROM users WHERE id=? AND status='active'", job.teacher_id);
+  if (!user) {
+    db.update('kb_runs', job.id, { status: 'error', error: '账号不可用', finished_at: now() });
+    return;
+  }
+  const ctrl = new AbortController();
+  const ref: RunRef = { teacherId: user.id, runId: job.id, kbId: job.kb_id ?? null };
+  busy.set(user.id, { runId: job.id, ctrl, kbId: ref.kbId });
+  db.update('kb_runs', job.id, { status: 'running' });
+  publishRun(ref.kbId, job.id);
+  const since =
+    db.value<number>("SELECT max(created_at) FROM kb_runs WHERE teacher_id=? AND agent='keeper' AND kind IN ('chat','job') AND id<?", user.id, job.id) ?? 0;
+  const files = j<{ ids?: number[] }>(db.value<string>("SELECT data FROM kb_events WHERE run_id=? AND type='job_files' ORDER BY id LIMIT 1", job.id), {});
+  void chatTurn(ref, user, job.request, null, since, ctrl.signal, job.intake_id ?? undefined, files.ids ?? null)
+    .catch((err) => {
+      const msg = ctrl.signal.aborted ? '这次已停止' : (err as Error).message;
+      if (!ctrl.signal.aborted) recordEvent(ref, 'error', { message: msg });
+      db.update('kb_runs', job.id, { status: ctrl.signal.aborted ? 'canceled' : 'error', error: ctrl.signal.aborted ? null : msg, finished_at: now() });
+    })
+    .finally(() => {
+      busy.delete(user.id);
+      publishRun(ref.kbId, job.id);
+      reportJob(user.id, job.id);
+      drainTeacher(user.id);
+    });
+}
+
+/** 后台这件活做完了：一句话记给助教（回话开头一段、交了哪些改动；没做成的写原因） */
+function reportJob(teacherId: number, jobId: number) {
+  const r = db.get<any>('SELECT * FROM kb_runs WHERE id=?', jobId);
+  if (!r) return;
+  const what = `任务 ${jobId}「${String(r.request).slice(0, 30)}」`;
+  if (r.status !== 'done') {
+    addNote(teacherId, `整理助手没做完${what}：${r.status === 'canceled' ? '停下了' : r.error || '出错了'}`);
+    return;
+  }
+  const changes = db
+    .all<{ title: string; status: string; name: string }>(
+      'SELECT c.title, c.status, k.name FROM kb_changes c JOIN knowledge_bases k ON k.id=c.kb_id WHERE c.run_id=? ORDER BY c.id',
+      jobId,
+    )
+    .map((c) => `「${c.name}」${plainTitle(c.title)}（${c.status === 'applied' ? '已生效' : c.status === 'pending' ? '等老师确认' : '没生效'}）`);
+  const reply = String(r.reply || '').replace(/\s+/g, ' ').slice(0, 300);
+  addNote(teacherId, `整理助手做完了${what}${reply ? `：${reply}` : ''}${changes.length ? `；改动：${changes.join('、')}` : '；没有改知识库'}`);
+}
+const plainTitle = (s: string) => String(s || '').replace(/\s+/g, ' ').slice(0, 60);
 
 /** 一段对话的编号：老师说话接着主对话（main），每次交的资料单开一段（intake:编号），几批接着说 */
 function sessionOf(teacherId: number, key: string): string | null {
@@ -675,10 +757,20 @@ function endWaiting(teacherId: number, runId: number, status: 'canceled' | 'erro
   publishRun(null, runId);
   drainTeacher(teacherId);
 }
-/** 这句话带的文件读完了：整理助手开始看 */
+/** 老师跟 CoT 助教说的话带了文件：读完交给助教那边接着办（助教那边启动时登记，免得两边互相引用） */
+let taFilesRead: ((runId: number, intakeId: number) => void) | null = null;
+export function setTaFilesHandler(fn: (runId: number, intakeId: number) => void) {
+  taFilesRead = fn;
+}
+
+/** 这句话带的文件读完了：整理助手开始看（是跟助教说的就交给助教） */
 export function attachmentsRead(runId: number, intakeId: number) {
   const run = db.get<any>('SELECT * FROM kb_runs WHERE id=?', runId);
   if (!run || run.status !== 'running') return;
+  if (run.agent === 'ta') {
+    taFilesRead?.(runId, intakeId);
+    return;
+  }
   const b = busy.get(run.teacher_id);
   if (!b || b.runId !== runId || !b.waiting) return;
   const user = db.get<{ id: number; name: string }>('SELECT id,name FROM users WHERE id=?', run.teacher_id)!;
@@ -704,14 +796,18 @@ const SEEN = /\.(png|jpe?g|gif|webp)$/i;
  * 这句话带的文件摆进桌面「老师发来的」：图片原样放（它自己看），文档放转出来的文字，文字文件原样放。
  * 没读出来的列出来告诉它；读出文字的才能存进知识库。
  */
-function stageAttachments(desk: Desk, runId: number, intakeId: number) {
+function stageAttachments(desk: Desk, runId: number, intakeId: number, onlyIds?: number[] | null) {
   const files: { rel: string; bytes: Buffer }[] = [];
   const listed: { rel: string; note: string }[] = [];
   const failed: { name: string; reason: string }[] = [];
   const items = new Map<string, InboxItem>();
   const hashes: string[] = [];
   const used = new Set<string>();
-  for (const i of intakeItems(intakeId)) {
+  // 助教交来的活只摆它点名的那几份（可能是老师前后几次发的）
+  const source = onlyIds?.length
+    ? db.all<ReturnType<typeof intakeItems>[number]>(`SELECT * FROM kb_intake_items WHERE id IN (${onlyIds.map(() => '?').join(',')}) ORDER BY id`, ...onlyIds)
+    : intakeItems(intakeId);
+  for (const i of source) {
     if (i.method === 'archive') continue;
     if (i.status !== 'done' || !i.hash) {
       if (i.status === 'failed' || i.status === 'skipped') failed.push({ name: i.name, reason: i.reason || '读不出来' });
@@ -801,6 +897,7 @@ async function chatTurn(
   since: number,
   signal: AbortSignal,
   intakeId?: number,
+  onlyIds?: number[] | null,
 ) {
   const desk = await Desk.open(user.id);
   const turn: Turn = { ...ref, token: randomBytes(24).toString('hex'), user, kind: 'chat', desk, contextKbId: ref.kbId, submitted: false, finish: null, changes: [] };
@@ -809,7 +906,7 @@ async function chatTurn(
     const folder = ref.kbId !== null && desk.folders.has(ref.kbId) ? desk.folderOf(ref.kbId) : null;
     let files = '';
     if (intakeId) {
-      const staged = stageAttachments(desk, ref.runId, intakeId);
+      const staged = stageAttachments(desk, ref.runId, intakeId, onlyIds);
       turn.inbox = staged.inbox;
       // 交的时候，存进去的原件挪到根据它写的文档旁边（按内容指纹认）
       turn.batch = { intakeId, last: true, hashes: new Set(staged.hashes) };
@@ -1371,6 +1468,9 @@ export function publicRun(r: any) {
   return {
     id: r.id,
     kbId: r.kb_id ?? null,
+    /** 谁的一轮：老师跟 CoT 助教说的（ta），整理助手的（keeper，包括助教派给它的后台活 parentId） */
+    agent: (r.agent as string) || 'keeper',
+    parentId: r.parent_id ?? null,
     changes,
     attachments: files?.items ?? null,
     moreAttachments: files?.more ?? 0,
