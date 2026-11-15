@@ -115,11 +115,12 @@ function uniqueName(teacherId: number, name: string, except = 0) {
     throw conflict(`已经有叫「${name}」的班了`);
 }
 
-/** 加入时填的学号、姓名 */
-function identity(d: { studentNo: string; name: string }) {
+/** 加入时填的学号、姓名。账号上已经有的学号（kept）建账号时认过了，不再按格式卡；新填的才查像不像学号 */
+function identity(d: { studentNo: string; name: string }, kept?: string | null) {
   const no = d.studentNo.trim(),
     name = cleanName(d.name);
-  if (!looksNo(no)) throw bad('学号只能是字母和数字，至少带三位数字');
+  const own = !!kept && no.toLowerCase() === kept.toLowerCase();
+  if (!own && !looksNo(no)) throw bad('学号只能是字母和数字，至少带三位数字');
   if (!looksName(name)) throw bad('姓名填得不对');
   return { no, name };
 }
@@ -236,7 +237,7 @@ classRoutes.get('/join/:code', (c) => {
 classRoutes.post('/join', async (c) => {
   const u = requireRole(c, 'student');
   const d = await body(c, z.object({ code: z.string().max(20), studentNo: z.string().max(40), name: z.string().max(40) }));
-  const { no, name } = identity(d);
+  const { no, name } = identity(d, u.student_no);
   const fixed = ownNo(u);
   if (fixed && fixed !== no) throw bad(`你的账号学号是 ${fixed}，用这个学号加入`);
   const k = byCode(d.code);

@@ -282,6 +282,15 @@ test('换加课码、停止加入、扫码注册、同学、重置密码、改�
     assert.equal((await anon('/classes/join', { code: otherCode, studentNo: '2024020199', name: '赵一' }, zhao)).status, 400);
     assert.equal((await anon('/classes/join', { code: otherCode, studentNo: '2024020101', name: '赵一' }, zhao)).status, 200);
   });
+  await t.test('账号上已有的学号不再按格式卡（测试账号 s1 这种）；新填的学号还是要像学号', async () => {
+    const k2 = (await req('/classes', 'teacher', { name: '测试账号班' })).json.id;
+    const code2: string = (await req(`/classes/${k2}`)).json.code;
+    const s1 = db.insert('users', { username: 's1', name: '孙思雨', role: 'student', student_no: 's1', password_hash: 'not-a-login-password', created_at: Date.now() });
+    const r = await anon('/classes/join', { code: code2, studentNo: 's1', name: '孙思雨' }, cookie(s1));
+    assert.equal(r.status, 200);
+    assert.equal((await req(`/classes/${k2}`)).json.students.find((s: any) => s.joined).studentNo, 's1');
+    assert.equal((await req('/classes/join', 'student', { code: code2, studentNo: 's2', name: '普通学生' })).status, 400);
+  });
   await t.test('换加课码：原来的码不能用了', async () => {
     const r = await req(`/classes/${id}/code`, 'teacher', {});
     assert.match(r.json.code, /^[A-HJ-NP-Z2-9]{6}$/);

@@ -173,7 +173,7 @@ function Grader({
           <Empty compact title={w.status === 'missing' ? '过了截止还没交' : '还没交'} />
         ) : (
           <>
-            {w.status === 'returned' && <p className="rounded-lg bg-warn-soft px-3.5 py-2.5 text-[14px] text-warn">已退回，等他重交</p>}
+            {w.status === 'returned' && <p className="rounded-lg bg-warn-soft px-3.5 py-2.5 text-[14px] text-warn">已退回，等学生重交</p>}
             <Work s={s} />
             {!h.archived && (
               <div className="space-y-4 border-t border-line pt-5">
