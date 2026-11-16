@@ -2,7 +2,7 @@
 // 测试账号（2026-11-15 定的）：演示老师改成 t0，演示学生改成 s0，再补 s1–s9，密码都一样，从环境变量 TEST_PASSWORD 读。
 // 演示老师里原来的知识库、资料都跟着 t0 走。改完演示账号就没了，重启也不再补（bootstrap.ts 看 demo_teacher_claimed）。
 // 能重复跑：已经有的号只把密码设回 TEST_PASSWORD。
-// 用法：node set-test-accounts.mjs <coteach.db 路径>
+// 用法：TEST_PASSWORD=… node set-test-accounts.mjs <coteach.db 路径>
 import { DatabaseSync } from 'node:sqlite';
 import { randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
 
@@ -26,7 +26,11 @@ function verifyPassword(password, stored) {
 
 const file = process.argv[2];
 if (!file) {
-  console.error('用法：node set-test-accounts.mjs <coteach.db 路径>');
+  console.error('用法：TEST_PASSWORD=… node set-test-accounts.mjs <coteach.db 路径>');
+  process.exit(2);
+}
+if (!PASSWORD || PASSWORD.length < 6) {
+  console.error('先设 TEST_PASSWORD（至少 6 位）');
   process.exit(2);
 }
 const db = new DatabaseSync(file);
