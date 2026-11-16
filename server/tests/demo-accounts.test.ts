@@ -61,3 +61,19 @@ test('体验账号能登录，但改不了密码，也不能被一个人设成�
   assert.equal(stu.status, 200);
   assert.equal((await call('/auth/password', { old: 'judge-pass-1', password: 'mine-now-1' }, stu.cookie)).status, 403);
 });
+
+test('体验账号的知识库：放几份资料，以老师的名义；再放一次不重复', async () => {
+  const { putNotes } = await import('../src/demo/seed.js');
+  const { manifest } = await import('../src/kb/repo.js');
+  const notes = [
+    { path: '课程大纲.md', content: '# 课程大纲\n第1周 装环境' },
+    { path: '第三章 循环/讲义.md', content: '# 第三章 循环\nrange 左闭右开' },
+  ];
+  await putNotes('pingwei', notes, () => {});
+  await putNotes('pingwei', notes, () => {});
+  const t = db.value<number>("SELECT id FROM users WHERE username='pingwei'");
+  const kb = db.value<number>('SELECT id FROM knowledge_bases WHERE teacher_id=?', t)!;
+  const paths = manifest(kb).map((e) => e.path);
+  assert.ok(paths.includes('课程大纲.md') && paths.includes('第三章 循环/讲义.md'), paths.join(','));
+  assert.equal(db.value("SELECT count(*) FROM kb_changes WHERE kb_id=? AND title='老师的资料'", kb), 1);
+});

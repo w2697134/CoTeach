@@ -10,6 +10,7 @@
  *
  * 给评委的体验账号：同一个文件里写 accounts（没有就建，标成演示账号：不能改密码、老师不能重置、
  * 不能设成别人的正式账号）、students（虚构学生学号的前缀，跟 t0 的演示班分开）、extra（放进班里的已有学生账号，用谁的答卷）。
+ * notes 是放进这位老师知识库的几份资料（路径和内容）；only 写成 "accounts" 是只建账号、放资料，不建班。
  * 带了 accounts 的请求文件里有密码，做完删掉，不留 .old。
  */
 import { existsSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
@@ -24,7 +25,8 @@ import { rewriteCard } from '../assistant/bridge.js';
 import { writeInsights } from '../grading/insights.js';
 import { startPlan } from '../grading/prep.js';
 import { packOnHomework } from '../assistant/pack-jobs.js';
-import { startingKb } from '../kb/repo.js';
+import { manifest, startingKb } from '../kb/repo.js';
+import { createChange, teacherAuthor } from '../kb/changes.js';
 import { enqueueGrade, gradeAssignment, gradingCount } from '../grading/jobs.js';
 import { draftRubric, rubricOf, rubricOnHomework } from '../grading/rubric.js';
 import { shareReview, writeReview } from '../grading/review.js';
@@ -51,6 +53,20 @@ export async function ensureAccounts(list: DemoAccount[], log: Log = (s) => cons
     if (a.role === 'teacher') await startingKb(id);
     log(`建了体验账号 ${a.username}（${a.name}）`);
   }
+}
+
+/** 体验账号的知识库：放几份老师常有的资料（以老师的名义放进第一个知识库，跟老师自己放的一样）；已经有的路径不再放 */
+export type DemoNote = { path: string; content: string };
+export async function putNotes(teacherUsername: string, notes: DemoNote[], log: Log = (s) => console.log('[demo]', s)) {
+  const t = db.get<{ id: number; name: string }>("SELECT id, name FROM users WHERE username=? AND role='teacher'", teacherUsername);
+  if (!t || !notes.length) return;
+  const kbId = db.value<number>('SELECT id FROM knowledge_bases WHERE teacher_id=? AND deleted_at IS NULL ORDER BY id LIMIT 1', t.id) ?? (await startingKb(t.id));
+  if (!kbId) return;
+  const have = new Set(manifest(kbId).map((e) => e.path));
+  const ops = notes.filter((n) => !have.has(n.path)).map((n) => ({ path: n.path, content: n.content, base: null }));
+  if (!ops.length) return;
+  await createChange({ kbId, title: '老师的资料', author: 'teacher', authorName: t.name, kind: 'teacher', ops, apply: { by: t.id, as: teacherAuthor(t) } });
+  log(`放进知识库 ${ops.length} 份资料`);
 }
 
 /** 北京时间某天几点（相对今天往后几天） */
@@ -292,7 +308,9 @@ export function watchDemoRequest() {
       refresh: boolean | Step[] = false,
       students: string | undefined,
       extra: Extra[] | undefined,
-      accounts: DemoAccount[] = [];
+      accounts: DemoAccount[] = [],
+      notes: DemoNote[] = [],
+      onlyAccounts = false;
     try {
       const want = JSON.parse(readFileSync(file, 'utf8'));
       teacher = String(want.teacher || 't0');
@@ -306,6 +324,9 @@ export function watchDemoRequest() {
         accounts = want.accounts.filter(
           (a: any) => a && typeof a.username === 'string' && typeof a.name === 'string' && (a.role === 'teacher' || a.role === 'student') && typeof a.password === 'string' && a.password.length >= 6,
         );
+      if (Array.isArray(want.notes))
+        notes = want.notes.filter((n: any) => n && typeof n.path === 'string' && typeof n.content === 'string' && n.path.length < 200).slice(0, 30);
+      onlyAccounts = want.only === 'accounts';
     } catch {}
     const running = join(config.dataDir, 'seed-demo.running.json');
     try {
@@ -314,7 +335,8 @@ export function watchDemoRequest() {
       return;
     }
     void ensureAccounts(accounts)
-      .then(() => seedDemo(teacher, undefined, { refresh, students, extra }))
+      .then(() => putNotes(teacher, notes))
+      .then((): Promise<Record<string, unknown>> => (onlyAccounts ? Promise.resolve({ accountsOnly: true }) : seedDemo(teacher, undefined, { refresh, students, extra })))
       .then((r) => writeFileSync(join(config.dataDir, 'seed-demo.done.json'), JSON.stringify({ teacher, ...r, at: now() })))
       .catch((err) => writeFileSync(join(config.dataDir, 'seed-demo.done.json'), JSON.stringify({ teacher, error: (err as Error).message, at: now() })))
       .finally(() => {
