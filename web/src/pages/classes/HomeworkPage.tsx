@@ -387,7 +387,17 @@ function TeacherView({ h }: { h: HomeworkDetail }) {
   );
   return (
     <>
-      <Brief h={h} menu={menu} />
+      <Brief
+        h={h}
+        menu={menu}
+        mark={
+          h.specialist ? (
+            <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-brand-soft py-1 pl-1 pr-3 text-[13px] text-brand-ink" title="助教分出来的专门助手">
+              <img src={h.specialist.avatar} alt="" className="size-6 rounded-full" />由「{h.specialist.name}」批
+            </span>
+          ) : undefined
+        }
+      />
       <RubricCard h={h} />
       <Card padded={false}>
         <div className="flex flex-wrap items-center gap-3 border-b border-line px-5 py-4 sm:px-6">

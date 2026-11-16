@@ -47,6 +47,8 @@ export interface AssignmentRow {
   publish_at: number;
   ai_mode: AiMode;
   deleted_at: number | null;
+  /** 交给了哪个专门助手批（没有是 null） */
+  specialist_id: number | null;
 }
 export interface SubmissionRow {
   id: number;
@@ -86,7 +88,7 @@ export interface AiGradeRow {
 
 export const assignmentRow = (id: number) =>
   db.get<AssignmentRow>(
-    'SELECT id, class_id, teacher_id, title, body, points, due_at, allow_late, publish_at, ai_mode, deleted_at FROM assignments WHERE id=?',
+    'SELECT id, class_id, teacher_id, title, body, points, due_at, allow_late, publish_at, ai_mode, deleted_at, specialist_id FROM assignments WHERE id=?',
     id,
   );
 export const submissionRow = (id: number) => db.get<SubmissionRow>('SELECT * FROM submissions WHERE id=?', id);

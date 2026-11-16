@@ -21,7 +21,9 @@ export type ActionKind =
   | 'pack.update'
   | 'pack.files'
   | 'homework.ai_grade'
-  | 'homework.review';
+  | 'homework.review'
+  | 'specialist.create'
+  | 'specialist.update';
 
 /** 卡片上显示的东西 */
 export interface ActionCard {
@@ -44,7 +46,16 @@ export type Undo =
   | { kind: 'homework.create'; ids: number[] }
   | { kind: 'homework.update'; rows: { id: number; before: Snapshot; after: Snapshot }[] }
   | { kind: 'homework.delete'; ids: number[] }
-  | { kind: 'submission.grade'; submissionId: number; before: Snapshot; after: Snapshot };
+  | { kind: 'submission.grade'; submissionId: number; before: Snapshot; after: Snapshot }
+  | { kind: 'specialist.create'; id: number; homework: { id: number; specialist_id: number | null }[] }
+  | {
+      kind: 'specialist.update';
+      id: number;
+      before: Snapshot;
+      after: Snapshot;
+      homework: { id: number; specialist_id: number | null }[];
+      homeworkAfter: { id: number; specialist_id: number | null }[];
+    };
 
 /** 记一笔，卡片发到这一轮里；返回编号（助教撤回时用） */
 export function recordAction(ref: RunRef, kind: ActionKind, card: ActionCard, undo: Undo | null): number {
@@ -129,6 +140,21 @@ export function undoAction(teacherId: number, id: number): string {
         db.update('submissions', u.submissionId, { ...u.before, updated_at: t });
         break;
       }
+      case 'specialist.create':
+        ownSpecialist(teacherId, u.id);
+        db.run('UPDATE specialists SET retired_at=?, updated_at=? WHERE id=? AND retired_at IS NULL', t, t, u.id);
+        for (const h of u.homework) db.run('UPDATE assignments SET specialist_id=? WHERE id=? AND specialist_id=?', h.specialist_id, h.id, u.id);
+        break;
+      case 'specialist.update': {
+        ownSpecialist(teacherId, u.id);
+        if (!unchanged('specialists', u.id, u.after)) throw conflict('这个专门助手后来又改过了，撤不回');
+        if (Object.keys(u.before).length) db.update('specialists', u.id, { ...u.before, updated_at: t });
+        for (const h of u.homework) {
+          const want = u.homeworkAfter.find((x) => x.id === h.id)?.specialist_id ?? null;
+          db.run('UPDATE assignments SET specialist_id=? WHERE id=? AND specialist_id IS ?', h.specialist_id, h.id, want);
+        }
+        break;
+      }
     }
     db.update('ta_actions', a.id, { status: 'undone', undone_at: t });
   });
@@ -144,6 +170,9 @@ function ownClass(teacherId: number, classId: number, includeDeleted: boolean) {
   );
   if (!k) throw notFound('这个班不在了');
   return k;
+}
+function ownSpecialist(teacherId: number, id: number) {
+  if (!db.get('SELECT id FROM specialists WHERE id=? AND teacher_id=?', id, teacherId)) throw notFound('这个专门助手不在了');
 }
 function ownHomework(teacherId: number, hid: number) {
   if (!db.get('SELECT a.id FROM assignments a JOIN classes c ON c.id=a.class_id WHERE a.id=? AND c.teacher_id=?', hid, teacherId)) throw notFound('这份作业不在了');

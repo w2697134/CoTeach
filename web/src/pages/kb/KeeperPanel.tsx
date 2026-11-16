@@ -1,7 +1,7 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useQueryClient } from '@tanstack/react-query';
-import { ArrowUp, BookOpen, Check, ChevronDown, ChevronRight, FilePenLine, FilePlus, FolderInput, FolderOpen, FolderSearch, History, MoveRight, Paperclip, PenLine, Search, Send, Square, SquarePen, Trash2, Undo2, Upload, X } from 'lucide-react';
+import { ArrowUp, BookOpen, Check, Users, ChevronDown, ChevronRight, FilePenLine, FilePlus, FolderInput, FolderOpen, FolderSearch, History, MoveRight, Paperclip, PenLine, Search, Send, Square, SquarePen, Trash2, Undo2, Upload, X } from 'lucide-react';
 import { post } from '../../lib/api';
 import { toast, useAuth } from '../../lib/store';
 import { Markdown } from '../../components/Markdown';
@@ -12,6 +12,7 @@ import { FileCard, FileTypeIcon, formatSize, typeLabel } from './FileCard';
 import { fileTitle, readableError, stepLines, type StepLine, when } from './presentation';
 import { STATUS_TEXT, STATUS_TONE, TA, plainText, useChanges, useKeeperRuns, useKeeperStream, useKnowledgeBases, useTaSession, useTaSessions, type Run } from './data';
 import { ActionCard, AskCard, type ActionData, type AskData } from '../assistant/cards';
+import { SpecialistsButton } from '../assistant/Specialists';
 
 const SHOWN = /\.(png|jpe?g|gif|webp)$/i;
 
@@ -33,6 +34,7 @@ const TOOL_ICON: Record<string, typeof BookOpen> = {
   delete_knowledge_base: Trash2,
   list_changes: History,
   revert_change: Undo2,
+  ta_specialist: Users,
 };
 
 function ToolLine({ line }: { line: StepLine }) {
@@ -765,6 +767,7 @@ export const KeeperPanel = forwardRef<
             )}
           </Button>
         )}
+        {page && <SpecialistsButton compact={false} />}
         <SessionButtons compact={!page} disabled={busy} />
       </div>
       {slot && createPortal(<SessionButtons compact disabled={busy} />, slot)}

@@ -186,6 +186,7 @@ export function gradeInput(a: AssignmentRow, className: string, files: string, r
  * 批一份（ai_grades 里排着的那一行）。批完：要直接发的、学生没重交、老师也没自己批过，就写到学生那份作业上。
  */
 export async function runGrade(row: AiGradeRow, signal: AbortSignal) {
+  const { graderOf, noteGraded, specialistGradeSystem } = await import('../assistant/specialists.js');
   const a = assignmentRow(row.assignment_id);
   const s = submissionRow(row.submission_id);
   const k = a && classRow(a.class_id);
@@ -194,16 +195,17 @@ export async function runGrade(row: AiGradeRow, signal: AbortSignal) {
   const rubric = await ensureRubric(a, signal);
   const text = await workText(s, signal);
   const files = await assignmentFilesText(a, signal);
-  const runId = startRun(a.teacher_id, 'grade', `批「${a.title}」：${userName(s.user_id)}`, a.class_id);
+  const spec = graderOf(a);
+  const runId = startRun(a.teacher_id, 'grade', `${spec ? `「${spec.name}」` : ''}批「${a.title}」：${userName(s.user_id)}`, a.class_id);
   let result: GradeResult | null = null;
   try {
     await agentLoop({
       teacherId: a.teacher_id,
       runId,
-      system: gradePrompt(userName(a.teacher_id)),
+      system: spec ? specialistGradeSystem(gradePrompt(userName(a.teacher_id)), spec) : gradePrompt(userName(a.teacher_id)),
       first: gradeInput(a, k.name, files, rubric, text),
       tools: [submitTool(rubric)],
-      purpose: 'grader:grade',
+      purpose: spec ? 'specialist:grade' : 'grader:grade',
       maxSteps: 3,
       signal,
       nudge: '用 submit_grade 交批改结果。',
@@ -228,6 +230,7 @@ export async function runGrade(row: AiGradeRow, signal: AbortSignal) {
       finished_at: now(),
     });
     finishRun(runId, 'done', `${showNum(r.score)}/${showNum(a.points)}${r.flag ? `（要老师看：${r.flag}）` : ''}`);
+    if (spec) noteGraded(spec.id);
     releaseIfDue(row.id);
   } catch (err) {
     const msg = (err as Error).message || '没批成';

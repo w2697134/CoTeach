@@ -121,6 +121,8 @@ export interface HomeworkDetail extends Homework {
     ai: { status: AiGrade['status']; score: number | null; flag: string | null; released: boolean; error: string | null } | null;
   }[];
   rubric?: Rubric | null;
+  /** 老师：交给了哪个专门助手批（助教分出来的） */
+  specialist?: { id: number; name: string; avatar: string } | null;
   /** 正在批几份 */
   grading?: number;
   review?: { status: 'writing' | 'ready' | 'error'; shared: boolean } | null;

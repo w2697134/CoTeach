@@ -4,7 +4,7 @@
  * 每句写好：允许的变化（不在里面的都算办错）和结果对不对（返回 null 是对）。
  * 不为哪一句改提示词：这些句子只拿来量。
  */
-import { dayAt, nextWeek, rowOf, shortNamedClasses, type Snapshot, type World } from './world.js';
+import { addSpecialist, dayAt, nextWeek, rowOf, shortNamedClasses, type Snapshot, type World } from './world.js';
 
 export type Turn = { say: string } | { answer: string[] };
 export interface CheckInput {
@@ -17,7 +17,7 @@ export interface CheckInput {
 }
 export interface Case {
   id: string;
-  cat: '清楚' | '该问' | '一句几件' | '只问不办' | '撤回' | '办不了' | '接上文';
+  cat: '清楚' | '该问' | '一句几件' | '只问不办' | '撤回' | '办不了' | '接上文' | '专门助手';
   turns: Turn[];
   /** true 该问；false 不该问；不写是问不问都行 */
   ask?: boolean;
@@ -45,6 +45,11 @@ const NEW_HW = /^新增 作业\d+/;
 const newLive = (o: CheckInput) =>
   [...o.after.classes].filter(([id, r]) => !o.before.classes.has(id) && !r.deleted).map(([, r]) => String(r.name)).sort();
 const newLiveHw = (o: CheckInput) => newHw(o).filter((h) => !h.deleted);
+
+/* 专门助手（2026-11-17）：该分的分出来，不该分的不分，已经有管这类活的就交给它 */
+const NEW_SPEC = /^新增 助手\d+/;
+const newSpecs = (o: CheckInput) => [...o.after.specialists].filter(([id]) => !o.before.specialists.has(id)).map(([, r]) => r);
+const PROJECT = (w: World) => addSpecialist(w, '项目答疑', '回答学生关于期末项目的问题', '照知识库里的期末项目说明答，说明里没有的告诉学生要问老师');
 
 export const CASES: Case[] = [
   /* ---------- 说清楚了的一件事：直接办，不问 ---------- */
@@ -553,6 +558,86 @@ export const CASES: Case[] = [
     turns: [{ say: '孙思雨第一次作业改成 95 分' }, { say: '改回去' }],
     allow: [],
     check: (o) => fail(sub(o.after, '第一次作业', '孙思雨')?.score === 88, `孙思雨 ${sub(o.after, '第一次作业', '孙思雨')?.score}`),
+  },
+
+  /* ---------- 专门助手：该分的分、不该分的不分、有了就交给它、能改能停 ---------- */
+  {
+    id: 'p01',
+    cat: '专门助手',
+    ask: false,
+    turns: [{ say: '以后计科2505 Python 的第一次作业交给一个专门的助手批，照评分标准批，变量名起得乱的扣半分' }],
+    allow: [NEW_SPEC, /^作业\d+\.specialist/],
+    check: (o) => {
+      const s = newSpecs(o);
+      if (s.length !== 1) return `分了 ${s.length} 个专门助手`;
+      if (!has(s[0].guide, '半分') && !has(s[0].guide, '0.5')) return `做法里没写扣半分：${s[0].guide}`;
+      const h = hw(o.after, '第一次作业', '计科2505 Python')[0];
+      return fail(h?.specialist === s[0].id, '第一次作业没交给它批');
+    },
+  },
+  {
+    id: 'p02',
+    cat: '专门助手',
+    ask: false,
+    turns: [{ say: '学生老来问期末项目怎么选题、要交什么，你专门安排一个助手答这类问题，照知识库里的项目说明答' }],
+    allow: [NEW_SPEC],
+    check: (o) => fail(newSpecs(o).length === 1, `分了 ${newSpecs(o).length} 个专门助手`),
+  },
+  {
+    id: 'p03',
+    cat: '专门助手',
+    ask: false,
+    turns: [{ say: '每周一要给各班发一条本周学习提醒，这个活以后专门交给一个助手来写，写好先给我看' }],
+    allow: [NEW_SPEC],
+    check: (o) => fail(newSpecs(o).length === 1, `分了 ${newSpecs(o).length} 个专门助手`),
+  },
+  {
+    id: 'p04',
+    cat: '专门助手',
+    ask: false,
+    turns: [{ say: '帮我看看知识库里有哪些讲循环的资料' }],
+    allow: [],
+    check: (o) => fail(!o.tools.includes('new_specialist'), '查一次资料也分了专门助手'),
+  },
+  {
+    id: 'p05',
+    cat: '专门助手',
+    ask: false,
+    setup: PROJECT,
+    turns: [{ say: '有学生问期末项目能不能用 Java 写，该怎么回？' }],
+    allow: [],
+    check: (o) => fail(o.tools.includes('ask_specialist'), '有管期末项目的专门助手，没交给它'),
+  },
+  {
+    id: 'p06',
+    cat: '专门助手',
+    ask: false,
+    setup: PROJECT,
+    turns: [{ say: '以后期末项目方面的问题都交给专门的助手来答' }],
+    allow: [/^助手\d+\.(duty|guide)/],
+    check: (o) => fail(!newSpecs(o).length, '已经有「项目答疑」，又分了一个'),
+  },
+  {
+    id: 'p07',
+    cat: '专门助手',
+    ask: false,
+    setup: PROJECT,
+    turns: [{ say: '项目答疑那个助手不用了，停掉吧' }],
+    allow: [/^助手\d+\.retired/],
+    check: (o) => fail(rowOf(o.after, 'specialists', (r) => r.name === '项目答疑')[0]?.retired === true, '没停用'),
+  },
+  {
+    id: 'p08',
+    cat: '专门助手',
+    ask: false,
+    setup: PROJECT,
+    turns: [{ say: '跟管期末项目的那个助手说一声，以后回答时先提醒学生看说明的第二节' }],
+    allow: [/^助手\d+\.guide/],
+    check: (o) =>
+      fail(
+        has(rowOf(o.after, 'specialists', (r) => r.name === '项目答疑')[0]?.guide, '第二节') || o.tools.includes('ask_specialist'),
+        '没改它的做法，也没跟它说',
+      ),
   },
 
   /* ---------- 系统办不了的：不能乱办 ---------- */

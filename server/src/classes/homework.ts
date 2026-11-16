@@ -8,6 +8,7 @@ import { audit, me, requireRole, type AppEnv, type User } from '../auth.js';
 import { config } from '../config.js';
 import { db, now } from '../db/index.js';
 import { bad, body, conflict, forbidden, intParam, notFound, rateLimit } from '../lib/http.js';
+import { avatarOf } from '../assistant/specialists.js';
 import { packOnHomework, packOnHomeworkDeleted } from '../assistant/pack-jobs.js';
 import { gradeItems, gradeMarks, noteChange, type AiMode, type GradeItem } from '../grading/common.js';
 import { gradeOnSubmit, gradingCount } from '../grading/jobs.js';
@@ -427,9 +428,15 @@ homeworkRoutes.get('/:id', (c) => {
   const ai = latestGrades(a.id);
   const rubric = rubricOf(a.id);
   const review = db.get<{ status: string; shared_at: number | null }>('SELECT status, shared_at FROM hw_reviews WHERE assignment_id=?', a.id);
+  // 交给了助教分出来的专门助手批（停用了的不算）
+  const sp = db.get<{ id: number; name: string }>(
+    'SELECT s.id, s.name FROM assignments a JOIN specialists s ON s.id=a.specialist_id WHERE a.id=? AND s.retired_at IS NULL',
+    a.id,
+  );
   return c.json({
     ...base,
     rubric,
+    specialist: sp ? { id: sp.id, name: sp.name, avatar: avatarOf(sp.id) } : null,
     grading: gradingCount(a.id),
     review: review ? { status: review.status, shared: !!review.shared_at } : null,
     students: members(a.class_id).map((m) => {
@@ -601,6 +608,15 @@ homeworkRoutes.post('/:id/students/:sid/grade', async (c) => {
     updated_at: t,
   });
   audit(c, 'homework.grade', `homework:${a.id}`, { submission: s.id, score });
+  if (items && aiId) {
+    const ai = gradeItems(db.value<string>('SELECT items FROM ai_grades WHERE id=?', aiId));
+    const { changedItems, noteTeacherChange } = await import('../assistant/specialists.js');
+    noteTeacherChange(
+      { id: a.id, title: a.title, teacher_id: a.teacher_id, specialist_id: db.value<number>('SELECT specialist_id FROM assignments WHERE id=?', a.id) ?? null },
+      db.value<string>('SELECT name FROM users WHERE id=?', s.user_id) || '一个学生',
+      changedItems(ai, items),
+    );
+  }
   return c.json({ ok: true, score });
 });
 

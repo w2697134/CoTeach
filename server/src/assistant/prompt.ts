@@ -21,6 +21,8 @@ export function turnBlock(o: {
   files: string | null;
   /** 学生来问、还在等老师回的（没有就是 null） */
   asks?: string | null;
+  /** 助教分出来的专门助手（没有就是 null） */
+  specialists?: string | null;
 }) {
   const head = [
     `现在是 ${o.now}`,
@@ -32,6 +34,7 @@ export function turnBlock(o: {
   const lines = [`（${head.join('。')}）`];
   if (o.notes.length) lines.push(`（后台的消息：${o.notes.join('；')}）`);
   if (o.asks) lines.push(o.asks);
+  if (o.specialists) lines.push(o.specialists);
   if (o.files) lines.push(o.files);
   return lines.join('\n');
 }

@@ -19,6 +19,7 @@ import { nowLine } from './time.js';
 import { append, compact, dangling, requestMessages } from './thread.js';
 import { ASK_TOOL, runTaTool, TOOL_SPECS, type TaContext } from './tools.js';
 import { afterTeacherAnswer, pendingAsksLine, type StudentAskCard } from './bridge.js';
+import { rosterLine } from './specialists.js';
 
 export { setModelStep, type ModelStep, type StepResult } from './model.js';
 
@@ -314,6 +315,7 @@ async function execute(user: { id: number; name: string }, ref: RunRef, turn: Tu
     notes: takeNotes(user.id),
     files: turn.intakeId ? filesBlock(turn.intakeId) : null,
     asks: pendingAsksLine(user.id),
+    specialists: rosterLine(user.id),
   });
   const said = (turn.modelMessage ?? turn.message).trim();
   append(user.id, key, ref.runId, { role: 'user', content: `${block}\n${said || '（老师只发了文件，没写话）'}` });
@@ -321,6 +323,7 @@ async function execute(user: { id: number; name: string }, ref: RunRef, turn: Tu
   const ctx: TaContext = {
     user,
     ref,
+    signal,
     startJob: (brief, kbName, attachmentIds) => {
       const kbId = kbName ? findKb(user.id, kbName).id : turn.kbId;
       const jobId = startKeeperJob(user, ref.runId, brief, kbId, attachmentIds.length ? attachmentIds : null);

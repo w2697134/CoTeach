@@ -901,6 +901,19 @@ keeperRoutes.post('/runs/:rid/answer', async (c) => {
   );
   return c.json({ runId: answerAsk(u, intParam(c, 'rid'), d.answers) });
 });
+/** 助教分出来的专门助手（老师看：管什么、怎么办、办过几次、批哪几份作业） */
+keeperRoutes.get('/specialists', async (c) => {
+  const u = teacher(c);
+  const { specialistList } = await import('../assistant/specialists.js');
+  return c.json({ specialists: specialistList(u.id) });
+});
+/** 老师停用一个专门助手（它批的作业改回助教自己批） */
+keeperRoutes.post('/specialists/:id/retire', async (c) => {
+  const u = teacher(c);
+  const { updateSpecialist } = await import('../assistant/specialists.js');
+  updateSpecialist(u.id, intParam(c, 'id'), { retire: true });
+  return c.json({ ok: true });
+});
 /** 撤回助教办的一件事 */
 keeperRoutes.post('/actions/:aid/undo', (c) => {
   const u = teacher(c);

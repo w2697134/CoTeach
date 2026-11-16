@@ -662,3 +662,22 @@ CREATE TABLE lesson_plans (
 );
 CREATE INDEX idx_lesson_plans_class ON lesson_plans(class_id, id);
 `);
+
+// 专门助手（2026-11-17）：CoT 助教自己分出来的，一类活反复出现、要照同一套做法办时用。管什么、怎么做写在这里；
+// 它的会话一直留着（agent_messages 里 spec:编号 那一段），下次接着用。作业可以交给一个专门助手批（assignments.specialist_id）
+migrations.push(`
+CREATE TABLE specialists (
+  id INTEGER PRIMARY KEY,
+  teacher_id INTEGER NOT NULL REFERENCES users(id),
+  name TEXT NOT NULL,
+  duty TEXT NOT NULL,
+  guide TEXT NOT NULL DEFAULT '',
+  uses INTEGER NOT NULL DEFAULT 0,
+  last_used_at INTEGER,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  retired_at INTEGER
+);
+CREATE INDEX idx_specialists_teacher ON specialists(teacher_id, retired_at);
+ALTER TABLE assignments ADD COLUMN specialist_id INTEGER REFERENCES specialists(id);
+`);

@@ -17,12 +17,15 @@ import { myClasses } from './buddy.js';
 import { dropPack, grantFile, isPackKind, kbOriginal, putPack, renderPack, revokeFile } from './pack.js';
 import { classesOf, findClass, findHomework, findStudent, type ClassRow, type HomeworkRow } from './resolve.js';
 import { parseWhen, showTime, weekLater } from './time.js';
+import { createSpecialist, findSpecialist, runSpecialist, updateSpecialist } from './specialists.js';
 
 export interface TaContext {
   user: { id: number; name: string };
   ref: RunRef;
   /** 交给后台整理助手一件活，返回后台任务的编号 */
   startJob: (brief: string, kbName: string | null, attachmentIds: number[]) => number;
+  /** 老师停下这一轮时中断（交给专门助手的活要跟着停） */
+  signal?: AbortSignal;
 }
 
 const str = (description: string) => ({ type: 'string', description });
@@ -238,6 +241,43 @@ export const TOOL_SPECS: ToolSpec[] = [
     name: 'student_questions',
     description: '看学生最近问了学伴什么（学情）：每句原话和谁问的，转来问老师的也在里面。',
     parameters: obj({ class: str('班名'), days: { type: 'number', description: '最近几天，默认 7' } }, ['class']),
+  },
+  {
+    name: 'new_specialist',
+    description:
+      '分出一个专门助手：同一类活反复出现、每次要照同一套做法办时用。它的对话一直留着，以后这类活交给它（ask_specialist），越办越熟。已经有管这类活的，就交给那一个，不再分新的。',
+    parameters: obj(
+      {
+        name: str('名字，照它管的活起'),
+        duty: str('它管哪一类活，一句话'),
+        guide: str('它怎么办：照老师的哪些资料、哪些规矩，要注意什么'),
+        homework: str('交给它批的作业标题：以后这份作业交上来的由它批；没有就不传'),
+        class: str('作业在哪个班；同名作业在几个班时才填'),
+      },
+      ['name', 'duty', 'guide'],
+    ),
+  },
+  {
+    name: 'ask_specialist',
+    description: '把一件活交给你分出来的专门助手，它接着自己以前的对话办，办完把结果交回给你。task 写清楚要它办什么、依据什么；它没听过你和老师的对话。',
+    parameters: obj({ specialist: str('专门助手的名字'), task: str('交代') }, ['specialist', 'task']),
+  },
+  {
+    name: 'edit_specialist',
+    description: '改一个专门助手：名字、管的事、做法（整段换掉）；或者把某份作业交给它批、不再由它批；或者停用它。',
+    parameters: obj(
+      {
+        specialist: str('专门助手的名字'),
+        name: str('新名字'),
+        duty: str('新的管什么'),
+        guide: str('新的做法'),
+        homework: str('作业标题'),
+        class: str('作业在哪个班；同名作业在几个班时才填'),
+        stop_homework: { type: 'boolean', description: 'true 这份作业不再由它批，改回你自己批' },
+        retire: { type: 'boolean', description: 'true 停用它' },
+      },
+      ['specialist'],
+    ),
   },
 ];
 
@@ -943,6 +983,61 @@ const handlers: Record<string, Handler> = {
     ].join('\n');
   },
 };
+
+/* ---------------- 专门助手 ---------------- */
+
+/** 作业交给哪个专门助手批：改之前每份作业是谁批的（撤回用），改之后是谁 */
+function bindHomework(teacherId: number, a: Record<string, any>, to: (current: number | null) => number | null) {
+  const { rows } = findHomework(teacherId, String(a.homework ?? ''), text(a.class) || null);
+  const before = rows.map((h) => ({ id: h.id, specialist_id: db.value<number>('SELECT specialist_id FROM assignments WHERE id=?', h.id) ?? null }));
+  const after = before.map((b) => ({ id: b.id, specialist_id: to(b.specialist_id) }));
+  for (const x of after) db.run('UPDATE assignments SET specialist_id=? WHERE id=?', x.specialist_id, x.id);
+  return { rows, before, after };
+}
+
+Object.assign(handlers, {
+  async new_specialist(ctx: TaContext, a: Record<string, any>) {
+    const s = createSpecialist(ctx.user.id, { name: a.name, duty: a.duty, guide: a.guide });
+    const hw = text(a.homework) ? bindHomework(ctx.user.id, a, () => s.id) : null;
+    recordAction(
+      ctx.ref,
+      'specialist.create',
+      { title: `分出专门助手「${s.name}」`, lines: [`管：${s.duty}`, ...(hw ? [`批：${hw.rows.map((h) => `「${h.title}」`).join('、')}`] : [])] },
+      { kind: 'specialist.create', id: s.id, homework: hw?.before ?? [] },
+    );
+    return `分好了「${s.name}」${hw ? `，以后「${hw.rows[0].title}」交上来的由它批` : ''}。这类活以后用 ask_specialist 交给它`;
+  },
+
+  async ask_specialist(ctx: TaContext, a: Record<string, any>) {
+    const s = findSpecialist(ctx.user.id, a.specialist);
+    const task = String(a.task ?? '').trim();
+    tool(ctx.ref, 'ta_specialist', `交给「${s.name}」`, { text: task.slice(0, 80) });
+    const r = await runSpecialist({ teacherId: ctx.user.id, specialist: s, task, signal: ctx.signal ?? new AbortController().signal });
+    return r.text ? `「${s.name}」交回：${r.text}` : `「${s.name}」没交回结果`;
+  },
+
+  async edit_specialist(ctx: TaContext, a: Record<string, any>) {
+    const s = findSpecialist(ctx.user.id, a.specialist);
+    const stop = bool(a.stop_homework) === true;
+    const hw = text(a.homework) ? bindHomework(ctx.user.id, a, (cur) => (stop ? (cur === s.id ? null : cur) : s.id)) : null;
+    const { before, after, row } = updateSpecialist(ctx.user.id, s.id, { name: a.name, duty: a.duty, guide: a.guide, retire: bool(a.retire) === true });
+    const what = [
+      after.name ? `名字改成「${after.name}」` : '',
+      after.duty ? `管的事改成：${after.duty}` : '',
+      after.guide ? '做法改了' : '',
+      after.retired_at ? '停用了' : '',
+      hw ? (stop ? `「${hw.rows[0].title}」改回你自己批` : `「${hw.rows[0].title}」交给它批`) : '',
+    ].filter(Boolean);
+    if (!what.length) return '没说要改什么';
+    recordAction(
+      ctx.ref,
+      'specialist.update',
+      { title: `改了专门助手「${s.name}」`, lines: what },
+      { kind: 'specialist.update', id: s.id, before, after, homework: hw?.before ?? [], homeworkAfter: hw?.after ?? [] },
+    );
+    return `「${row.name}」${what.join('，')}`;
+  },
+} satisfies Record<string, Handler>);
 
 /** 办一件事；没办成的把原因交回给助教（它会换个办法或者问老师） */
 export async function runTaTool(ctx: TaContext, call: ToolCall): Promise<{ content: string; ok: boolean }> {

@@ -52,6 +52,12 @@ const UPDATE_PACK: ToolSpec = {
     ['title'],
   ),
 };
+/** 老师有专门助手时才给（没有专门助手的老师，这一手跟原来一样） */
+const ASK_SPECIALIST: ToolSpec = {
+  name: 'ask_specialist',
+  description: '把这件事交给助教分出来的专门助手，它接着自己以前的对话办，办完把结果交回给你。task 写清楚学伴问的什么、要它办什么。',
+  parameters: obj({ specialist: str('专门助手的名字'), task: str('交代') }, ['specialist', 'task']),
+};
 const GIVE_FILES: ToolSpec = {
   name: 'give_files',
   description: '把知识库里的原件（课件、讲义这类）放进资料包，学伴就能发给这个班的学生。',
@@ -253,11 +259,13 @@ export async function runHelper(o: { teacherId: number; classId: number; mode: H
   const signal = o.signal ?? new AbortController().signal;
   const wrote: string[] = [];
   const note: { body?: string } = {};
-  const tools = o.mode === 'answer' ? [SEARCH, READ, UPDATE_PACK, GIVE_FILES, ASK_TEACHER] : [SEARCH, READ, GIVE_FILES, SAVE_NOTE];
+  const spec = await import('./specialists.js');
+  const roster = o.mode === 'answer' ? spec.rosterLine(o.teacherId) : null;
+  const tools = o.mode === 'answer' ? [SEARCH, READ, UPDATE_PACK, GIVE_FILES, ASK_TEACHER, ...(roster ? [ASK_SPECIALIST] : [])] : [SEARCH, READ, GIVE_FILES, SAVE_NOTE];
   // 资料包在前、要做的事在后：同一个班的开头一样。
   // 写资料包时不给它看现有的资料包：截止、规矩、通知程序会现取，给它看了它就往说明里抄（v2 抄错了一个星期几）
   const pack = o.mode === 'answer' ? `这个班的资料包：\n${renderPack(o.classId, { teacherView: true })}\n\n` : '';
-  append(o.teacherId, key, runId, { role: 'user', content: `${pack}${catalog(o.teacherId)}\n\n（现在是 ${nowLine()}）\n${o.task}` });
+  append(o.teacherId, key, runId, { role: 'user', content: `${pack}${catalog(o.teacherId)}\n\n${roster ? `${roster}\n` : ''}（现在是 ${nowLine()}）\n${o.task}` });
   const finish = (status: string, text: string, error?: string) =>
     db.update('kb_runs', runId, { status, reply: text || null, error: error ?? null, finished_at: now() });
   try {
@@ -284,7 +292,13 @@ export async function runHelper(o: { teacherId: number; classId: number; mode: H
       }
       const asks = r.toolCalls.filter((c) => c.name === 'ask_teacher');
       for (const call of r.toolCalls.filter((c) => c.name !== 'ask_teacher')) {
-        const out = await runTool({ teacherId: o.teacherId, classId: o.classId, mode: o.mode, wrote, note }, call);
+        const out =
+          call.name === 'ask_specialist' && roster
+            ? await (async () =>
+                spec.runSpecialist({ teacherId: o.teacherId, specialist: spec.findSpecialist(o.teacherId, call.args?.specialist), task: String(call.args?.task ?? ''), signal }))()
+                .then((x) => (x.text ? `专门助手交回：${x.text}` : '专门助手没交回结果'))
+                .catch((err) => `没办成：${(err as Error).message || '没办成'}`)
+            : await runTool({ teacherId: o.teacherId, classId: o.classId, mode: o.mode, wrote, note }, call);
         append(o.teacherId, key, runId, { role: 'tool', toolCallId: call.id, content: out });
       }
       if (asks.length && o.mode === 'answer') {

@@ -139,6 +139,16 @@ gradingRoutes.post('/:id/same', async (c) => {
     }
   });
   audit(c, 'homework.same_fix', `homework:${a.id}`, { item: d.item, got: d.got, n });
+  if (n) {
+    const first = submissionOf(a, d.sids[0]);
+    const it = gradeItems(first.items)[d.item];
+    const was = gradeItems(first.ai_grade_id ? db.value<string>('SELECT items FROM ai_grades WHERE id=?', first.ai_grade_id) : null)[d.item];
+    const { noteTeacherChange } = await import('../assistant/specialists.js');
+    if (it && was)
+      noteTeacherChange({ ...a, specialist_id: db.value<number>('SELECT specialist_id FROM assignments WHERE id=?', a.id) ?? null }, `${n} 个学生`, [
+        { title: it.title, from: was.got, to: d.got, why: d.why?.trim() || undefined },
+      ]);
+  }
   return c.json({ changed: n });
 });
 

@@ -156,6 +156,8 @@ export interface Snapshot {
   classes: Rows;
   homework: Rows;
   subs: Rows;
+  /** 助教分出来的专门助手（2026-11-17 加：不该分的时候分了，算办错） */
+  specialists: Rows;
 }
 export function snapshot(w: World): Snapshot {
   const cn = new Map(db.all<{ id: number; name: string }>('SELECT id, name FROM classes WHERE teacher_id=?', w.teacher).map((k) => [k.id, k.name]));
@@ -169,7 +171,17 @@ export function snapshot(w: World): Snapshot {
       .all<any>('SELECT a.* FROM assignments a JOIN classes c ON c.id=a.class_id WHERE c.teacher_id=?', w.teacher)
       .map((h) => [
         `作业${h.id}`,
-        { class: cn.get(h.class_id), title: h.title, body: h.body, points: h.points, due_at: h.due_at, allow_late: h.allow_late, publish_at: h.publish_at, deleted: !!h.deleted_at },
+        {
+          class: cn.get(h.class_id),
+          title: h.title,
+          body: h.body,
+          points: h.points,
+          due_at: h.due_at,
+          allow_late: h.allow_late,
+          publish_at: h.publish_at,
+          deleted: !!h.deleted_at,
+          specialist: h.specialist_id ?? null,
+        },
       ]),
   );
   const subs: Rows = new Map(
@@ -180,13 +192,24 @@ export function snapshot(w: World): Snapshot {
       )
       .map((s) => [`交${s.id}`, { homework: s.title, student: s.name, score: s.score, comment: s.comment, returned: !!s.returned_at && s.returned_at >= s.submitted_at }]),
   );
-  return { classes, homework, subs };
+  const specialists: Rows = new Map(
+    db
+      .all<any>('SELECT * FROM specialists WHERE teacher_id=?', w.teacher)
+      .map((s) => [`助手${s.id}`, { id: s.id, name: s.name, duty: s.duty, guide: s.guide, retired: !!s.retired_at }]),
+  );
+  return { classes, homework, subs, specialists };
+}
+
+/** 尺子上要事先有一个专门助手的句子用 */
+export function addSpecialist(w: World, name: string, duty: string, guide: string) {
+  const t = now();
+  return db.insert('specialists', { teacher_id: w.teacher, name, duty, guide, created_at: t, updated_at: t });
 }
 
 /** 两次快照之间的变化，一条一行：「新增 作业31 {…}」「作业12.due_at: A → B」 */
 export function diff(a: Snapshot, b: Snapshot): string[] {
   const out: string[] = [];
-  for (const key of ['classes', 'homework', 'subs'] as const) {
+  for (const key of ['classes', 'homework', 'subs', 'specialists'] as const) {
     for (const [id, row] of b[key]) {
       const old = a[key].get(id);
       if (!old) {
