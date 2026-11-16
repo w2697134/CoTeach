@@ -17,6 +17,8 @@ import { hashPassword } from '../lib/crypto.js';
 import { callApi } from '../assistant/api.js';
 import { startStuTurn } from '../assistant/buddy.js';
 import { rewriteCard } from '../assistant/bridge.js';
+import { writeInsights } from '../grading/insights.js';
+import { startPlan } from '../grading/prep.js';
 import { packOnHomework } from '../assistant/pack-jobs.js';
 import { enqueueGrade, gradeAssignment, gradingCount } from '../grading/jobs.js';
 import { draftRubric, rubricOf, rubricOnHomework } from '../grading/rubric.js';
@@ -43,13 +45,13 @@ const pick = (seed: number) => {
 };
 const wait = (ms: number) => new Promise((ok) => setTimeout(ok, ms));
 
-export async function seedDemo(teacherUsername: string, log: Log = (s) => console.log('[demo]', s), o: { refresh?: boolean } = {}) {
+export async function seedDemo(teacherUsername: string, log: Log = (s) => console.log('[demo]', s), o: { refresh?: boolean | Step[] } = {}) {
   const teacher = db.get<{ id: number; name: string }>("SELECT id, name FROM users WHERE username=? AND role IN ('teacher','admin')", teacherUsername);
   if (!teacher) throw new Error(`没有老师账号 ${teacherUsername}`);
   const have = db.get<{ id: number }>('SELECT id FROM classes WHERE teacher_id=? AND name=? AND deleted_at IS NULL', teacher.id, CLASS_NAME);
   if (have) {
     if (o.refresh) {
-      await refreshDemo(have.id, log);
+      await refreshDemo(have.id, log, o.refresh === true ? STEPS : o.refresh);
       return { classId: have.id, created: false, refreshed: true };
     }
     log(`已经有「${CLASS_NAME}」了（${have.id}），不再建，没做完的接着做`);
@@ -200,27 +202,45 @@ async function finishDemo(classId: number, log: Log) {
  * 演示班重来一遍（2026-11-16 批改 v2 上线：原来 93 份里 13 份把第1题的小项当成了三道题交分）：
  * 批好的按现在的办法全部重批，写过的讲评重写（发给学生的那一版跟着换），老师那边还在等的学生来问卡片按现在的说法重写。
  */
-async function refreshDemo(classId: number, log: Log) {
+type Step = 'grades' | 'reviews' | 'cards' | 'insights' | 'prep';
+const STEPS: Step[] = ['grades', 'reviews', 'cards', 'insights', 'prep'];
+/** refresh 也能只写其中几步：{"teacher":"t0","refresh":["insights","prep"]} 只看学情、备一节课 */
+async function refreshDemo(classId: number, log: Log, steps: Step[] = STEPS) {
   const list = db.all<{ id: number; title: string }>('SELECT id, title FROM assignments WHERE class_id=? AND deleted_at IS NULL ORDER BY id', classId);
+  if (steps.includes('grades')) await regrade(list, log);
+  if (steps.includes('reviews'))
+    for (const a of list) {
+      if (!db.get("SELECT 1 FROM hw_reviews WHERE assignment_id=? AND status='ready'", a.id)) continue;
+      await writeReview(a.id);
+      log(`「${a.title}」讲评重写好了`);
+    }
+  if (steps.includes('cards'))
+    for (const ask of db.all<{ id: number }>("SELECT id FROM student_asks WHERE class_id=? AND status='teacher' AND card_run_id IS NOT NULL ORDER BY id", classId)) {
+      try {
+        log(`卡片 ${ask.id}${(await rewriteCard(ask.id)) ? ' 重写好了' : ' 没动（助教这回没转老师）'}`);
+      } catch (err) {
+        log(`卡片 ${ask.id} 没重写成：${(err as Error).message}`);
+      }
+    }
+  if (steps.includes('insights')) {
+    await writeInsights(classId);
+    log('学情看好了');
+  }
+  if (steps.includes('prep')) {
+    const teacher = db.value<number>('SELECT teacher_id FROM classes WHERE id=?', classId)!;
+    const id = startPlan(classId, teacher, null);
+    for (let i = 0; i < 240 && db.value<string>('SELECT status FROM lesson_plans WHERE id=?', id) === 'writing'; i++) await wait(5000);
+    log(`备课：${db.value<string>('SELECT status FROM lesson_plans WHERE id=?', id)}`);
+  }
+  log('演示班重来好了');
+}
+
+async function regrade(list: { id: number; title: string }[], log: Log) {
   for (const a of list) {
     const n = gradeAssignment(a.id, { redo: true });
     if (n) log(`「${a.title}」重批 ${n} 份`);
   }
   for (const a of list) for (let i = 0; i < 720 && gradingCount(a.id) > 0; i++) await wait(5000);
-  for (const a of list) {
-    if (!db.get("SELECT 1 FROM hw_reviews WHERE assignment_id=? AND status='ready'", a.id)) continue;
-    await writeReview(a.id);
-    log(`「${a.title}」讲评重写好了`);
-  }
-  const asks = db.all<{ id: number }>("SELECT id FROM student_asks WHERE class_id=? AND status='teacher' AND card_run_id IS NOT NULL ORDER BY id", classId);
-  for (const ask of asks) {
-    try {
-      log(`卡片 ${ask.id}${(await rewriteCard(ask.id)) ? ' 重写好了' : ' 没动（助教这回没转老师）'}`);
-    } catch (err) {
-      log(`卡片 ${ask.id} 没重写成：${(err as Error).message}`);
-    }
-  }
-  log('演示班重来好了');
 }
 
 /** 服务重启：演示班后面那几步没做完的接着做 */
@@ -236,11 +256,11 @@ export function watchDemoRequest() {
   const check = () => {
     if (!existsSync(file)) return;
     let teacher = 't0',
-      refresh = false;
+      refresh: boolean | Step[] = false;
     try {
       const want = JSON.parse(readFileSync(file, 'utf8'));
       teacher = String(want.teacher || 't0');
-      refresh = want.refresh === true;
+      refresh = want.refresh === true ? true : Array.isArray(want.refresh) ? want.refresh.filter((s: unknown): s is Step => STEPS.includes(s as Step)) : false;
     } catch {}
     const running = join(config.dataDir, 'seed-demo.running.json');
     try {
