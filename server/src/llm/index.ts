@@ -4,6 +4,7 @@ import { decrypt } from '../lib/crypto.js';
 import { HttpError } from '../lib/http.js';
 import { estimateTokens, truncate } from '../lib/text.js';
 import { anthropicAdapter } from './adapters/anthropic.js';
+import { agyAdapter } from './adapters/agy.js';
 import { geminiAdapter } from './adapters/gemini.js';
 import { openaiAdapter } from './adapters/openai.js';
 import { LlmError, textOf, type Adapter, type Delta, type Effort, type Msg, type Protocol, type ProviderConn, type ToolCall, type ToolSpec } from './types.js';
@@ -12,6 +13,8 @@ export * from './types.js';
 
 const adapters: Record<Protocol, Adapter> = { openai: openaiAdapter, anthropic: anthropicAdapter, gemini: geminiAdapter };
 export const adapterFor = (p: Protocol) => adapters[p];
+/** 服务器本机的 Gemini 接口登记成 OpenAI 写法（kind='agy'），但它不收工具，走自己的接法 */
+const adapterOf = (conn: ProviderConn) => (conn.kind === 'agy' ? agyAdapter : adapters[conn.protocol]);
 
 export interface ModelRef {
   modelRowId: number;
@@ -72,8 +75,10 @@ export interface CallOptions {
   signal?: AbortSignal;
   /** 是否计入用户每日额度 */
   countQuota?: boolean;
-  /** 这一次思考不思考、开到哪一档（只对会思考的 DeepSeek 起作用）；不传按模型设置 */
+  /** 这一次思考不思考、开到哪一档（DeepSeek 和 Gemini 起作用）；不传按模型设置 */
   think?: 'off' | Effort;
+  /** 主模型多少毫秒还没动静就换备用模型；不传用设置项 first_token_timeout_ms（45 秒） */
+  firstTokenMs?: number;
 }
 
 export interface CallResult {
@@ -168,11 +173,12 @@ export async function* streamChat(
   const primary = modelRef(o.modelRowId) || defaultModelRef();
   if (!primary) throw new HttpError(503, '尚未配置可用的大模型，请管理员在「模型服务」中接入');
   const chain: ModelRef[] = [primary];
-  const fb = modelRef(o.fallbackModelRowId);
+  // 没指定备用的，用设置里的备用模型
+  const fb = modelRef(o.fallbackModelRowId ?? getSetting<number | null>('fallback_model_id', null));
   if (fb && fb.modelRowId !== primary.modelRowId) chain.push(fb);
 
   // 首字看门狗：主模型迟迟不出字时直接切换备用模型，不让用户干等
-  const firstTokenMs = getSetting<number>('first_token_timeout_ms', 45_000);
+  const firstTokenMs = o.firstTokenMs ?? getSetting<number>('first_token_timeout_ms', 45_000);
   let lastErr: unknown;
   for (let ci = 0; ci < chain.length; ci++) {
     const ref = chain[ci];
@@ -194,7 +200,7 @@ export async function* streamChat(
       const watchdog =
         hasNext && firstTokenMs > 0 ? setTimeout(() => ((stalled = true), ctrl.abort(new Error('first-token-timeout'))), firstTokenMs) : undefined;
       try {
-        const gen = adapters[ref.conn.protocol].stream(ref.conn, {
+        const gen = adapterOf(ref.conn).stream(ref.conn, {
           model: ref.model,
           messages: o.messages,
           tools,
@@ -287,7 +293,7 @@ export async function testProvider(conn: ProviderConn, model?: string) {
     models: null,
   };
   try {
-    const list = await adapters[conn.protocol].listModels(conn);
+    const list = await adapterOf(conn).listModels(conn);
     result.models = list.length;
   } catch (err: any) {
     result.listError = err?.message || String(err);
@@ -295,7 +301,7 @@ export async function testProvider(conn: ProviderConn, model?: string) {
   if (model) {
     try {
       let reply = '';
-      const gen = adapters[conn.protocol].stream(conn, {
+      const gen = adapterOf(conn).stream(conn, {
         model,
         messages: [{ role: 'user', content: '请只回复“连接成功”四个字。' }],
         maxTokens: 64,

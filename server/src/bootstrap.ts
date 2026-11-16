@@ -10,6 +10,7 @@ import { encrypt, hashPassword, randomToken } from './lib/crypto.js';
 export async function bootstrap() {
   ensureRoot();
   ensureProviderFromEnv();
+  ensureAgyFromEnv();
   await ensureDemo();
   ensureDemoStudent();
   await migrateOwnership();
@@ -66,6 +67,50 @@ function ensureProviderFromEnv() {
   setSetting('default_model_id', mid);
   setSetting('providers_bootstrapped', true);
   console.log('[bootstrap] 已接入 DeepSeek V4.1 Flash');
+}
+
+/**
+ * 有服务器本机的 Gemini 接口（环境变量 CT_AGY_URL，比如 http://127.0.0.1:8467/v1）就接上 Gemini 4 Hydrogen（CT_AGY_MODEL 可换），
+ * 第一次接上时设成默认模型，原来的默认（DeepSeek）当备用：它出错或一直没动静就换 DeepSeek。
+ */
+function ensureAgyFromEnv() {
+  const url = process.env.CT_AGY_URL?.trim();
+  if (!url) return;
+  const model = process.env.CT_AGY_MODEL?.trim() || 'gemini-4-hydrogen';
+  const t = now();
+  let pid = db.value<number>("SELECT id FROM providers WHERE kind='agy' ORDER BY id LIMIT 1");
+  if (!pid)
+    pid = db.insert('providers', {
+      name: 'Gemini 接口（服务器本机）',
+      kind: 'agy',
+      protocol: 'openai',
+      base_url: url,
+      api_key_enc: encrypt(''),
+      headers: {},
+      enabled: 1,
+      sort: 0,
+      created_at: t,
+      updated_at: t,
+    });
+  else db.update('providers', pid, { base_url: url, updated_at: t });
+  let mid = db.value<number>('SELECT id FROM models WHERE provider_id=? AND model=?', pid, model);
+  if (!mid)
+    mid = db.insert('models', {
+      provider_id: pid,
+      model,
+      label: 'Gemini 4 Hydrogen',
+      caps: { chat: true, tools: true, vision: true, reasoning: true },
+      context_window: 1_000_000,
+      enabled: 1,
+      sort: 0,
+      created_at: t,
+    });
+  if (getSetting('agy_default_set', false)) return;
+  const old = getSetting<number | null>('default_model_id', null);
+  if (old && old !== mid) setSetting('fallback_model_id', old);
+  setSetting('default_model_id', mid);
+  setSetting('agy_default_set', true);
+  console.log(`[bootstrap] 默认模型换成 Gemini 接口的 ${model}，原来的默认模型当备用`);
 }
 
 async function ensureDemo() {

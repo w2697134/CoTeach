@@ -30,6 +30,11 @@ export type ModelStep = (o: {
  */
 const THINK_KEY: Record<Agent, string> = { ta: 'ta_think', stu: 'stu_think', helper: 'helper_think', grader: 'grader_think' };
 export const thinkOf = (agent: Agent) => getSetting<'off' | Effort>(THINK_KEY[agent], 'high');
+/**
+ * 主模型（Gemini）多久没动静就换 DeepSeek：跟人对话的等一分钟，批作业、写讲评这种后台的活等五分钟。
+ * Gemini 接口只有一个号、同时最多两个请求，还跟别的项目共用，忙的时候要排队。
+ */
+const WAIT_MS: Record<Agent, number> = { ta: 60_000, stu: 60_000, helper: 90_000, grader: 300_000 };
 
 const deepseekStep: ModelStep = async (o) => {
   let text = '';
@@ -45,6 +50,7 @@ const deepseekStep: ModelStep = async (o) => {
     signal: o.signal,
     countQuota: false,
     think,
+    firstTokenMs: WAIT_MS[o.agent],
     // 想的字也算在这个上限里：开着思考放宽（只按实际用的算钱）
     maxTokens: think === 'off' ? 4000 : 32000,
   })) {
