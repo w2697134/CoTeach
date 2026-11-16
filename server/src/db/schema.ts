@@ -646,3 +646,19 @@ CREATE TABLE class_insights (
   updated_at INTEGER NOT NULL
 );
 `);
+
+// 备课（2026-11-16）：老师在「备课」里选一个班点「备下节课」，助教照知识库里的教案、课件和这个班的学情写一份教案，能下载 Word
+migrations.push(`
+CREATE TABLE lesson_plans (
+  id INTEGER PRIMARY KEY,
+  class_id INTEGER NOT NULL REFERENCES classes(id),
+  teacher_id INTEGER NOT NULL REFERENCES users(id),
+  topic TEXT,
+  status TEXT NOT NULL,
+  data TEXT,
+  error TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE INDEX idx_lesson_plans_class ON lesson_plans(class_id, id);
+`);

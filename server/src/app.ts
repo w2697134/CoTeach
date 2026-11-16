@@ -17,6 +17,7 @@ import { gradingRoutes } from './grading/routes.js';
 import { adminRoutes } from './routes/admin.js';
 import { setInternalApp } from './assistant/api.js';
 import { cotRoutes } from './assistant/routes.js';
+import { prepRoutes } from './grading/prep-routes.js';
 
 export function createApp() {
   const app = new Hono<AppEnv>();
@@ -58,6 +59,7 @@ export function createApp() {
   app.route('/api/classes', classRoutes);
   app.route('/api/homework', homeworkRoutes);
   app.route('/api/homework', gradingRoutes);
+  app.route('/api/prep', prepRoutes);
   app.route('/api/admin', adminRoutes);
   app.route('/api/cot', cotRoutes);
 
