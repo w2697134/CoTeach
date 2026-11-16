@@ -1,6 +1,6 @@
 import { db, now } from '../../db/index.js';
 import { HttpError } from '../../lib/http.js';
-import { chat } from '../../llm/index.js';
+import { chat, defaultModelRef } from '../../llm/index.js';
 import type { ToolSpec } from '../../llm/types.js';
 import type { VisionImage } from './images.js';
 
@@ -57,9 +57,8 @@ export function cachedVision(key: string): string | undefined {
 export async function readImage(image: VisionImage, key: string, ctx: { userId: number; signal?: AbortSignal; concurrency: number }): Promise<string> {
   const hit = cachedVision(key);
   if (hit !== undefined) return hit;
-  const model = db.get<{ id: number }>(
-    "SELECT m.id FROM models m JOIN providers p ON p.id=m.provider_id WHERE m.model='deepseek-flash' AND m.enabled=1 AND p.enabled=1 ORDER BY m.id LIMIT 1",
-  );
+  // 认字用默认模型（2026-11-16 起是 Gemini），它不行换备用的 DeepSeek（llm 那层管）
+  const model = defaultModelRef() ? { id: defaultModelRef()!.modelRowId } : null;
   if (!model) throw new VisionUnavailable('图片里的字暂时认不了：整理服务没有接好', '请联系管理员检查后，再点「接着读」');
   return slot(ctx.concurrency, async () => {
     const again = cachedVision(key);

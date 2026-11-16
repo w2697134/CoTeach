@@ -1,71 +1,18 @@
 /**
- * 外壳：整理助手的每一轮就是跑一次 Claude Code（命令行版），背后的模型是 DeepSeek（走它兼容 Anthropic 的接口）。
- * 照新工坊的做法：给它老师的桌面当工作目录，只放开自带的读写查找和 ct 命令，接着同一段对话说（--resume）。
- * 它的输出（stream-json）一行一条，这里翻成工作记录：读了什么、写了什么、说了什么。
+ * 外壳：整理助手的一轮。
+ * 以前每一轮起一个 Claude Code（命令行版，背后是 DeepSeek），它只能接带工具的 Anthropic 写法；现在在服务里直接跟模型来回，
+ * 默认是服务器上的 Gemini，出错或一直没动静换 DeepSeek（llm 那层管）。
+ * 工作目录还是老师的桌面（老师所有的知识库，一个文件夹一个）。工具：读、写、改、看目录、查找，都只在桌面里；
+ * 挪、删、存、交改动、看改动、撤回、新建改名删除知识库照旧用 ct 命令（commands.ts），只是不再绕本机接口。
+ * 一段对话记在 agent_messages（thread 就是 sessionId），接着说就是接着这一段；太长了把前面压成概要。
  */
-import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
-import { delimiter, dirname, isAbsolute, join, relative, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { config } from '../../config.js';
-import { db, now } from '../../db/index.js';
-import { providerConn } from '../../llm/index.js';
-import { agentDir } from './desk.js';
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
+import { db, getSetting } from '../../db/index.js';
+import { streamChat, type Effort, type Msg, type ToolCall, type ToolSpec } from '../../llm/index.js';
+import { append, compact, requestMessages, stored } from '../../assistant/thread.js';
+import { USAGE } from './commands.js';
 import { publish, record, type RunRef } from './events.js';
-
-const here = dirname(fileURLToPath(import.meta.url));
-
-/** Claude Code 程序：生产上是服务器装好的那个，本机测量时用环境变量指定 */
-export function claudeBin() {
-  if (process.env.CT_CLAUDE) return process.env.CT_CLAUDE;
-  return process.platform === 'win32' ? 'claude' : '/usr/local/bin/claude';
-}
-
-/** ct 命令：一个很小的脚本，把整理助手敲的命令转给服务器（带这一轮的口令） */
-export function ctBinDir() {
-  const dir = join(config.dataDir, 'agent', 'bin');
-  mkdirSync(dir, { recursive: true });
-  const cli = [join(here, 'ct.mjs'), resolve(here, '..', '..', '..', 'dist', 'ct.mjs')].find((p) => existsSync(p)) || join(here, 'ct.mjs');
-  const node = process.execPath.replace(/\\/g, '/');
-  writeFileSync(join(dir, 'ct'), `#!/bin/sh\nexec "${node}" "${cli.replace(/\\/g, '/')}" "$@"\n`, { mode: 0o755 });
-  writeFileSync(join(dir, 'bash-gate.mjs'), GATE);
-  return dir;
-}
-
-/**
- * 跑命令前的关卡：只放行 ct（Claude Code 自己会放行 ls、cat 这类「只看」的命令，服务器上实测放行了，
- * 那样能看到桌面外面的东西，所以这里一律只认 ct）。双引号里的 $、反引号也不行，那会在 shell 里展开执行。
- */
-const GATE = `let s='';process.stdin.on('data',c=>s+=c).on('end',()=>{let cmd='';try{cmd=String(JSON.parse(s).tool_input?.command||'')}catch{}
-let bad=false;let rest=cmd.replace(/'[^']*'/g,"''").replace(/"((?:[^"\\\\]|\\\\.)*)"/g,(m,inner)=>{if(/[\`$\\\\]/.test(inner))bad=true;return '""'});
-if(/[;&|<>()\`$\\n\\r\\\\]/.test(rest))bad=true;
-if(!bad&&/^\\s*ct(\\s|$)/.test(rest))process.exit(0);
-process.stderr.write('只能用 ct 命令（ct 帮助 看用法），别的命令用不了');process.exit(2)});
-`;
-
-function gateSettings(bin: string) {
-  const node = process.execPath.replace(/\\/g, '/');
-  const gate = join(bin, 'bash-gate.mjs').replace(/\\/g, '/');
-  return JSON.stringify({ hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: `"${node}" "${gate}"` }] }] } });
-}
-
-/** 整理助手用的模型：DeepSeek 官方，走它兼容 Anthropic 的口子 */
-export function agentModel() {
-  const row = db.get<any>(
-    `SELECT m.id AS mid, m.model, p.* FROM models m JOIN providers p ON p.id=m.provider_id
-     WHERE m.model='deepseek-flash' AND m.enabled=1 AND p.enabled=1 ORDER BY m.id LIMIT 1`,
-  );
-  if (!row) throw new Error('DeepSeek V4.1 Flash 当前不可用，请检查模型配置');
-  const conn = providerConn(row);
-  const base = String(conn.baseUrl || '').replace(/\/+$/, '');
-  return {
-    modelRowId: row.mid as number,
-    providerId: row.id as number,
-    model: row.model as string,
-    baseUrl: conn.protocol === 'anthropic' ? base : base.replace(/\/v1$/, '') + '/anthropic',
-    key: conn.apiKey,
-  };
-}
 
 export interface TurnRun {
   ref: RunRef;
@@ -80,8 +27,8 @@ export interface TurnRun {
   /** 一轮最长多久，多久没动静算卡住 */
   turnMs: number;
   quietMs: number;
-  /** ct 命令找服务器用的口令 */
-  token: string;
+  /** ct 命令：这一轮的（挪、删、存、交……） */
+  ct: (args: string[]) => Promise<{ ok: boolean; text: string }>;
   userId: number;
   purpose: string;
   signal: AbortSignal;
@@ -95,255 +42,258 @@ export interface TurnResult {
   lostSession: boolean;
 }
 
-/** 桌面上的绝对路径换成「知识库文件夹/里面的路径」 */
-function deskPath(cwd: string, p: unknown) {
-  if (typeof p !== 'string' || !p) return '';
-  const abs = isAbsolute(p) ? p : join(cwd, p);
+const str = (description: string) => ({ type: 'string', description });
+const num = (description: string) => ({ type: 'number', description });
+const obj = (properties: Record<string, unknown>, required: string[] = []) => ({ type: 'object', properties, required });
+const PATH = str('从工作目录算起的路径，第一段是知识库的文件夹');
+
+export const TOOLS: ToolSpec[] = [
+  { name: 'read_file', description: '读一份文字文件，每行前面带行号。', parameters: obj({ path: PATH, offset: num('从第几行读，默认从头'), limit: num('读几行，默认 400') }, ['path']) },
+  { name: 'write_file', description: '写一份文字文件：没有就新建，有就整份换掉。', parameters: obj({ path: PATH, content: str('全文') }, ['path', 'content']) },
+  {
+    name: 'edit_file',
+    description: '改一份文字文件里的一段：old 要跟原文一字不差，而且只出现一次（all 为 true 时每处都换）。',
+    parameters: obj({ path: PATH, old: str('原来那段'), new: str('换成'), all: { type: 'boolean', description: '每处都换' } }, ['path', 'old', 'new']),
+  },
+  { name: 'list_files', description: '看一个文件夹里有什么（连下面的子文件夹）。', parameters: obj({ path: str('文件夹；不写是工作目录，能看到所有知识库') }) },
+  { name: 'search', description: '在文字文件里查一段字，返回在哪份文件第几行。', parameters: obj({ text: str('要查的字'), path: str('只在这个文件夹里查；不写查全部') }, ['text']) },
+  {
+    name: 'ct',
+    description: `整理助手的命令，args 是 ct 后面那几段，比如 ["交", "改了什么", "依据"]。\n${USAGE}`,
+    parameters: obj({ args: { type: 'array', items: { type: 'string' } } }, ['args']),
+  },
+];
+
+const MAX_READ = 40_000;
+const isText = (b: Buffer) => !b.subarray(0, 8000).includes(0);
+
+/** 桌面里的路径：不许出桌面 */
+function inside(cwd: string, p: unknown): { abs: string; rel: string } {
+  const raw = String(p ?? '')
+    .trim()
+    .replace(/\\/g, '/');
+  const abs = resolve(cwd, isAbsolute(raw) ? relative('/', raw) : raw || '.');
   const rel = relative(cwd, abs).replace(/\\/g, '/');
-  return rel.startsWith('..') ? '' : rel;
+  if (rel.startsWith('..') || isAbsolute(rel)) throw new Error('只能用工作目录里的文件');
+  return { abs, rel };
 }
 
-/** Claude Code 自带工具的一步翻成工作记录（ct 命令那边自己记） */
-function toolEvent(cwd: string, name: string, input: any): Record<string, unknown> | null {
-  switch (name) {
-    case 'Read':
-      return { name: 'read_file', label: '读', path: deskPath(cwd, input?.file_path) };
-    case 'Write':
-      return { name: 'write_file', label: '写', path: deskPath(cwd, input?.file_path), chars: String(input?.content ?? '').length };
-    case 'Edit':
-    case 'MultiEdit':
-      return { name: 'edit_file', label: '改', path: deskPath(cwd, input?.file_path) };
-    case 'Glob': {
-      // 看的是哪个库、哪个文件夹：没给目录就从查找的样式里取开头那一段（不带通配符的）
-      const lead = String(input?.pattern ?? '')
-        .split('/')
-        .filter((seg) => seg && !/[*?[\]{}]/.test(seg))
-        .slice(0, 2)
-        .join('/');
-      return { name: 'list_files', label: '看目录', path: deskPath(cwd, input?.path) || lead };
+/** 一个文件夹下面所有的文件（不看点开头的），最多这么多个 */
+function walk(dir: string, limit: number, out: string[] = [], base = dir): string[] {
+  let names: string[] = [];
+  try {
+    names = readdirSync(dir).sort((a, b) => a.localeCompare(b, 'zh'));
+  } catch {
+    return out;
+  }
+  for (const n of names) {
+    if (out.length >= limit) break;
+    if (n.startsWith('.')) continue;
+    const p = join(dir, n);
+    const st = statSync(p);
+    const rel = relative(base, p).replace(/\\/g, '/');
+    if (st.isDirectory()) {
+      out.push(rel + '/');
+      walk(p, limit, out, base);
+    } else out.push(rel);
+  }
+  return out;
+}
+
+/** 跑一个工具：返回给模型的话，和要记给老师看的那一条（ct 那边自己记） */
+async function runTool(t: TurnRun, call: ToolCall): Promise<{ out: string; ev: Record<string, unknown> | null }> {
+  const a = call.args || {};
+  switch (call.name) {
+    case 'read_file': {
+      const { abs, rel } = inside(t.cwd, a.path);
+      const ev = { name: 'read_file', label: '读', path: rel };
+      if (!existsSync(abs)) throw Object.assign(new Error('没有这个文件'), { ev });
+      if (statSync(abs).isDirectory()) return { out: walk(abs, 300).join('\n') || '（空文件夹）', ev: { name: 'list_files', label: '看目录', path: rel } };
+      const b = readFileSync(abs);
+      if (!isText(b)) throw Object.assign(new Error('这是原件（不是文字），读它旁边转出来的文字版'), { ev });
+      const lines = b.toString('utf8').split('\n');
+      const from = Math.max(0, Math.round(Number(a.offset) || 1) - 1);
+      const n = Math.max(1, Math.round(Number(a.limit) || 400));
+      let text = lines
+        .slice(from, from + n)
+        .map((l, i) => `${from + i + 1}\t${l}`)
+        .join('\n');
+      if (text.length > MAX_READ) text = text.slice(0, MAX_READ) + '\n（太长，后面没读，分段读）';
+      const rest = lines.length - from - n;
+      return { out: (text || '（空文件）') + (rest > 0 ? `\n（还有 ${rest} 行，接着读 offset=${from + n + 1}）` : ''), ev };
     }
-    case 'Grep':
-      return { name: 'search', label: '查找', text: String(input?.pattern ?? '').slice(0, 200) };
+    case 'write_file': {
+      const { abs, rel } = inside(t.cwd, a.path);
+      const content = String(a.content ?? '');
+      const ev = { name: 'write_file', label: '写', path: rel, chars: content.length };
+      if (!rel || existsSync(abs) && statSync(abs).isDirectory()) throw Object.assign(new Error('要写的是一份文件，不是文件夹'), { ev });
+      mkdirSync(dirname(abs), { recursive: true });
+      writeFileSync(abs, content);
+      return { out: `写好了「${rel}」`, ev };
+    }
+    case 'edit_file': {
+      const { abs, rel } = inside(t.cwd, a.path);
+      const ev = { name: 'edit_file', label: '改', path: rel };
+      if (!existsSync(abs)) throw Object.assign(new Error('没有这个文件'), { ev });
+      const text = readFileSync(abs, 'utf8');
+      const old = String(a.old ?? '');
+      if (!old) throw Object.assign(new Error('要改的那段没写'), { ev });
+      const n = text.split(old).length - 1;
+      if (!n) throw Object.assign(new Error('要改的那段没找到，先读一遍再改'), { ev });
+      if (n > 1 && a.all !== true) throw Object.assign(new Error(`要改的那段有 ${n} 处，多带几个字让它只出现一次，或者 all 写 true`), { ev });
+      writeFileSync(abs, a.all === true ? text.split(old).join(String(a.new ?? '')) : text.replace(old, () => String(a.new ?? '')));
+      return { out: `改好了「${rel}」${n > 1 ? `（${n} 处）` : ''}`, ev };
+    }
+    case 'list_files': {
+      const { abs, rel } = inside(t.cwd, a.path);
+      const ev = { name: 'list_files', label: '看目录', path: rel };
+      if (!existsSync(abs)) throw Object.assign(new Error('没有这个文件夹'), { ev });
+      const list = walk(abs, 400);
+      return { out: list.length ? list.join('\n') + (list.length >= 400 ? '\n（太多，只列了前 400 个）' : '') : '（空文件夹）', ev };
+    }
+    case 'search': {
+      const q = String(a.text ?? '').trim();
+      const ev = { name: 'search', label: '查找', text: q.slice(0, 200) };
+      if (!q) throw Object.assign(new Error('要查什么没写'), { ev });
+      const { abs } = inside(t.cwd, a.path);
+      const hits: string[] = [];
+      const low = q.toLowerCase();
+      for (const f of walk(abs, 3000)) {
+        if (f.endsWith('/') || hits.length >= 60) continue;
+        const p = join(abs, f);
+        let b: Buffer;
+        try {
+          if (statSync(p).size > 2_000_000) continue;
+          b = readFileSync(p);
+        } catch {
+          continue;
+        }
+        if (!isText(b)) continue;
+        b.toString('utf8')
+          .split('\n')
+          .forEach((line, i) => {
+            if (hits.length < 60 && line.toLowerCase().includes(low)) hits.push(`${relative(t.cwd, p).replace(/\\/g, '/')}:${i + 1}: ${line.trim().slice(0, 160)}`);
+          });
+      }
+      return { out: hits.length ? hits.join('\n') : `没找到「${q}」`, ev };
+    }
+    case 'ct': {
+      const args = (Array.isArray(a.args) ? a.args : String(a.args ?? '').split(/\s+/)).slice(0, 20).map((x: unknown) => String(x ?? '').slice(0, 4000));
+      const r = await t.ct(args);
+      return { out: r.text, ev: null };
+    }
     default:
-      return null;
+      return { out: `没有「${call.name}」这个工具`, ev: null };
   }
 }
 
-/**
- * 自带工具出错：原话是给整理助手看的（英文、带服务器上的路径），记给老师看的换成一句话。
- * 以前原样记下，老师那边看到「EISDIR: illegal operation on a directory, read '/…/work/…'」（2026-11-11）。
- */
-function errorText(cwd: string, content: unknown) {
-  const s = (typeof content === 'string' ? content : Array.isArray(content) ? content.map((c: any) => c?.text || '').join('') : '')
-    .replace(/<\/?tool_use_error>/g, '')
-    .trim();
-  // 拿读文件去读一个文件夹：是它在看文件夹里有什么（ls 用不了），不是事情没做成，老师那边不记（真实资料测试 16 遍里 5 遍有，2026-11-11）
-  if (/EISDIR|is a directory/i.test(s)) return null;
-  if (/has not been read yet|read it first/i.test(s)) return '要先读一遍再改';
-  if (/modified since read/i.test(s)) return '读过以后又变了，要重新读';
-  if (/String to replace not found/i.test(s)) return '要改的那段没找到';
-  if (/Found \d+ matches/i.test(s)) return '要改的那段有好几处';
-  if (/exceeds maximum|too large|too long/i.test(s)) return '太长了，要分段读';
-  if (/ENOENT|does not exist|no such file/i.test(s)) return '没有这个文件';
-  if (/EACCES|EPERM|read-?only/i.test(s)) return '原件是只读的，不能改';
-  // 想看桌面以外的地方被挡回去：是边界在起作用，不是事情没做成，老师那边不记
-  if (/denied|not allowed|permission/i.test(s)) return null;
-  const plain = s
-    .split(cwd)
-    .join('')
-    .replace(/[A-Za-z]:\\[^\s'"，。]*|\/(?:root|var|home|tmp|opt|srv|usr)\/[^\s'"，。]*/g, '');
-  return /[㐀-鿿]/.test(plain) ? plain.slice(0, 200) : '没做成';
+/** 出错的话：给模型看原话；记给老师看的不带服务器上的路径，英文的不记 */
+function shown(cwd: string, msg: string) {
+  if (/EACCES|EPERM|read-?only/i.test(msg)) return '原件是只读的，不能改';
+  const plain = msg.split(cwd).join('');
+  return /[㐀-鿿]/.test(plain) ? plain.slice(0, 200) : null;
 }
 
-function kill(pid: number | undefined) {
-  if (!pid) return;
-  if (process.platform === 'win32') spawnSync('taskkill', ['/pid', String(pid), '/T', '/F'], { stdio: 'ignore' });
-  else
-    try {
-      process.kill(-pid, 'SIGKILL');
-    } catch {
-      /* 已经结束 */
+/** 调一步模型（测试里换成写好的） */
+export type KeeperStep = (o: { messages: Msg[]; tools: ToolSpec[]; userId: number; purpose: string; signal: AbortSignal }) => Promise<{ text: string; toolCalls: ToolCall[]; reasoning?: string }>;
+const modelStep: KeeperStep = async (o) => {
+  let text = '';
+  let reasoning = '';
+  const toolCalls: ToolCall[] = [];
+  const think = getSetting<'off' | Effort>('keeper_think', 'high');
+  for await (const d of streamChat({
+    agentKey: 'keeper',
+    messages: o.messages,
+    tools: o.tools,
+    userId: o.userId,
+    purpose: o.purpose,
+    signal: o.signal,
+    countQuota: false,
+    think,
+    firstTokenMs: 120_000,
+    maxTokens: 32000,
+  })) {
+    if (d.type === 'text') text += d.text;
+    else if (d.type === 'reasoning') reasoning += d.text;
+    else if (d.type === 'tool') toolCalls.push(d.call);
+    else if (d.type === 'model') {
+      text = '';
+      reasoning = '';
+      toolCalls.length = 0;
     }
+  }
+  return { text, toolCalls, ...(reasoning ? { reasoning } : {}) };
+};
+let step: KeeperStep = modelStep;
+/** 测试用：换成写好的回答；传 null 换回真的模型 */
+export function setKeeperStep(fn: KeeperStep | null) {
+  step = fn ?? modelStep;
 }
+
+const COMPACT = '把前面整理助手和老师的对话压成一段概要：老师交代过的要求和偏好、做过哪些整理（改了哪些知识库的哪些文件）、老师确认或撤回了什么、还没办完的事。';
 
 export async function runTurn(t: TurnRun): Promise<TurnResult> {
-  const m = agentModel();
-  const home = agentDir(t.ref.teacherId);
-  mkdirSync(join(home, 'config'), { recursive: true });
-  mkdirSync(join(home, 'home'), { recursive: true });
-  const bin = ctBinDir();
-  const base: NodeJS.ProcessEnv =
-    process.platform === 'win32'
-      ? Object.fromEntries(Object.entries(process.env).filter(([k]) => !/^(ANTHROPIC|CLAUDE|HTTPS?_PROXY|NO_PROXY)/i.test(k)))
-      : { PATH: '/usr/local/bin:/usr/bin:/bin', LANG: 'C.UTF-8' };
-  const env: NodeJS.ProcessEnv = {
-    ...base,
-    HOME: join(home, 'home'),
-    CLAUDE_CONFIG_DIR: join(home, 'config'),
-    PATH: `${bin}${delimiter}${base.PATH || base.Path || ''}`,
-    ANTHROPIC_BASE_URL: m.baseUrl,
-    ANTHROPIC_AUTH_TOKEN: m.key,
-    ANTHROPIC_MODEL: m.model,
-    ANTHROPIC_DEFAULT_OPUS_MODEL: m.model,
-    ANTHROPIC_DEFAULT_SONNET_MODEL: m.model,
-    ANTHROPIC_DEFAULT_HAIKU_MODEL: m.model,
-    CLAUDE_CODE_SUBAGENT_MODEL: m.model,
-    CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
-    CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1',
-    DISABLE_AUTOUPDATER: '1',
-    API_TIMEOUT_MS: '600000',
-    CT_AGENT_URL: `http://127.0.0.1:${config.port}/internal/agent`,
-    CT_AGENT_TOKEN: t.token,
-  };
-  if (process.platform === 'win32') delete env.Path;
-  const args = [
-    '-p',
-    '--model',
-    m.model,
-    '--effort',
-    process.env.CT_AGENT_EFFORT || 'medium',
-    '--max-turns',
-    String(t.maxTurns),
-    '--setting-sources',
-    '',
-    '--settings',
-    gateSettings(bin),
-    '--tools',
-    'Read,Write,Edit,Glob,Grep,Bash',
-    // 读、找、写都只在老师自己的桌面里（找文件、搜内容不单独放开：在桌面里照样能用，往外就被拦下，2026-11-10 实测）
-    '--allowedTools',
-    'Bash(ct:*),Read(./**),Write(./**),Edit(./**)',
-    '--permission-mode',
-    'dontAsk',
-    '--output-format',
-    'stream-json',
-    '--include-partial-messages',
-    '--verbose',
-    '--system-prompt',
-    t.systemPrompt,
-    ...(t.sessionId ? ['--resume', t.sessionId] : []),
-  ];
-  const t0 = Date.now();
-  const out: TurnResult = { sessionId: t.sessionId, reply: '', error: null, lostSession: false };
-  const usage = { input: 0, output: 0 };
-  const pending = new Map<string, { name: string; input: any }>();
-  let pendingText = '';
-  let stderr = '';
-  let last = Date.now();
-  const child = spawn(claudeBin(), args, { cwd: t.cwd, env, stdio: ['pipe', 'pipe', 'pipe'], detached: process.platform !== 'win32', windowsHide: true });
-  const stop = () => kill(child.pid);
+  const owner = t.ref.teacherId;
+  const exists = (k: string) => !!db.value('SELECT 1 FROM agent_messages WHERE owner_id=? AND thread=? LIMIT 1', owner, k);
+  if (t.sessionId && !exists(t.sessionId)) return { sessionId: t.sessionId, reply: '', error: null, lostSession: true };
+  const sid = t.sessionId || `keeper:${owner}:${t.ref.runId}`;
+  const out: TurnResult = { sessionId: sid, reply: '', error: null, lostSession: false };
+  const ctrl = new AbortController();
+  const stop = () => ctrl.abort(t.signal.reason);
   t.signal.addEventListener('abort', stop, { once: true });
+  const t0 = Date.now();
+  let last = Date.now();
   const watch = setInterval(() => {
     const n = Date.now();
     if (n - t0 > t.turnMs || n - last > t.quietMs) {
       out.error ||= '这一轮太久或卡住了，已停下';
-      stop();
+      ctrl.abort(new Error('timeout'));
     }
   }, 5000);
-  child.stdin.end(t.message);
-  child.stderr.on('data', (c) => {
-    stderr = (stderr + String(c)).slice(-4000);
-  });
-  /**
-   * 一步之间说的话：后面接着用工具的，记成工作记录里的一句；最后那段是回给老师的话。
-   * 没有中文的不记：那是它自言自语（221 句里有 1 句英文「I'll start by surveying…」，2026-11-11），老师看不懂也用不着。
-   */
-  const flushSay = () => {
-    const s = pendingText.trim();
-    pendingText = '';
-    if (s && /[㐀-鿿]/.test(s)) record(t.ref, 'say', { text: s });
-  };
-  let buf = '';
-  const handle = (line: string) => {
-    let e: any;
-    try {
-      e = JSON.parse(line);
-    } catch {
-      return;
-    }
-    last = Date.now();
-    if (e.session_id) out.sessionId = e.session_id;
-    if (e.type === 'stream_event') {
-      const ev = e.event;
-      if (ev?.type === 'content_block_delta' && ev.delta?.type === 'text_delta' && ev.delta.text)
-        publish(t.ref, 'delta', { runId: t.ref.runId, text: ev.delta.text });
-      return;
-    }
-    if (e.type === 'assistant') {
-      for (const b of e.message?.content || []) {
-        if (b.type === 'text' && b.text) pendingText += b.text;
-        else if (b.type === 'tool_use') {
-          flushSay();
-          pending.set(b.id, { name: b.name, input: b.input });
+  try {
+    if (t.sessionId)
+      await compact({ ownerId: owner, key: sid, signal: ctrl.signal, who: { user: '老师', agent: '整理助手' }, instruction: COMPACT, agentKey: 'keeper', purpose: 'keeper:compact' }).catch(() => {});
+    append(owner, sid, t.ref.runId, { role: 'user', content: t.message });
+    for (let n = 0; n < t.maxTurns; n++) {
+      ctrl.signal.throwIfAborted();
+      const r = await step({ messages: requestMessages(owner, sid, t.systemPrompt), tools: TOOLS, userId: t.userId, purpose: t.purpose, signal: ctrl.signal });
+      last = Date.now();
+      append(owner, sid, t.ref.runId, { role: 'assistant', content: r.text, ...(r.toolCalls.length ? { toolCalls: r.toolCalls } : {}), ...(r.reasoning ? { reasoning: r.reasoning } : {}) });
+      const say = r.text.trim();
+      if (!r.toolCalls.length) {
+        out.reply = say;
+        if (say) publish(t.ref, 'delta', { runId: t.ref.runId, text: say });
+        return out;
+      }
+      // 一步之间说的话记成工作记录里的一句（没有中文的是它自言自语，不记）
+      if (say && /[㐀-鿿]/.test(say)) record(t.ref, 'say', { text: say });
+      for (const call of r.toolCalls) {
+        let text: string;
+        try {
+          const { out: o, ev } = await runTool(t, call);
+          text = o;
+          if (ev) record(t.ref, 'tool', ev);
+        } catch (err) {
+          const e = err as Error & { ev?: Record<string, unknown> };
+          text = `没办成：${e.message}`;
+          const error = shown(t.cwd, e.message);
+          if (e.ev && error) record(t.ref, 'tool', { ...e.ev, error });
         }
-      }
-      return;
-    }
-    if (e.type === 'user') {
-      for (const b of e.message?.content || []) {
-        if (b.type !== 'tool_result') continue;
-        const call = pending.get(b.tool_use_id);
-        pending.delete(b.tool_use_id);
-        if (!call) continue;
-        const ev = toolEvent(t.cwd, call.name, call.input);
-        if (!ev) continue;
-        if (!b.is_error) record(t.ref, 'tool', ev);
-        else {
-          const error = errorText(t.cwd, b.content);
-          if (error) record(t.ref, 'tool', { ...ev, error });
-        }
-      }
-      return;
-    }
-    if (e.type === 'result') {
-      out.reply = String(e.result || pendingText || '').trim();
-      pendingText = '';
-      usage.input = (e.usage?.input_tokens || 0) + (e.usage?.cache_read_input_tokens || 0) + (e.usage?.cache_creation_input_tokens || 0);
-      usage.output = e.usage?.output_tokens || 0;
-      if (e.is_error) {
-        const why = String(e.result || e.subtype || '').slice(0, 300);
-        if (e.subtype === 'error_max_turns') out.error ||= '这件事步骤太多，做到一半停下了，可以接着跟它说';
-        else out.error ||= why || '整理助手没能完成';
+        append(owner, sid, t.ref.runId, { role: 'tool', toolCallId: call.id, content: text });
+        last = Date.now();
       }
     }
-  };
-  child.stdout.on('data', (c) => {
-    buf += String(c);
-    let i: number;
-    while ((i = buf.indexOf('\n')) >= 0) {
-      const line = buf.slice(0, i).trim();
-      buf = buf.slice(i + 1);
-      if (line) handle(line);
-    }
-  });
-  const code: number | null = await new Promise((done) => {
-    child.on('close', (c) => done(c));
-    child.on('error', (err) => {
-      out.error ||= `整理助手没能启动：${err.message}`;
-      done(null);
-    });
-  });
-  clearInterval(watch);
-  t.signal.removeEventListener('abort', stop);
-  if (buf.trim()) handle(buf.trim());
-  const tail = stderr.replaceAll(m.key, '<key>');
-  if (t.sessionId && /No conversation found|session.*not found/i.test(tail + out.error)) out.lostSession = true;
-  if (code && !out.reply && !out.error) out.error = `整理助手没能完成（${code}）：${tail.trim().split('\n').pop()?.slice(0, 200) || ''}`;
-  if (out.error) console.error('[agent] turn', t.ref.runId, out.error, tail.slice(-500));
-  db.insert('llm_calls', {
-    agent_key: 'keeper',
-    provider_id: m.providerId,
-    model_id: m.modelRowId,
-    model: m.model,
-    user_id: t.userId,
-    purpose: t.purpose,
-    prompt_tokens: usage.input,
-    completion_tokens: usage.output,
-    latency_ms: Date.now() - t0,
-    status: out.error ? 'error' : 'ok',
-    error: out.error,
-    request_preview: t.message.slice(0, 200),
-    created_at: now(),
-  });
-  return out;
+    out.error ||= '这件事步骤太多，做到一半停下了，可以接着跟它说';
+    return out;
+  } catch (err) {
+    if (!out.error && !t.signal.aborted) out.error = (err as Error).message || '整理助手没能完成';
+    if (out.error) console.error('[agent] turn', t.ref.runId, out.error);
+    return out;
+  } finally {
+    clearInterval(watch);
+    t.signal.removeEventListener('abort', stop);
+  }
 }
+
+/** 测试看的：这段对话记了几条 */
+export const turnMessages = (owner: number, sid: string) => stored(owner, sid, 0);

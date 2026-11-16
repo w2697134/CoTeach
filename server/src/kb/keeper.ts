@@ -679,7 +679,7 @@ async function agentTurn(
       maxTurns: opts.maxTurns,
       turnMs: opts.turnMs,
       quietMs: opts.quietMs,
-      token: turn.token,
+      ct: (args) => runCommand(turn, args),
       userId: user.id,
       purpose: opts.purpose,
       signal: opts.signal,
