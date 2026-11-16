@@ -46,7 +46,7 @@ for (const key of Object.keys(RUBRICS).filter((k) => !only || only.split(',').in
   }
 }
 
-setSetting('grade_concurrency', 8);
+setSetting('grade_concurrency', Number(process.env.GRADE_PAR || 8));
 setGradeAuto(true);
 for (const s of subs) enqueueGrade(s.sid, { release: false, redo: true });
 for (;;) {
