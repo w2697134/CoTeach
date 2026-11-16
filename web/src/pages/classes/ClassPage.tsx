@@ -9,6 +9,7 @@ import { Avatar, Button, Card, Empty, ErrorState, IconButton, MenuItem, Modal, P
 import { useClass, type ClassDetail, type ClassStudent } from './data';
 import { GradesTab } from './GradesTab';
 import { HomeworkList } from './HomeworkList';
+import { InsightsAction, InsightsTab } from './InsightsTab';
 import { CodeLine, InviteModal, InvitePanel, Projector, copyText } from './Invite';
 import { EmptyArt, ThemeBanner, themeOf, type Theme } from './look';
 import { RosterInput } from './RosterInput';
@@ -323,7 +324,7 @@ function NewPassword({ shown, onClose }: { shown: { name: string; password: stri
   );
 }
 
-type Tab = 'homework' | 'grades' | 'people';
+type Tab = 'homework' | 'insights' | 'grades' | 'people';
 const download = (href: string) => {
   const a = document.createElement('a');
   a.href = href;
@@ -340,7 +341,7 @@ export function ClassPage() {
   const q = useClass(id);
   const [params, setParams] = useSearchParams();
   const asked = params.get('tab');
-  const tab: Tab = asked === 'people' || asked === 'grades' ? asked : 'homework';
+  const tab: Tab = asked === 'people' || asked === 'grades' || (asked === 'insights' && !student) ? asked : 'homework';
   const [importing, setImporting] = useState(false),
     [inviting, setInviting] = useState(false),
     [projecting, setProjecting] = useState(false),
@@ -436,6 +437,7 @@ export function ClassPage() {
             onChange={(v) => setParams(v === 'homework' ? {} : { tab: v }, { replace: true })}
             items={[
               { value: 'homework', label: '作业' },
+              ...(student ? [] : [{ value: 'insights' as const, label: '学情' }]),
               { value: 'grades', label: '成绩' },
               { value: 'people', label: '成员' },
             ]}
@@ -444,6 +446,8 @@ export function ClassPage() {
                 <Button size="sm" variant="primary" icon={<Plus className="size-4" />} onClick={() => navigate(`/classes/${id}/homework/new`)}>
                   布置作业
                 </Button>
+              ) : tab === 'insights' ? (
+                <InsightsAction classId={id} />
               ) : tab === 'grades' ? (
                 <Button size="sm" icon={<Download className="size-4" />} onClick={() => download(`/api/homework/class/${id}/grades/export`)}>
                   导出 Excel
@@ -453,6 +457,8 @@ export function ClassPage() {
           />
           {tab === 'homework' ? (
             <HomeworkList classId={id} theme={theme} student={student} archived={!!k.archived} createAbove={false} />
+          ) : tab === 'insights' ? (
+            <InsightsTab classId={id} theme={theme} />
           ) : tab === 'grades' ? (
             <GradesTab classId={id} theme={theme} student={student} exportAbove={false} />
           ) : student ? (

@@ -132,7 +132,7 @@ export function locate(text: string, quote: string, from = 0): { start: number; 
 }
 
 /** 一次跟模型来回：记一轮在 kb_runs（agent='grader'，老师的），说的话记在 grader:轮次 那一段里 */
-export function startRun(teacherId: number, kind: 'rubric' | 'grade' | 'review', request: string, classId: number) {
+export function startRun(teacherId: number, kind: 'rubric' | 'grade' | 'review' | 'insights', request: string, classId: number) {
   return db.insert('kb_runs', {
     teacher_id: teacherId,
     agent: 'grader',

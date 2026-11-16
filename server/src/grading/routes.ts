@@ -6,7 +6,8 @@ import { z } from 'zod';
 import { audit, requireRole, type AppEnv } from '../auth.js';
 import { db } from '../db/index.js';
 import { bad, body, conflict, intParam } from '../lib/http.js';
-import { assignmentFor, live, studentOf, submissionOf } from '../classes/homework.js';
+import { assignmentFor, live, ownedClass, studentOf, submissionOf } from '../classes/homework.js';
+import { insightsOf, writeInsights } from './insights.js';
 import { gradeItems, noteChange, showNum, userName, type GradeItem, type SubmissionRow } from './common.js';
 import { gradeAssignment } from './jobs.js';
 import { releaseDrafts } from './grader.js';
@@ -15,6 +16,21 @@ import { reviewDocx, reviewOf, shareReview, writeReview } from './review.js';
 import { similarPairs } from './similar.js';
 
 export const gradingRoutes = new Hono<AppEnv>();
+
+/* ---------------- 学情：一个班卡在哪（老师看） ---------------- */
+gradingRoutes.get('/class/:id/insights', (c) => {
+  const u = requireRole(c, 'teacher', 'admin');
+  const k = ownedClass(u, intParam(c));
+  return c.json(insightsOf(k.id));
+});
+/** 让助教再看一遍（后台看，页面上转圈） */
+gradingRoutes.post('/class/:id/insights', (c) => {
+  const u = requireRole(c, 'teacher', 'admin');
+  const k = ownedClass(u, intParam(c));
+  void writeInsights(k.id).catch((err) => console.error('[insights]', k.id, err));
+  audit(c, 'class.insights', `class:${k.id}`);
+  return c.json(insightsOf(k.id));
+});
 
 /* ---------------- 评分标准 ---------------- */
 

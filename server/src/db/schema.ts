@@ -634,3 +634,15 @@ CREATE TABLE hw_reviews (
   updated_at INTEGER NOT NULL
 );
 `);
+
+// 学情（2026-11-16）：一个班一份。卡在哪几个知识点、各有几个人丢分和问过学伴（人数程序按条目算），助教写知识点、卡在哪、下节课怎么讲
+migrations.push(`
+CREATE TABLE class_insights (
+  class_id INTEGER PRIMARY KEY REFERENCES classes(id),
+  status TEXT NOT NULL,
+  data TEXT,
+  error TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+`);
