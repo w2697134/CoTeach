@@ -7,8 +7,12 @@
  * 触发：数据目录里放一个 seed-demo.json（{"teacher":"t0"}），服务启动时、之后每半分钟看一次；看到就建，
  * 建完改名成 seed-demo.done.json（里面写着结果）。同一位老师已经有这个班就不再建。
  * 写成 {"teacher":"t0","refresh":true} 是让已经建好的班重来一遍（批改、讲评、等老师回的卡片，见 refreshDemo）。
+ *
+ * 给评委的体验账号：同一个文件里写 accounts（没有就建，标成演示账号：不能改密码、老师不能重置、
+ * 不能设成别人的正式账号）、students（虚构学生学号的前缀，跟 t0 的演示班分开）、extra（放进班里的已有学生账号，用谁的答卷）。
+ * 带了 accounts 的请求文件里有密码，做完删掉，不留 .old。
  */
-import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import { join } from 'node:path';
 import { config } from '../config.js';
@@ -20,6 +24,7 @@ import { rewriteCard } from '../assistant/bridge.js';
 import { writeInsights } from '../grading/insights.js';
 import { startPlan } from '../grading/prep.js';
 import { packOnHomework } from '../assistant/pack-jobs.js';
+import { startingKb } from '../kb/repo.js';
 import { enqueueGrade, gradeAssignment, gradingCount } from '../grading/jobs.js';
 import { draftRubric, rubricOf, rubricOnHomework } from '../grading/rubric.js';
 import { shareReview, writeReview } from '../grading/review.js';
@@ -28,6 +33,25 @@ import { ASKS, CLASS_NAME, EXTRA, HOMEWORK, STUDENTS, studentNo } from './spec.j
 
 const DAY = 86_400_000;
 type Log = (s: string) => void;
+
+/** 体验账号：没有就建（标成演示账号）；老师的建一个空知识库，跟注册时一样 */
+export type DemoAccount = { username: string; name: string; role: 'teacher' | 'student'; password: string };
+export async function ensureAccounts(list: DemoAccount[], log: Log = (s) => console.log('[demo]', s)) {
+  for (const a of list) {
+    if (db.get('SELECT id FROM users WHERE username=?', a.username)) continue;
+    const id = db.insert('users', {
+      username: a.username,
+      name: a.name,
+      role: a.role,
+      ...(a.role === 'student' ? { student_no: a.username } : {}),
+      password_hash: hashPassword(a.password),
+      is_demo: 1,
+      created_at: now(),
+    });
+    if (a.role === 'teacher') await startingKb(id);
+    log(`建了体验账号 ${a.username}（${a.name}）`);
+  }
+}
 
 /** 北京时间某天几点（相对今天往后几天） */
 function dayAt(days: number, hh: number, mm: number) {
@@ -45,7 +69,16 @@ const pick = (seed: number) => {
 };
 const wait = (ms: number) => new Promise((ok) => setTimeout(ok, ms));
 
-export async function seedDemo(teacherUsername: string, log: Log = (s) => console.log('[demo]', s), o: { refresh?: boolean | Step[] } = {}) {
+/** 班里另放进来的已有学生账号，交的答卷用 answers.json 里哪一个人的（as） */
+export type Extra = { username: string; as: string };
+export type DemoOptions = {
+  refresh?: boolean | Step[];
+  /** 虚构学生学号的前缀（默认 20250101）；给别的老师建时换一个，两个班的虚构学生各是各的 */
+  students?: string;
+  extra?: Extra[];
+};
+
+export async function seedDemo(teacherUsername: string, log: Log = (s) => console.log('[demo]', s), o: DemoOptions = {}) {
   const teacher = db.get<{ id: number; name: string }>("SELECT id, name FROM users WHERE username=? AND role IN ('teacher','admin')", teacherUsername);
   if (!teacher) throw new Error(`没有老师账号 ${teacherUsername}`);
   const have = db.get<{ id: number }>('SELECT id FROM classes WHERE teacher_id=? AND name=? AND deleted_at IS NULL', teacher.id, CLASS_NAME);
@@ -65,7 +98,7 @@ export async function seedDemo(teacherUsername: string, log: Log = (s) => consol
   // 学生：虚构的建账号（密码随机，没人能登录），测试号直接放进来
   const members: { uid: number; no: string; key: string }[] = [];
   STUDENTS.forEach((s, i) => {
-    const no = studentNo(i);
+    const no = studentNo(i, o.students);
     let uid = db.value<number>('SELECT id FROM users WHERE username=?', no);
     if (!uid)
       uid = db.insert('users', {
@@ -78,9 +111,9 @@ export async function seedDemo(teacherUsername: string, log: Log = (s) => consol
       });
     members.push({ uid, no, key: String(i) });
   });
-  for (const x of EXTRA) {
+  for (const x of o.extra ?? EXTRA.map((e) => ({ username: e.username, as: e.username }))) {
     const u = db.get<{ id: number; student_no: string | null }>("SELECT id, student_no FROM users WHERE username=? AND role='student'", x.username);
-    if (u) members.push({ uid: u.id, no: u.student_no || x.username, key: x.username });
+    if (u) members.push({ uid: u.id, no: u.student_no || x.username, key: x.as });
   }
   db.tx(() => {
     for (const m of members) {
@@ -256,11 +289,23 @@ export function watchDemoRequest() {
   const check = () => {
     if (!existsSync(file)) return;
     let teacher = 't0',
-      refresh: boolean | Step[] = false;
+      refresh: boolean | Step[] = false,
+      students: string | undefined,
+      extra: Extra[] | undefined,
+      accounts: DemoAccount[] = [];
     try {
       const want = JSON.parse(readFileSync(file, 'utf8'));
       teacher = String(want.teacher || 't0');
       refresh = want.refresh === true ? true : Array.isArray(want.refresh) ? want.refresh.filter((s: unknown): s is Step => STEPS.includes(s as Step)) : false;
+      if (typeof want.students === 'string' && /^\d{6,10}$/.test(want.students)) students = want.students;
+      if (Array.isArray(want.extra))
+        extra = want.extra
+          .filter((x: any) => x && typeof x.username === 'string' && typeof x.as === 'string')
+          .map((x: any) => ({ username: x.username, as: x.as }));
+      if (Array.isArray(want.accounts))
+        accounts = want.accounts.filter(
+          (a: any) => a && typeof a.username === 'string' && typeof a.name === 'string' && (a.role === 'teacher' || a.role === 'student') && typeof a.password === 'string' && a.password.length >= 6,
+        );
     } catch {}
     const running = join(config.dataDir, 'seed-demo.running.json');
     try {
@@ -268,12 +313,14 @@ export function watchDemoRequest() {
     } catch {
       return;
     }
-    void seedDemo(teacher, undefined, { refresh })
+    void ensureAccounts(accounts)
+      .then(() => seedDemo(teacher, undefined, { refresh, students, extra }))
       .then((r) => writeFileSync(join(config.dataDir, 'seed-demo.done.json'), JSON.stringify({ teacher, ...r, at: now() })))
       .catch((err) => writeFileSync(join(config.dataDir, 'seed-demo.done.json'), JSON.stringify({ teacher, error: (err as Error).message, at: now() })))
       .finally(() => {
         try {
-          renameSync(running, join(config.dataDir, 'seed-demo.request.old'));
+          if (accounts.length) unlinkSync(running);
+          else renameSync(running, join(config.dataDir, 'seed-demo.request.old'));
         } catch {}
       });
   };

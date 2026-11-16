@@ -43,7 +43,7 @@ export const STUDENTS: { name: string; level: 'A' | 'B' | 'C' | 'D' }[] = [
   { name: '傅明哲', level: 'C' },
   { name: '蒋雨晴', level: 'B' },
 ];
-export const studentNo = (i: number) => `20250101${String(i + 1).padStart(2, '0')}`;
+export const studentNo = (i: number, base = '20250101') => `${base}${String(i + 1).padStart(2, '0')}`;
 
 /** 测试号也放进演示班，答卷单独生成，键是账号 */
 export const EXTRA: { username: string; name: string; level: 'A' | 'B' | 'C' | 'D' }[] = [{ username: 's2', name: '张浩然', level: 'B' }];

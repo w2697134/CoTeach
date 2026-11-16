@@ -68,7 +68,8 @@ authRoutes.post('/register', async c => {
  */
 authRoutes.post('/claim', async c => {
   const u = me(c);
-  if (!u.is_demo || u.role !== 'teacher') throw forbidden('这个账号不用设');
+  // 只有登录页上那个演示老师能设成自己的；给评委的体验账号也标着演示，但不能被一个人拿走
+  if (!u.is_demo || u.role !== 'teacher' || u.username !== DEMO_ACCOUNTS.find((d) => d.role === 'teacher')!.username) throw forbidden('这个账号不用设');
   rateLimit(`claim:${u.id}`, 10, 10 * 60_000);
   const d = await body(c, z.object({ phone: z.string().max(30), name: z.string().max(40), password: z.string().max(128) }));
   const phone = phoneOf(d.phone),

@@ -321,7 +321,7 @@ function UserMenu() {
               修改密码
             </MenuItem>
           )}
-          {user.isDemo && user.role === 'teacher' && (
+          {user.isDemo && user.role === 'teacher' && user.username === 'teacher' && (
             <MenuItem
               icon={<Smartphone />}
               onClick={() => {
