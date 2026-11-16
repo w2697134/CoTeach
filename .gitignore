@@ -1,0 +1,21 @@
+# 依赖和构建产物
+node_modules/
+dist/
+server/dist/
+# 数据、密钥（数据库、知识库、上传的文件、加密用的 .secret）
+server/data/
+data/
+.env
+.env.*
+!.env.example
+*.secret
+.secret
+*.db
+*.db-*
+*.sqlite
+# 量尺子、打包的输出（里面有数据副本）
+output/
+.playwright-cli/
+# 内部运维记录和部署脚本（带服务器信息）
+COLLABORATION_MEMORY.md
+tools/upgrade-kb-owner/

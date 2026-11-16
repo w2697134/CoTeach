@@ -12,6 +12,7 @@
   "dependencies": {
     "7z-wasm": "1.2.0",
     "@hono/node-server": "^2.1.1",
+    "docx": "9.5.1",
     "hono": "^4.13.9",
     "iconv-lite": "0.6.3",
     "jpeg-js": "0.4.4",
