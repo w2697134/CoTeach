@@ -286,6 +286,8 @@ export async function runTurn(t: TurnRun): Promise<TurnResult> {
     out.error ||= '这件事步骤太多，做到一半停下了，可以接着跟它说';
     return out;
   } catch (err) {
+    // 根本没有能用的模型：照以前那样往上抛（交资料就停在「暂停」，接上模型后能接着整理）
+    if ((err as { status?: number })?.status === 503) throw err;
     if (!out.error && !t.signal.aborted) out.error = (err as Error).message || '整理助手没能完成';
     if (out.error) console.error('[agent] turn', t.ref.runId, out.error);
     return out;
