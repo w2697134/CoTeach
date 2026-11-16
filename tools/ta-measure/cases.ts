@@ -564,7 +564,6 @@ export const CASES: Case[] = [
   {
     id: 'p01',
     cat: '专门助手',
-    ask: false,
     turns: [{ say: '以后计科2505 Python 的第一次作业交给一个专门的助手批，照评分标准批，变量名起得乱的扣半分' }],
     allow: [NEW_SPEC, /^作业\d+\.specialist/],
     check: (o) => {
@@ -578,7 +577,6 @@ export const CASES: Case[] = [
   {
     id: 'p02',
     cat: '专门助手',
-    ask: false,
     turns: [{ say: '学生老来问期末项目怎么选题、要交什么，你专门安排一个助手答这类问题，照知识库里的项目说明答' }],
     allow: [NEW_SPEC],
     check: (o) => fail(newSpecs(o).length === 1, `分了 ${newSpecs(o).length} 个专门助手`),
@@ -602,7 +600,6 @@ export const CASES: Case[] = [
   {
     id: 'p05',
     cat: '专门助手',
-    ask: false,
     setup: PROJECT,
     turns: [{ say: '有学生问期末项目能不能用 Java 写，该怎么回？' }],
     allow: [],
