@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router';
 import { AnimatePresence, motion } from 'motion/react';
-import { ArrowLeft, BookOpen, KeyRound, LogOut, Menu, Monitor, Moon, ShieldCheck, Smartphone, Sun, Users } from 'lucide-react';
+import { ArrowLeft, BookOpen, KeyRound, LogOut, Menu, Monitor, Moon, NotebookPen, ShieldCheck, Smartphone, Sun, Users } from 'lucide-react';
 import { APP_NAME, APP_SHORT_NAME } from '../../lib/brand';
 import { post } from '../../lib/api';
 import { toast, useAuth, useTheme, useUi } from '../../lib/store';
@@ -69,6 +69,18 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
             </>
           )}
         </NavLink>
+        {/* 学生的错题本：各个班丢了分的题，点「练一练」让学伴出类似的新题（2026-11-16） */}
+        {student && (
+          <NavLink to="/mistakes" onClick={onNavigate} className={({ isActive }) => item(isActive)}>
+            {({ isActive }) => (
+              <>
+                {isActive && mark}
+                <NotebookPen className={cn('size-5 shrink-0', isActive ? 'text-brand' : 'text-ink-3')} />
+                <span className="min-w-0 flex-1">错题本</span>
+              </>
+            )}
+          </NavLink>
+        )}
         {admin && (
           <NavLink to="/admin" onClick={onNavigate} className={({ isActive }) => item(isActive)}>
             {({ isActive }) => (
@@ -345,7 +357,9 @@ export function AppShell() {
           ? TA.name
           : /^\/cot/.test(location.pathname)
             ? BUDDY.name
-            : undefined;
+            : /^\/mistakes/.test(location.pathname)
+              ? '错题本'
+              : undefined;
   // 班级那边的页面自己报位置（useCrumbs）：电脑上顶栏写「班级 › 一班 › 测试」；
   // 手机上最外层是菜单加「班级」，往里一层换成「← 上一层的名字」（像微信、iOS 的返回），跟下面内容的标题不重复
   const crumbs = useCurrentCrumbs();

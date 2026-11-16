@@ -11,6 +11,7 @@ import { body, intParam, notFound } from '../lib/http.js';
 import { sourceBytes } from '../kb/repo.js';
 import { cancelStuRun, myClasses, newStuSession, ownStuSession, runsSeenBy, startStuTurn, stuBusy, stuRun, stuSessions } from './buddy.js';
 import { studentSession } from './bridge.js';
+import { gradeItems } from '../grading/common.js';
 
 export const cotRoutes = new Hono<AppEnv>();
 const student = (c: any) => requireRole(c, 'student');
@@ -38,6 +39,37 @@ cotRoutes.post('/messages', async (c) => {
   const u = student(c);
   const d = await body(c, z.object({ message: z.string().trim().min(1).max(4000), session: z.number().int().positive().nullable().optional() }));
   return c.json({ runId: startStuTurn(u, { message: d.message, session: d.session }) });
+});
+/**
+ * 错题本（2026-11-16，学生左侧栏）：自己各个班批好发下来的作业里丢了分的那几项，新的在前。
+ * 每项带作业、哪一项、得分、扣分原因；页面上「练一练」是让学伴照这一项出一道类似的新题。
+ */
+cotRoutes.get('/mistakes', (c) => {
+  const u = student(c);
+  const rows = db.all<{ hid: number; title: string; points: number; class_id: number; class_name: string; score: number; items: string | null; graded_at: number | null }>(
+    `SELECT a.id AS hid, a.title, a.points, a.class_id, k.name AS class_name, s.score, s.items, s.graded_at
+     FROM submissions s JOIN assignments a ON a.id=s.assignment_id AND a.deleted_at IS NULL
+     JOIN classes k ON k.id=a.class_id AND k.deleted_at IS NULL
+     JOIN class_students m ON m.class_id=k.id AND m.user_id=s.user_id
+     WHERE s.user_id=? AND s.score IS NOT NULL AND (s.returned_at IS NULL OR s.returned_at < s.submitted_at)
+     ORDER BY coalesce(s.graded_at, s.updated_at) DESC, a.id DESC`,
+    u.id,
+  );
+  const homework = rows
+    .map((r) => ({
+      id: r.hid,
+      title: r.title,
+      classId: r.class_id,
+      className: r.class_name,
+      score: r.score,
+      points: r.points,
+      gradedAt: r.graded_at,
+      items: gradeItems(r.items)
+        .map((it, k) => ({ no: k + 1, title: it.title, got: it.got, max: it.max, why: it.why }))
+        .filter((it) => it.got < it.max),
+    }))
+    .filter((h) => h.items.length);
+  return c.json({ homework });
 });
 cotRoutes.post('/runs/:rid/cancel', (c) => {
   const u = student(c);
