@@ -221,7 +221,8 @@ export async function* streamChat(
             clearTimeout(watchdog);
           }
           if (d.type === 'text') text += d.text;
-          if (d.type !== 'finish') emitted = true;
+          // 空的一段不算出了内容（Gemini 接口头一到先报一段空的，只为让看门狗知道它在动；后面出错照样能换备用模型）
+          if (d.type !== 'finish' && !((d.type === 'text' || d.type === 'reasoning') && !d.text)) emitted = true;
           yield d;
         }
         if (!input) input = o.messages.reduce((s, m) => s + estimateTokens(textOf(m.content)), 0);
