@@ -6,6 +6,7 @@
  *
  * 触发：数据目录里放一个 seed-demo.json（{"teacher":"t0"}），服务启动时、之后每半分钟看一次；看到就建，
  * 建完改名成 seed-demo.done.json（里面写着结果）。同一位老师已经有这个班就不再建。
+ * 写成 {"teacher":"t0","refresh":true} 是让已经建好的班重来一遍（批改、讲评、等老师回的卡片，见 refreshDemo）。
  */
 import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
@@ -15,6 +16,7 @@ import { db, getSetting, now, setSetting } from '../db/index.js';
 import { hashPassword } from '../lib/crypto.js';
 import { callApi } from '../assistant/api.js';
 import { startStuTurn } from '../assistant/buddy.js';
+import { rewriteCard } from '../assistant/bridge.js';
 import { packOnHomework } from '../assistant/pack-jobs.js';
 import { enqueueGrade, gradeAssignment, gradingCount } from '../grading/jobs.js';
 import { draftRubric, rubricOf, rubricOnHomework } from '../grading/rubric.js';
@@ -41,11 +43,15 @@ const pick = (seed: number) => {
 };
 const wait = (ms: number) => new Promise((ok) => setTimeout(ok, ms));
 
-export async function seedDemo(teacherUsername: string, log: Log = (s) => console.log('[demo]', s)) {
+export async function seedDemo(teacherUsername: string, log: Log = (s) => console.log('[demo]', s), o: { refresh?: boolean } = {}) {
   const teacher = db.get<{ id: number; name: string }>("SELECT id, name FROM users WHERE username=? AND role IN ('teacher','admin')", teacherUsername);
   if (!teacher) throw new Error(`没有老师账号 ${teacherUsername}`);
   const have = db.get<{ id: number }>('SELECT id FROM classes WHERE teacher_id=? AND name=? AND deleted_at IS NULL', teacher.id, CLASS_NAME);
   if (have) {
+    if (o.refresh) {
+      await refreshDemo(have.id, log);
+      return { classId: have.id, created: false, refreshed: true };
+    }
     log(`已经有「${CLASS_NAME}」了（${have.id}），不再建，没做完的接着做`);
     finishLater(have.id, log);
     return { classId: have.id, created: false };
@@ -190,6 +196,33 @@ async function finishDemo(classId: number, log: Log) {
   log('演示班建好了');
 }
 
+/**
+ * 演示班重来一遍（2026-11-16 批改 v2 上线：原来 93 份里 13 份把第1题的小项当成了三道题交分）：
+ * 批好的按现在的办法全部重批，写过的讲评重写（发给学生的那一版跟着换），老师那边还在等的学生来问卡片按现在的说法重写。
+ */
+async function refreshDemo(classId: number, log: Log) {
+  const list = db.all<{ id: number; title: string }>('SELECT id, title FROM assignments WHERE class_id=? AND deleted_at IS NULL ORDER BY id', classId);
+  for (const a of list) {
+    const n = gradeAssignment(a.id, { redo: true });
+    if (n) log(`「${a.title}」重批 ${n} 份`);
+  }
+  for (const a of list) for (let i = 0; i < 720 && gradingCount(a.id) > 0; i++) await wait(5000);
+  for (const a of list) {
+    if (!db.get("SELECT 1 FROM hw_reviews WHERE assignment_id=? AND status='ready'", a.id)) continue;
+    await writeReview(a.id);
+    log(`「${a.title}」讲评重写好了`);
+  }
+  const asks = db.all<{ id: number }>("SELECT id FROM student_asks WHERE class_id=? AND status='teacher' AND card_run_id IS NOT NULL ORDER BY id", classId);
+  for (const ask of asks) {
+    try {
+      log(`卡片 ${ask.id}${(await rewriteCard(ask.id)) ? ' 重写好了' : ' 没动（助教这回没转老师）'}`);
+    } catch (err) {
+      log(`卡片 ${ask.id} 没重写成：${(err as Error).message}`);
+    }
+  }
+  log('演示班重来好了');
+}
+
 /** 服务重启：演示班后面那几步没做完的接着做 */
 export function resumeDemo() {
   const id = getSetting<number | null>('demo_pending', null);
@@ -202,9 +235,12 @@ export function watchDemoRequest() {
   const file = join(config.dataDir, 'seed-demo.json');
   const check = () => {
     if (!existsSync(file)) return;
-    let teacher = 't0';
+    let teacher = 't0',
+      refresh = false;
     try {
-      teacher = String(JSON.parse(readFileSync(file, 'utf8')).teacher || 't0');
+      const want = JSON.parse(readFileSync(file, 'utf8'));
+      teacher = String(want.teacher || 't0');
+      refresh = want.refresh === true;
     } catch {}
     const running = join(config.dataDir, 'seed-demo.running.json');
     try {
@@ -212,7 +248,7 @@ export function watchDemoRequest() {
     } catch {
       return;
     }
-    void seedDemo(teacher)
+    void seedDemo(teacher, undefined, { refresh })
       .then((r) => writeFileSync(join(config.dataDir, 'seed-demo.done.json'), JSON.stringify({ teacher, ...r, at: now() })))
       .catch((err) => writeFileSync(join(config.dataDir, 'seed-demo.done.json'), JSON.stringify({ teacher, error: (err as Error).message, at: now() })))
       .finally(() => {
