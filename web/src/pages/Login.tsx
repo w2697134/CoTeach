@@ -144,7 +144,7 @@ export function LoginPage() {
         </div>
       </div>
       <form onSubmit={submit} className="mt-7 space-y-3.5">
-        <Input sizeVariant="lg" icon={<UserIcon />} placeholder="手机号或学号" value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" />
+        <Input sizeVariant="lg" icon={<UserIcon />} placeholder="手机号、学号或账号" value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" />
         <Input
           sizeVariant="lg"
           icon={<Lock />}
