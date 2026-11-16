@@ -56,34 +56,44 @@ export async function workText(s: Pick<SubmissionRow, 'id' | 'text' | 'user_id'>
 export const gradePrompt = (teacherName: string) => `你是${teacherTitle(teacherName)}的 CoT 助教，替老师批作业。照评分标准一项一项给分，同样的问题给每个学生扣一样的分。
 批注和评语学生都看得到：指出哪里不对、为什么不对，不要写出正确答案。`;
 
-const SUBMIT: ToolSpec = {
-  name: 'submit_grade',
-  description: '交批改结果。',
-  parameters: obj(
-    {
-      items: {
-        type: 'array',
-        description: '评分标准每一项一条',
-        items: obj({ no: numArg('第几项'), got: numArg('得几分'), why: str('为什么给这个分；扣了分的说扣在哪') }, ['no', 'got', 'why']),
+/**
+ * 交批改结果的工具：评分标准有几项，items 里就是这几格，格子名就是项名（2026-11-16：原来是一个随便几条的列表，
+ * 评分标准每道题底下又分了（1）（2）（3）小项，助教按小项一条条交，交成了十几条，程序拿前三条当三道题）。
+ */
+/** 交分格子的名字：就是项名；万一两项重名，后面加「（第几项）」分开 */
+export function itemKeys(rubric: RubricItem[]) {
+  const n = new Map<string, number>();
+  for (const r of rubric) n.set(r.title, (n.get(r.title) || 0) + 1);
+  return rubric.map((r, k) => (n.get(r.title)! > 1 ? `${r.title}（第${k + 1}项）` : r.title));
+}
+
+export function submitTool(rubric: RubricItem[]): ToolSpec {
+  const each = obj({ got: numArg('得几分'), why: str('为什么给这个分；扣了分的说扣在哪') }, ['got', 'why']);
+  return {
+    name: 'submit_grade',
+    description: '交批改结果。',
+    parameters: obj(
+      {
+        items: { ...obj(Object.fromEntries(itemKeys(rubric).map((k) => [k, each])), itemKeys(rubric)), description: '评分标准每一项一格' },
+        marks: {
+          type: 'array',
+          description: '批注',
+          items: obj(
+            {
+              quote: str('从学生交的原文里一字不改摘一小段'),
+              kind: { type: 'string', enum: ['wrong', 'good'], description: 'wrong 有问题，good 写得好' },
+              note: str('批注'),
+            },
+            ['quote', 'kind', 'note'],
+          ),
+        },
+        comment: str('给学生的评语，两三句：先说做得好的，再说最要紧的问题'),
+        flag: str('看不清、跟这份作业对不上、照标准判不了时写原因，留给老师看；能批就不写'),
       },
-      marks: {
-        type: 'array',
-        description: '批注',
-        items: obj(
-          {
-            quote: str('从学生交的原文里一字不改摘一小段'),
-            kind: { type: 'string', enum: ['wrong', 'good'], description: 'wrong 有问题，good 写得好' },
-            note: str('批注'),
-          },
-          ['quote', 'kind', 'note'],
-        ),
-      },
-      comment: str('给学生的评语，两三句：先说做得好的，再说最要紧的问题'),
-      flag: str('看不清、跟这份作业对不上、照标准判不了时写原因，留给老师看；能批就不写'),
-    },
-    ['items', 'comment'],
-  ),
-};
+      ['items', 'comment'],
+    ),
+  };
+}
 
 export interface GradeResult {
   score: number;
@@ -93,18 +103,46 @@ export interface GradeResult {
   flag: string | null;
 }
 
+/** 比对项名时不看空格和标点 */
+const bare = (s: unknown) =>
+  String(s ?? '')
+    .replace(/[\s\p{P}\p{S}]/gu, '')
+    .toLowerCase();
+
+/**
+ * 交上来的一条是评分标准里的哪一项：按名字对（2026-11-16 线上演示班：原来按「第几项」交，评分标准每道题底下又有（1）（2）（3）小项，
+ * 93 份里 13 份把第1题的三个小项当成了三道题交，第三章吴泽宇记成 27 分，评语却写「两题满分」）。
+ * 名字一样的先算；不一样的，只有一项能对上开头才算。
+ */
+function itemOf(title: unknown, rubric: RubricItem[]): number {
+  const t = bare(title);
+  if (!t) return -1;
+  const names = rubric.map((r) => bare(r.title));
+  const same = names.indexOf(t);
+  if (same >= 0) return same;
+  const near = names.map((n, k) => (n.startsWith(t) || t.startsWith(n) ? k : -1)).filter((k) => k >= 0);
+  return near.length === 1 ? near[0] : -1;
+}
+
 /** 模型交上来的整理成能存的样子：每项卡在 0 到满分，总分加出来，批注在原文里定位 */
 export function cleanResult(raw: any, rubric: RubricItem[], text: string): GradeResult {
   const got = new Map<number, { got: number; why: string }>();
-  for (const x of Array.isArray(raw?.items) ? raw.items : []) {
-    const no = Math.round(toNum(x?.no));
-    if (!(no >= 1 && no <= rubric.length) || got.has(no)) continue;
+  // 一般是按项名的一格一格（submitTool）；也收一条条带项名的列表
+  const list: { title: unknown; got: unknown; why: unknown }[] = Array.isArray(raw?.items)
+    ? raw.items
+    : raw?.items && typeof raw.items === 'object'
+      ? Object.entries(raw.items).map(([title, v]: [string, any]) => ({ title, got: v?.got, why: v?.why }))
+      : [];
+  const keys = itemKeys(rubric);
+  for (const x of list) {
+    const k = keys.includes(String(x?.title)) ? keys.indexOf(String(x?.title)) : itemOf(x?.title, rubric);
+    if (k < 0 || got.has(k + 1)) continue;
     const g = toNum(x?.got);
-    got.set(no, { got: Number.isFinite(g) ? g : 0, why: String(x?.why ?? '').trim().slice(0, 1000) });
+    got.set(k + 1, { got: Number.isFinite(g) ? g : 0, why: String(x?.why ?? '').trim().slice(0, 1000) });
   }
   if (got.size < rubric.length) {
-    const missing = rubric.map((_, k) => k + 1).filter((k) => !got.has(k));
-    throw new Error(`第 ${missing.join('、')} 项没给分，每一项都要给`);
+    const missing = rubric.filter((_, k) => !got.has(k + 1)).map((r) => `「${r.title}」`);
+    throw new Error(`${missing.join('、')}没给分，评分标准每一项都要给，名字照评分标准写`);
   }
   const items: GradeItem[] = rubric.map((r, k) => {
     const g = got.get(k + 1)!;
@@ -164,7 +202,7 @@ export async function runGrade(row: AiGradeRow, signal: AbortSignal) {
       runId,
       system: gradePrompt(userName(a.teacher_id)),
       first: gradeInput(a, k.name, files, rubric, text),
-      tools: [SUBMIT],
+      tools: [submitTool(rubric)],
       purpose: 'grader:grade',
       maxSteps: 3,
       signal,

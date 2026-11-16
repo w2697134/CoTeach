@@ -21,6 +21,7 @@ const rubric = await import('../src/grading/rubric.js');
 const jobs = await import('../src/grading/jobs.js');
 const review = await import('../src/grading/review.js');
 const { locate } = await import('../src/grading/common.js');
+const { cleanResult } = await import('../src/grading/grader.js');
 const app = createApp();
 
 const user = (name: string, role = 'teacher') =>
@@ -130,8 +131,8 @@ test('学生一交就排上批；批完直接发：每项分、总分程序加�
         name: 'submit_grade',
         args: {
           items: [
-            { no: 1, got: 2.3, why: 'range 少算了 100' },
-            { no: 2, got: 9, why: '思路对，代码对' },
+            { title: '第1题', got: 2.3, why: 'range 少算了 100' },
+            { title: '第2题', got: 9, why: '思路对，代码对' },
           ],
           marks: [
             { quote: 'range(1,100)', kind: 'wrong', note: '右边界不包括 100' },
@@ -186,11 +187,11 @@ test('学生一交就排上批；批完直接发：每项分、总分程序加�
 test('助教判不了的留给老师看，不直接发；模型漏了项要它补', async () => {
   await submit(hw1, 'liu', '老师我不会');
   script(
-    { calls: [{ name: 'submit_grade', args: { items: [{ no: 1, got: 0, why: '没做' }], comment: '没有作答' } }] },
-    { calls: [{ name: 'submit_grade', args: { items: [{ no: 1, got: 0, why: '没做' }, { no: 2, got: 0, why: '没做' }], comment: '没有作答', flag: '交的内容跟题目无关' } }] },
+    { calls: [{ name: 'submit_grade', args: { items: [{ title: '第1题', got: 0, why: '没做' }], comment: '没有作答' } }] },
+    { calls: [{ name: 'submit_grade', args: { items: [{ title: '第1题', got: 0, why: '没做' }, { title: '第2题', got: 0, why: '没做' }], comment: '没有作答', flag: '交的内容跟题目无关' } }] },
   );
   await jobs.drainGrades();
-  assert.match(lastToolOut(seen[seen.length - 1].messages), /第 2 项没给分/);
+  assert.match(lastToolOut(seen[seen.length - 1].messages), /「第2题」没给分/);
   const s = await req(`/homework/${hw1}`, undefined, 'liu');
   assert.equal(s.json.status, 'submitted');
   assert.equal(s.json.mine.score, null);
@@ -210,7 +211,7 @@ test('批完先给老师看：老师点发布才发；学生重交了旧的作�
     ['stale', 'queued'],
   );
   assert.equal(rows[1].auto_release, 0);
-  script({ calls: [{ name: 'submit_grade', args: { items: [{ no: 1, got: 4, why: '对' }, { no: 2, got: 0, why: '没做' }], comment: '第2题没做' } }] });
+  script({ calls: [{ name: 'submit_grade', args: { items: [{ title: '第1题', got: 4, why: '对' }, { title: '第2题', got: 0, why: '没做' }], comment: '第2题没做' } }] });
   await jobs.drainGrades();
   assert.equal(seen[seen.length - 1].messages[1].content.includes('第二版'), true);
   assert.equal((await req(`/homework/${hw2}`, undefined, 'zhang')).json.mine.score, null);
@@ -223,7 +224,7 @@ test('批完先给老师看：老师点发布才发；学生重交了旧的作�
 
 test('老师改一项：算老师批的；同一项助教给了一样分的其他学生，挑着一起改', async () => {
   await submit(hw1, 'chen', 'print(sum(range(1,100)))\n# 第2题没写');
-  script({ calls: [{ name: 'submit_grade', args: { items: [{ no: 1, got: 2.5, why: 'range 少算了 100' }, { no: 2, got: 0, why: '没做' }], comment: '第2题没做' } }] });
+  script({ calls: [{ name: 'submit_grade', args: { items: [{ title: '第1题', got: 2.5, why: 'range 少算了 100' }, { title: '第2题', got: 0, why: '没做' }], comment: '第2题没做' } }] });
   await jobs.drainGrades();
   // 老师觉得第1题这个错只扣 1 分：给张浩然改成 3 分
   const w = (await req(`/homework/${hw1}/students/${zs}`)).json;
@@ -346,8 +347,8 @@ test('跟助教说：让助教批、看讲评（写完再回老师）', async ()
   assert.equal(r.ok, true);
   assert.match(r.content, /开始批「作业4」：「计科5班」2 份/);
   script(
-    { calls: [{ name: 'submit_grade', args: { items: [{ no: 1, got: 4, why: '对' }, { no: 2, got: 0, why: '没做' }], comment: '第2题没做' } }] },
-    { calls: [{ name: 'submit_grade', args: { items: [{ no: 1, got: 2, why: '少了100' }, { no: 2, got: 0, why: '没做' }], comment: '第1题再看看' } }] },
+    { calls: [{ name: 'submit_grade', args: { items: [{ title: '第1题', got: 4, why: '对' }, { title: '第2题', got: 0, why: '没做' }], comment: '第2题没做' } }] },
+    { calls: [{ name: 'submit_grade', args: { items: [{ title: '第1题', got: 2, why: '少了100' }, { title: '第2题', got: 0, why: '没做' }], comment: '第1题再看看' } }] },
   );
   await jobs.drainGrades();
   // 不用助教批的作业：老师让批的，批完先给老师看
@@ -365,4 +366,44 @@ test('跟助教说：让助教批、看讲评（写完再回老师）', async ()
   // 卡片：看讲评、下载 Word
   const card = db.get<any>("SELECT data FROM ta_actions WHERE kind='homework.review' ORDER BY id DESC LIMIT 1");
   assert.match(card.data, /review\/docx/);
+});
+
+test('交上来的每一条按名字对上评分标准的那一项：小项当成大题交的不算，要照评分标准的名字交', () => {
+  // 2026-11-16 线上演示班：第1题底下有（1）（2）（3）小项，助教按「第几项」交，把三个小项交成了三道题
+  const items = [
+    { title: '第1题 用for循环求1到100的和', points: 30, criteria: '（1）for 结构 10 分（2）累加 10 分（3）range 边界 7 分（4）输出 3 分', answer: '' },
+    { title: '第2题 输出100以内所有的偶数', points: 30, criteria: '', answer: '' },
+    { title: '第3题 用双重循环打印九九乘法表', points: 40, criteria: '', answer: '' },
+  ];
+  assert.throws(
+    () =>
+      cleanResult(
+        { items: [{ title: '第1题（1）for 结构', got: 10, why: '对' }, { title: '第1题（2）累加', got: 10, why: '对' }, { title: '第1题（3）range 边界', got: 7, why: '对' }], comment: '' },
+        items,
+        '',
+      ),
+    /「第1题 用for循环求1到100的和」、「第2题 输出100以内所有的偶数」、「第3题 用双重循环打印九九乘法表」没给分/,
+  );
+  // 名字照抄（标点、空格不同也算）、只写了开头的「第3题」也对得上；顺序乱了照名字放回原位
+  const r = cleanResult(
+    {
+      items: [
+        { title: '第3题', got: 20, why: '内层循环写成了矩形' },
+        { title: '第1题：用 for 循环求 1 到 100 的和', got: 30, why: '都对' },
+        { title: '第2题 输出100以内所有的偶数', got: 30, why: '都对' },
+      ],
+      comment: '',
+    },
+    items,
+    '',
+  );
+  assert.deepEqual(
+    r.items.map((x) => [x.title, x.got]),
+    [
+      ['第1题 用for循环求1到100的和', 30],
+      ['第2题 输出100以内所有的偶数', 30],
+      ['第3题 用双重循环打印九九乘法表', 20],
+    ],
+  );
+  assert.equal(r.score, 80);
 });
