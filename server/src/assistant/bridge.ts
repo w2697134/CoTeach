@@ -21,11 +21,13 @@ export function studentSession(studentId: number): number {
   return last ?? db.insert('ta_sessions', { owner_id: studentId, created_at: now() });
 }
 
-/** 学生来问的卡片上带的：谁问的、哪个班、问的什么、助教拟的回复 */
+/** 学生来问的卡片上带的：谁问的、哪个班、问的什么、助教拟的回复；classId、sid（班里名单那一行）让老师点开他跟学伴的对话 */
 export interface StudentAskCard {
   askId: number;
   student: string;
   className: string;
+  classId?: number;
+  sid?: number;
   question: string;
   draft: string;
 }
@@ -180,7 +182,8 @@ function escalate(askId: number, e: { question: string; options: string[]; draft
     created_by: ask.student_id,
     created_at: t,
   });
-  const card: StudentAskCard = { askId, student, className: k.name, question: e.question || ask.question, draft: e.draft };
+  const sid = db.value<number>('SELECT id FROM class_students WHERE class_id=? AND user_id=?', ask.class_id, ask.student_id) ?? undefined;
+  const card: StudentAskCard = { askId, student, className: k.name, classId: k.id, sid, question: e.question || ask.question, draft: e.draft };
   record({ teacherId: k.teacher_id, runId, kbId: null }, 'ask', {
     toolCallId: '',
     questions: [{ question: card.question, options: e.options.length ? e.options : ['可以', '不行'], multiple: false }],
@@ -189,6 +192,37 @@ function escalate(askId: number, e: { question: string; options: string[]; draft
   });
   db.update('student_asks', askId, { status: 'teacher', card_run_id: runId, answered_at: t });
   publishRun(null, runId);
+}
+
+/**
+ * 重写一张还在等老师回的学生来问卡片：学伴转来的那句话再交给助教，换上它这回写的问老师的话和选项。
+ * 演示班重来时用（2026-11-16 卡片改短以后，老卡片还是又长又带拟回复）。助教这回不转老师了就不动。
+ */
+export async function rewriteCard(askId: number): Promise<boolean> {
+  const ask = db.get<AskRow>('SELECT * FROM student_asks WHERE id=?', askId);
+  if (!ask || ask.status !== 'teacher' || !ask.card_run_id) return false;
+  const k = classOf(ask.class_id);
+  if (!k) return false;
+  const student = nameIn(ask.class_id, ask.student_id);
+  const r = await runHelper({
+    teacherId: k.teacher_id,
+    classId: ask.class_id,
+    mode: 'answer',
+    request: `${student}的学伴来问：${ask.question}`,
+    task: `「${k.name}」的学生${student}的学伴来问：
+${ask.question}`,
+  });
+  if (!r.escalation) return false;
+  const ev = db.get<{ id: number; data: string }>("SELECT id, data FROM kb_events WHERE run_id=? AND type='ask' ORDER BY id DESC LIMIT 1", ask.card_run_id);
+  if (!ev) return false;
+  const data = j<{ questions: { question: string; options: string[]; multiple?: boolean }[]; from?: StudentAskCard }>(ev.data, { questions: [] });
+  const question = r.escalation.question || ask.question;
+  const sid = db.value<number>('SELECT id FROM class_students WHERE class_id=? AND user_id=?', ask.class_id, ask.student_id) ?? undefined;
+  data.questions = [{ question, options: r.escalation.options.length ? r.escalation.options : ['可以', '不行'], multiple: false }];
+  data.from = { askId: ask.id, student, className: k.name, classId: k.id, sid, question, draft: r.escalation.draft };
+  db.update('kb_events', ev.id, { data });
+  publishRun(null, ask.card_run_id);
+  return true;
 }
 
 /** 学生自己是怎么问的（卡片上引他的原话；学伴转述给助教的是第三人称，学生看着别扭） */

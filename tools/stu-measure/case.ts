@@ -56,6 +56,8 @@ const out = {
   escalated: false,
   files: [] as string[],
   notices: [] as string[],
+  /** 老师那边弹出来的卡片 */
+  card: null as null | { question: string; options: string[]; draft: string },
   leaks: [] as string[],
   result: null as string | null,
   ok: false,
@@ -67,6 +69,14 @@ try {
     const runId = buddy.startStuTurn(student, { message: say });
     const status = await settled(runId);
     out.turns.push({ say, ms: Date.now() - t0, status });
+  }
+  {
+    const run = db.get<{ id: number }>("SELECT id FROM kb_runs WHERE teacher_id=? AND kind='student_ask' AND id>? ORDER BY id DESC LIMIT 1", teacher.id, startId);
+    const ev = run && db.get<{ data: string }>("SELECT data FROM kb_events WHERE run_id=? AND type='ask' ORDER BY id DESC LIMIT 1", run.id);
+    if (ev) {
+      const d = JSON.parse(ev.data);
+      out.card = { question: String(d.questions?.[0]?.question || ''), options: (d.questions?.[0]?.options || []).map(String), draft: String(d.from?.draft || '') };
+    }
   }
   // 闭环：老师在卡片上点一下，老师的助教去转告学生
   if (c.teacherPicks !== undefined) {

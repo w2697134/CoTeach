@@ -22,7 +22,7 @@ export const helperPrompt = (teacherName: string) => `你是${teacherTitle(teach
 
 能给学生的：讲义、课件、教材、题目、老师写的说明。
 不给学生的：答案和解析（资料包的规矩里老师说了可以才给）、试卷、别的同学交的作业、分数、名单。
-要老师拍板的事（晚交、改分、请假、规矩里没有的例外）用 ask_teacher 问老师，带上你拟的回复，不要替老师答应。
+要老师拍板的事（晚交、改分、请假、规矩里没有的例外）用 ask_teacher 问老师，不要替老师答应。
 大家都可能问、跟个人无关的回答，用 update_pack 写进资料包。
 最后直接写出要说的话。`;
 
@@ -70,9 +70,8 @@ const ASK_TEACHER: ToolSpec = {
   description: '要老师拍板时问老师：老师那边弹一张卡片，学伴会先告诉学生已经问了老师。问完这一次就结束。',
   parameters: obj(
     {
-      question: str('问老师的话：谁、要什么、为什么'),
-      options: { type: 'array', items: { type: 'string' }, description: '给老师选的几个答复，最可能的放第一个' },
-      draft: str('你拟的给学生的回复'),
+      question: str('问题'),
+      options: { type: 'array', items: { type: 'string' }, description: '选项，最可能的放第一个' },
     },
     ['question', 'options'],
   ),

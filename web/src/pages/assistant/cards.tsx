@@ -9,7 +9,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { Check, Copy, Download, QrCode, Undo2 } from 'lucide-react';
 import { post } from '../../lib/api';
 import { toast } from '../../lib/store';
-import { Badge, Button, IconButton, Input, Modal, cn } from '../../components/ui';
+import { Avatar, Badge, Button, IconButton, Input, Modal, cn } from '../../components/ui';
 import { joinLink } from '../classes/data';
 import { Qr, copyText, downloadQr } from '../classes/Invite';
 
@@ -139,8 +139,8 @@ export interface AskData {
   questions: { question: string; options: string[]; multiple?: boolean }[];
   answered?: { q: string; a: string }[] | null;
   skipped?: boolean;
-  /** 学生通过学伴来问、助教要老师拍板的（2026-11-16）：谁、哪个班、助教拟的回复 */
-  from?: { student: string; className: string; draft?: string };
+  /** 学生通过学伴来问、助教要老师拍板的（2026-11-16）：谁、哪个班；classId、sid（班里名单那一行）用来点开他跟学伴的对话 */
+  from?: { student: string; className: string; draft?: string; classId?: number; sid?: number };
 }
 
 /**
@@ -149,6 +149,7 @@ export interface AskData {
  */
 export function AskCard({ runId, data, live }: { runId: number; data: AskData; live: boolean }) {
   const qc = useQueryClient();
+  const navigate = useNavigate();
   const qs = data.questions || [];
   const [picks, setPicks] = useState<string[][]>(() => qs.map(() => []));
   const [texts, setTexts] = useState<string[]>(() => qs.map(() => ''));
@@ -197,17 +198,26 @@ export function AskCard({ runId, data, live }: { runId: number; data: AskData; l
   };
   const ready = qs.every((q, i) => picks[i].length > 0 || texts[i].trim());
   return (
-    <div className="rounded-xl border border-brand/40 bg-surface px-3.5 py-3 shadow-xs ring-2 ring-brand/10">
-      {/* 学生来问的：哪个班谁问的写在最上面，助教拟的回复摆在问题下面，选项下面能自己回一句 */}
+    <div className={cn('rounded-xl border border-brand/40 bg-surface shadow-xs ring-2 ring-brand/10', from ? 'px-4 py-3.5' : 'px-3.5 py-3')}>
+      {/* 学生来问的：最上面是谁、哪个班，能点开他跟学伴的对话；下面一句问的事，选项点一下就答，也能自己回一句。
+          助教拟的回复不摆：老师定了以后助教照老师的意思写给学生 */}
       {from && (
-        <p className="mb-1 text-[12.5px] text-ink-3">
-          {from.className} · {from.student}
-        </p>
+        <div className="mb-2 flex items-center gap-2.5">
+          <Avatar name={from.student} seed={from.sid ?? from.student} size={30} />
+          <p className="min-w-0 flex-1 truncate leading-tight">
+            <span className="text-[14.5px] font-medium text-ink">{from.student}</span>
+            <span className="ml-2 text-[13px] text-ink-3">{from.className}</span>
+          </p>
+          {!!from.classId && !!from.sid && (
+            <Button size="xs" variant="ghost" className="shrink-0 text-ink-3" onClick={() => navigate(`/classes/${from.classId}/students/${from.sid}/cot`)}>
+              看对话
+            </Button>
+          )}
+        </div>
       )}
       {qs.map((q, i) => (
         <div key={i} className={i ? 'mt-3.5' : ''}>
-          <p className="break-words text-[14px] font-medium leading-snug text-ink">{q.question}</p>
-          {from?.draft && i === 0 && <p className="mt-1 break-words text-[13px] leading-relaxed text-ink-3">拟回复：{from.draft}</p>}
+          <p className={cn('whitespace-pre-wrap break-words text-ink', from ? 'text-[15px] leading-relaxed' : 'text-[14px] font-medium leading-snug')}>{q.question}</p>
           {q.options.length ? (
             <div className="mt-2 flex flex-wrap gap-1.5">
               {q.options.map((o) => {

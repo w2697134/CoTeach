@@ -110,6 +110,18 @@ const askedTa = results.filter((r: any) => KNOW.includes(r.id) && (r.stuTools ||
 // 资料包说明里写了多少条给学伴的规矩（「不要」「不能」「先问老师」这类）：规矩只该来自老师
 const packText = (report.packs || []).map((p: any) => p.text).join('\n');
 const ruleHits = (packText.match(/不要|不能|不给|别给|一律|先问老师|报给老师|转老师|问老师/g) || []).length;
+// 老师那边的卡片有多长：问题、每个选项、拟回复、整张，取中位和中间一半
+const cards = results.map((r: any) => r.card).filter(Boolean) as { question: string; options: string[]; draft: string }[];
+const chars = (s: string) => [...s].length;
+const mid = (xs: number[]) => {
+  if (!xs.length) return '-';
+  const s = [...xs].sort((a, b) => a - b);
+  const at = (p: number) => s[Math.round((s.length - 1) * p)];
+  return `${at(0.5)}（${at(0.25)}–${at(0.75)}）`;
+};
+const cardLine = cards.length
+  ? `卡片 ${cards.length} 张，字数中位（中间一半）：问题 ${mid(cards.map((c) => chars(c.question)))}，选项 ${mid(cards.flatMap((c) => c.options.map(chars)))}，拟回复 ${mid(cards.map((c) => chars(c.draft)))}，整张 ${mid(cards.map((c) => chars(c.question + c.draft + c.options.join(''))))}`
+  : '没有弹卡片';
 const lines = [
   `# 学伴尺子 ${label}`,
   '',
@@ -119,6 +131,7 @@ const lines = [
   `回话平均 ${avgLen} 字；跟作业无关却提了没交的作业 ${chatty.length}/${OFF.filter((id) => results.some((r: any) => r.id === id)).length}${chatty.length ? `（${chatty.join('、')}）` : ''}`,
   `一般知识点去问了助教 ${askedTa.length}/${KNOW.filter((id) => results.some((r: any) => r.id === id)).length}${askedTa.length ? `（${askedTa.join('、')}）` : ''}；资料包里规矩性的字眼 ${ruleHits} 处，资料包 ${packText.length} 字`,
   `学生这边调模型 ${calls} 次，读进 ${input} 字（词元），写出 ${output}（含思考）；写资料包调了 ${baseCalls.calls} 次，读进 ${baseCalls.input}，写出 ${baseCalls.output}`,
+  cardLine,
   '',
   '| 句子 | 类 | 结果 | 转老师 | 时间 | 哪里不对 | 回话 |',
   '|---|---|---|---|---|---|---|',
@@ -129,5 +142,19 @@ const lines = [
     return `| ${r.id} | ${r.cat} | ${r.ok ? '对' : '不对'} | ${r.escalated ? '转了' : ''} | ${sec} | ${why.slice(0, 120)} | ${said.slice(0, 140)} |`;
   }),
 ];
+lines.push(
+  '',
+  '## 卡片',
+  ...results
+    .filter((r: any) => r.card)
+    .flatMap((r: any) => [
+      `### ${r.id}`,
+      r.card.question,
+      r.card.draft ? `拟回复：${r.card.draft}` : '',
+      `选项：${r.card.options.join(' ｜ ')}`,
+      `学生收到：${(r.notices || []).join(' / ') || '（没有）'}`,
+      '',
+    ]),
+);
 writeFileSync(join(out, 'summary.md'), lines.join('\n'));
-console.log(lines.slice(0, 6).join('\n'));
+console.log(lines.slice(0, 9).join('\n'));
