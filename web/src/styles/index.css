@@ -438,3 +438,6 @@ ins.ct-ins { text-decoration: none; background: color-mix(in srgb, var(--c-ok) 1
 del.ct-del { text-decoration: line-through; text-decoration-color: var(--c-bad); color: var(--c-bad); background: var(--c-bad-soft); border-radius: 3px; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
 .ct-fold { display: flex; width: 100%; align-items: center; justify-content: center; gap: 6px; margin: 0.9em 0; padding: 6px 0; border-block: 1px dashed var(--c-border); font-size: 13px; color: var(--c-text-3); }
 .ct-fold:hover { color: var(--c-text); background: var(--c-surface-2); }
+
+/* 代码逐字显示：等宽字体的连字会把 == != >= 画成一个符号，学生看代码要看到原样的字符 */
+.font-mono, code, pre, kbd, .cm-scroller { font-variant-ligatures: none; font-feature-settings: 'liga' 0, 'calt' 0; }

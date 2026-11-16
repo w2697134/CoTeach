@@ -42,6 +42,7 @@ const ClassDetail = page(() => import('./pages/classes/ClassPage'), 'ClassPage')
 const JoinClass = page(() => import('./pages/classes/Home'), 'JoinPage');
 const JoinLanding = page(() => import('./pages/classes/Landing'), 'JoinLandingPage');
 const HomeworkDetail = page(() => import('./pages/classes/HomeworkPage'), 'HomeworkPage');
+const HomeworkReview = page(() => import('./pages/classes/ReviewPage'), 'ReviewPage');
 const HomeworkEdit = page(() => import('./pages/classes/HomeworkEdit'), 'HomeworkEditPage');
 const Assistant = page(() => import('./pages/assistant/AssistantPage'), 'AssistantPage');
 const Buddy = page(() => import('./pages/cot/BuddyPage'), 'BuddyPage');
@@ -190,6 +191,14 @@ export const router = createBrowserRouter([
         element: (
           <S>
             <HomeworkDetail />
+          </S>
+        ),
+      },
+      {
+        path: 'classes/:id/homework/:hid/review',
+        element: (
+          <S>
+            <TeacherOnly><HomeworkReview /></TeacherOnly>
           </S>
         ),
       },

@@ -104,6 +104,12 @@ const OFF = ['g01', 'g02', 'b01', 'b03', 'b06', 'c06', 'c07', 'a05'];
 const lastOf = (r: any) => String((r.replies || []).slice(-1)[0] || '');
 const avgLen = Math.round(results.reduce((n: number, r: any) => n + lastOf(r).length, 0) / Math.max(1, results.length));
 const chatty = results.filter((r: any) => OFF.includes(r.id) && /没交|截止/.test(lastOf(r))).map((r: any) => r.id);
+// 一般知识点转去问助教的有几句（直接讲就行，去问一趟要多等十几秒，还可能转到老师那）
+const KNOW = ['b01', 'b06', 'b07', 'b08', 'b09'];
+const askedTa = results.filter((r: any) => KNOW.includes(r.id) && (r.stuTools || []).includes('ask_ta')).map((r: any) => r.id);
+// 资料包说明里写了多少条给学伴的规矩（「不要」「不能」「先问老师」这类）：规矩只该来自老师
+const packText = (report.packs || []).map((p: any) => p.text).join('\n');
+const ruleHits = (packText.match(/不要|不能|不给|别给|一律|先问老师|报给老师|转老师|问老师/g) || []).length;
 const lines = [
   `# 学伴尺子 ${label}`,
   '',
@@ -111,6 +117,7 @@ const lines = [
   `资料包：漏 ${report.leaks.join('、') || '无'}，不该给的文件 ${report.badFiles.join('、') || '无'}，课件${report.slides ? '放了' : '没放'}`,
   `每句等的时间：中位 ${q(0.5)} 秒，四分之一到四分之三 ${q(0.25)}–${q(0.75)} 秒，最慢 ${q(1)} 秒`,
   `回话平均 ${avgLen} 字；跟作业无关却提了没交的作业 ${chatty.length}/${OFF.filter((id) => results.some((r: any) => r.id === id)).length}${chatty.length ? `（${chatty.join('、')}）` : ''}`,
+  `一般知识点去问了助教 ${askedTa.length}/${KNOW.filter((id) => results.some((r: any) => r.id === id)).length}${askedTa.length ? `（${askedTa.join('、')}）` : ''}；资料包里规矩性的字眼 ${ruleHits} 处，资料包 ${packText.length} 字`,
   `学生这边调模型 ${calls} 次，读进 ${input} 字（词元），写出 ${output}（含思考）；写资料包调了 ${baseCalls.calls} 次，读进 ${baseCalls.input}，写出 ${baseCalls.output}`,
   '',
   '| 句子 | 类 | 结果 | 转老师 | 时间 | 哪里不对 | 回话 |',

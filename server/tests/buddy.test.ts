@@ -9,6 +9,8 @@ const dir = mkdtempSync(join(tmpdir(), 'coteach-buddy-test-'));
 process.env.CT_DATA_DIR = dir;
 process.env.CT_DEMO_MODE = '0';
 process.env.CT_SECRET = 'test-only-secret-with-at-least-32-characters';
+// 助教批改、拟评分标准不在后台自己跑（这里的模型回答是排好的）
+process.env.CT_GRADE_AUTO = '0';
 process.env.CT_PACK_AUTO = '0';
 const { db } = await import('../src/db/index.js');
 const { createApp } = await import('../src/app.js');

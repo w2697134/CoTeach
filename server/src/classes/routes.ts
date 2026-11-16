@@ -152,7 +152,7 @@ classRoutes.get('/', (c) => {
   const u = me(c);
   if (u.role === 'student') {
     const list = db.all<{ id: number; name: string; teacher: string; count: number; archived: number }>(
-      `SELECT c.id, c.name, t.name AS teacher, ${COUNT} AS count, c.archived_at IS NOT NULL AS archived FROM classes c JOIN users t ON t.id=c.teacher_id WHERE ${JOINED} ORDER BY c.id`,
+      `SELECT c.id, c.name, t.name AS teacher, ${COUNT} AS count, c.archived_at IS NOT NULL AS archived FROM classes c JOIN users t ON t.id=c.teacher_id WHERE ${JOINED} ORDER BY c.archived_at IS NOT NULL, c.id DESC`,
       u.id,
     );
     const todo = homeworkCounts(u, list.filter((k) => !k.archived).map((k) => k.id));
@@ -168,7 +168,7 @@ classRoutes.get('/', (c) => {
   ))
     preview.set(s.class_id, [...(preview.get(s.class_id) || []), { id: s.id, name: s.name }]);
   const list = db.all<{ id: number; name: string; count: number; code: string | null; join_open: number; archived: number }>(
-    `SELECT c.id, c.name, ${COUNT} AS count, c.join_code AS code, c.join_open, c.archived_at IS NOT NULL AS archived FROM classes c WHERE c.teacher_id=? AND c.deleted_at IS NULL ORDER BY c.id`,
+    `SELECT c.id, c.name, ${COUNT} AS count, c.join_code AS code, c.join_open, c.archived_at IS NOT NULL AS archived FROM classes c WHERE c.teacher_id=? AND c.deleted_at IS NULL ORDER BY c.archived_at IS NOT NULL, c.id DESC`,
     u.id,
   );
   const pending = homeworkCounts(u, list.filter((k) => !k.archived).map((k) => k.id));

@@ -13,6 +13,7 @@ import { teacherError } from './kb/teacher-text.js';
 import { authRoutes } from './routes/auth.js';
 import { classRoutes } from './classes/routes.js';
 import { homeworkRoutes } from './classes/homework.js';
+import { gradingRoutes } from './grading/routes.js';
 import { adminRoutes } from './routes/admin.js';
 import { setInternalApp } from './assistant/api.js';
 import { cotRoutes } from './assistant/routes.js';
@@ -56,6 +57,7 @@ export function createApp() {
   app.route('/api/keeper', keeperRoutes);
   app.route('/api/classes', classRoutes);
   app.route('/api/homework', homeworkRoutes);
+  app.route('/api/homework', gradingRoutes);
   app.route('/api/admin', adminRoutes);
   app.route('/api/cot', cotRoutes);
 

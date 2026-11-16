@@ -96,7 +96,7 @@ export function StudentMark({ h }: { h: { status?: Homework['status']; score?: n
   if (h.status === 'graded' && h.score !== null && h.score !== undefined)
     return (
       <span className="shrink-0 text-[14px] tabular-nums text-ink-3">
-        <span className="text-[16px] font-semibold text-ok">{num(h.score)}</span>/{num(h.points)}
+        <span className={cn('text-[16px] font-semibold', h.score / h.points >= 0.6 ? 'text-ok' : 'text-bad')}>{num(h.score)}</span>/{num(h.points)}
       </span>
     );
   const s = STATUS[h.status];

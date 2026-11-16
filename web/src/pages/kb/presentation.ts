@@ -3,17 +3,26 @@ const EXT = /\.[a-z][a-z0-9]{0,4}$/i;
 export const fileTitle = (path: unknown) => (typeof path === 'string' ? (path.split('/').pop() || '').replace(EXT, '') : '');
 export const fileDir = (path: string) => (path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '');
 export const plainPath = (path: unknown) => (typeof path === 'string' ? path.split('/').filter(Boolean).map(fileTitle).join(' · ') : '');
+/** 代码（`…` 和 ``` 块）里的原样留着，只改代码外面的字 */
+const outsideCode = (s: string, f: (t: string) => string) =>
+  s
+    .split(/(```[\s\S]*?(?:```|$)|`[^`\n]*`)/)
+    .map((part, i) => (i % 2 ? part : f(part)))
+    .join('');
+/** 看着像知识库位置的「资料/第7章 递归.md」；分数「28/32」、日期「11/16」这种全是数字的不算 */
+const PATHLIKE = /(?:[^\s，。、；;：:（）()「」『』《》"'“”‘’]+\/)+[^\s，。、；;：:（）()「」『』《》"'“”‘’]+/g;
 export const plainText = (value: unknown) =>
   typeof value !== 'string'
     ? ''
-    : value
-        .replace(/（系统记录：[^）]+）/g, '')
-        .replace(/(?:[^\s，。、；;：:（）()「」『』《》"'“”‘’]+\/)+[^\s，。、；;：:（）()「」『』《》"'“”‘’]+/g, (match) =>
-          /^https?:/i.test(match) ? match : plainPath(match),
-        )
-        .replace(/\.(?:md|markdown|docx?|pptx?|pdf|txt)(?![A-Za-z0-9])/gi, '')
-        // 「笔记/ 下新建」「资料/：」这种文件夹名后面的斜杠也去掉
-        .replace(/([^\s/：:]+)\/(?=[\s：:]|$)/g, '$1');
+    : outsideCode(value.replace(/（系统记录：[^）]+）/g, ''), (t) =>
+        t
+          .replace(PATHLIKE, (match, at: number, all: string) =>
+            /https?:$/i.test(all.slice(Math.max(0, at - 6), at)) || /^[\d.+\-−/]+$/.test(match) ? match : plainPath(match),
+          )
+          .replace(/\.(?:md|markdown|docx?|pptx?|pdf|txt)(?![A-Za-z0-9])/gi, '')
+          // 「笔记/ 下新建」「资料/：」这种文件夹名后面的斜杠也去掉
+          .replace(/([^\s/：:\d]+)\/(?=[\s：:]|$)/g, '$1'),
+      );
 
 /** 今天的只写几点，别的日子写几月几日 */
 export function when(t: number) {

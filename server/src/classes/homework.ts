@@ -9,6 +9,11 @@ import { config } from '../config.js';
 import { db, now } from '../db/index.js';
 import { bad, body, conflict, forbidden, intParam, notFound, rateLimit } from '../lib/http.js';
 import { packOnHomework, packOnHomeworkDeleted } from '../assistant/pack-jobs.js';
+import { gradeItems, gradeMarks, noteChange, type AiMode, type GradeItem } from '../grading/common.js';
+import { gradeOnSubmit, gradingCount } from '../grading/jobs.js';
+import { latestGrades } from '../grading/grader.js';
+import { rescaleRubric, rubricOf, rubricOnHomework } from '../grading/rubric.js';
+import { studentReview } from '../grading/review.js';
 
 /**
  * 作业：照 Google Classroom、课堂派。老师布置（标题、要求、附件、截止、满分、允不允许迟交、定时发布，一次发几个班），
@@ -39,6 +44,7 @@ interface AssignmentRow {
   due_at: number | null;
   allow_late: number;
   publish_at: number;
+  ai_mode: AiMode;
   created_at: number;
   updated_at: number;
 }
@@ -53,6 +59,9 @@ interface SubmissionRow {
   comment: string | null;
   graded_at: number | null;
   returned_at: number | null;
+  graded_by: 'ai' | 'teacher' | null;
+  items: string | null;
+  ai_grade_id: number | null;
 }
 interface FileRow {
   id: number;
@@ -66,13 +75,13 @@ interface FileRow {
 
 /* ---------------- 谁能看、谁能改 ---------------- */
 
-function ownedClass(u: User, id: number): ClassRow {
+export function ownedClass(u: User, id: number): ClassRow {
   const k = db.get<ClassRow>('SELECT id, teacher_id, name, archived_at FROM classes WHERE id=? AND teacher_id=? AND deleted_at IS NULL', id, u.id);
   if (!k) throw notFound('这个班不存在或已经删掉了');
   return k;
 }
 /** 学生加入了的班；返回他在这个班里的那一行 */
-function joinedClass(u: User, id: number) {
+export function joinedClass(u: User, id: number) {
   const k = db.get<ClassRow & { csid: number }>(
     'SELECT c.id, c.teacher_id, c.name, c.archived_at, s.id AS csid FROM classes c JOIN class_students s ON s.class_id=c.id AND s.user_id=? WHERE c.id=? AND c.deleted_at IS NULL',
     u.id,
@@ -81,13 +90,13 @@ function joinedClass(u: User, id: number) {
   if (!k) throw notFound('这个班不存在或已经删掉了');
   return k;
 }
-const live = (k: ClassRow) => {
+export const live = (k: ClassRow) => {
   if (k.archived_at) throw conflict('这个班已经归档了，要改先恢复');
   return k;
 };
-const ASSIGNMENT = 'SELECT id, class_id, teacher_id, title, body, points, due_at, allow_late, publish_at, created_at, updated_at FROM assignments';
+const ASSIGNMENT = 'SELECT id, class_id, teacher_id, title, body, points, due_at, allow_late, publish_at, ai_mode, created_at, updated_at FROM assignments';
 /** 作业和它的班；老师得是这个班的老师，学生得在班里、作业已经发布 */
-function assignmentFor(u: User, id: number) {
+export function assignmentFor(u: User, id: number) {
   const a = db.get<AssignmentRow>(`${ASSIGNMENT} WHERE id=? AND deleted_at IS NULL`, id);
   if (!a) throw notFound('这份作业不存在或已经删掉了');
   if (u.role === 'student') {
@@ -193,7 +202,7 @@ homeworkRoutes.get('/files/:id', (c) => {
 
 type Status = 'todo' | 'missing' | 'submitted' | 'late' | 'graded' | 'returned';
 /** 一个学生在一份作业上的状态：没交（截止前是「未交」，过了是「缺交」）、已交、迟交、已批、已退回 */
-function statusOf(a: Pick<AssignmentRow, 'due_at'>, s: Pick<SubmissionRow, 'submitted_at' | 'late' | 'score' | 'returned_at'> | undefined, t = now()): Status {
+export function statusOf(a: Pick<AssignmentRow, 'due_at'>, s: Pick<SubmissionRow, 'submitted_at' | 'late' | 'score' | 'returned_at'> | undefined, t = now()): Status {
   if (!s) return a.due_at && t > a.due_at ? 'missing' : 'todo';
   if (s.returned_at && s.returned_at >= s.submitted_at) return 'returned';
   if (s.score !== null) return 'graded';
@@ -217,6 +226,7 @@ const pub = (a: AssignmentRow) => ({
   allowLate: !!a.allow_late,
   publishAt: a.publish_at,
   createdAt: a.created_at,
+  aiMode: a.ai_mode,
 });
 
 /* ---------------- 布置、改、删 ---------------- */
@@ -229,6 +239,8 @@ const FIELDS = {
   allowLate: z.boolean(),
   publishAt: z.number().int().positive().nullable(),
   fileIds: z.array(z.number().int().positive()).max(MAX_FILES),
+  /** 批改方式：release 助教批完直接发、hold 助教批完老师看过再发、off 不用助教批 */
+  aiMode: z.enum(['release', 'hold', 'off']).optional(),
 };
 function checkTimes(publishAt: number, dueAt: number | null) {
   if (dueAt && dueAt <= publishAt) throw bad('截止时间要在发布时间之后');
@@ -254,6 +266,7 @@ homeworkRoutes.post('/', async (c) => {
         due_at: d.dueAt,
         allow_late: d.allowLate ? 1 : 0,
         publish_at: publishAt,
+        ai_mode: d.aiMode ?? 'release',
         created_at: t,
         updated_at: t,
       });
@@ -271,8 +284,9 @@ homeworkRoutes.post('/', async (c) => {
     return made;
   });
   audit(c, 'homework.create', `class:${classes.map((k) => k.id).join(',')}`, { ids, title: d.title });
-  // 助教在后台给每个班的资料包写这份作业的说明
+  // 助教在后台给每个班的资料包写这份作业的说明，再拟评分标准（不用助教批的不拟）
   ids.forEach(packOnHomework);
+  ids.forEach((id) => rubricOnHomework(id));
   return c.json({ ids });
 });
 
@@ -292,6 +306,7 @@ homeworkRoutes.patch('/:id', async (c) => {
       ...(d.body !== undefined && { body: d.body }),
       ...(d.points !== undefined && { points: d.points }),
       ...(d.allowLate !== undefined && { allow_late: d.allowLate ? 1 : 0 }),
+      ...(d.aiMode !== undefined && { ai_mode: d.aiMode }),
       due_at: dueAt,
       publish_at: publishAt,
       updated_at: t,
@@ -299,8 +314,11 @@ homeworkRoutes.patch('/:id', async (c) => {
     if (d.fileIds) attach(u, 'assignment_id', a.id, d.fileIds);
   });
   audit(c, 'homework.update', `homework:${a.id}`);
-  // 标题、要求改了：说明重写（只改截止、满分不用，资料包里那些是现取的）
-  if ((d.title !== undefined && d.title !== a.title) || (d.body !== undefined && d.body !== a.body)) packOnHomework(a.id);
+  // 标题、要求改了：说明重写（只改截止、满分不用，资料包里那些是现取的）；助教拟的评分标准也重拟
+  const changed = (d.title !== undefined && d.title !== a.title) || (d.body !== undefined && d.body !== a.body);
+  if (changed) packOnHomework(a.id);
+  if (d.points !== undefined && d.points !== a.points) rescaleRubric(a.id, d.points);
+  if (changed || (d.aiMode !== undefined && d.aiMode !== 'off' && a.ai_mode === 'off')) rubricOnHomework(a.id, { changed });
   return c.json({ ok: true });
 });
 
@@ -314,6 +332,27 @@ homeworkRoutes.delete('/:id', (c) => {
   packOnHomeworkDeleted(a.id);
   return c.json({ ok: true });
 });
+
+/* ---------------- 助教批改 ---------------- */
+
+/** 每项的分加起来是不是这个总分 */
+const sameTotal = (items: string | null, score: number) => {
+  const list = gradeItems(items);
+  return list.length > 0 && Math.abs(list.reduce((n, x) => n + x.got, 0) - score) < 0.01;
+};
+
+/** 发出去的批改：每项得分、谁批的、批注和批改稿（助教批过才有） */
+function gradedView(s: SubmissionRow) {
+  const g = s.ai_grade_id ? db.get<{ marks: string | null; text: string | null }>('SELECT marks, text FROM ai_grades WHERE id=?', s.ai_grade_id) : undefined;
+  return { gradedBy: s.graded_by, items: gradeItems(s.items), marks: gradeMarks(g?.marks), workText: g?.text ?? null };
+}
+/** 这一版是不是正在批（批完要直接发的那种，学生那边显示「助教在批」） */
+const gradingNow = (s: SubmissionRow) =>
+  !!db.get("SELECT id FROM ai_grades WHERE submission_id=? AND submitted_at=? AND auto_release=1 AND status IN ('queued','running')", s.id, s.submitted_at);
+/** 老师列表上助教那一份的样子：排着、在批、批好（几分、要不要老师看、发没发）、没批成 */
+type AiRow = { status: string; score: number | null; flag: string | null; released_at: number | null; error: string | null };
+const aiState = (g: AiRow | undefined) =>
+  g ? { status: g.status, score: g.score, flag: g.flag, released: !!g.released_at, error: g.status === 'error' ? g.error : null } : null;
 
 /* ---------------- 看作业 ---------------- */
 
@@ -377,13 +416,22 @@ homeworkRoutes.get('/:id', (c) => {
             gradedAt: s.graded_at,
             returnedAt: s.returned_at,
             files: files('submission_id', s.id),
+            ...(statusOf(a, s, t) === 'graded' ? gradedView(s) : {}),
+            grading: statusOf(a, s, t) !== 'graded' && gradingNow(s),
           }
         : null,
+      studentReview: studentReview(a.id),
     });
   }
   const subs = subsOf(a.id);
+  const ai = latestGrades(a.id);
+  const rubric = rubricOf(a.id);
+  const review = db.get<{ status: string; shared_at: number | null }>('SELECT status, shared_at FROM hw_reviews WHERE assignment_id=?', a.id);
   return c.json({
     ...base,
+    rubric,
+    grading: gradingCount(a.id),
+    review: review ? { status: review.status, shared: !!review.shared_at } : null,
     students: members(a.class_id).map((m) => {
       const s = m.user_id === null ? undefined : subs.get(m.user_id);
       return {
@@ -395,6 +443,8 @@ homeworkRoutes.get('/:id', (c) => {
         submittedAt: s?.submitted_at ?? null,
         late: !!s?.late,
         score: s?.score ?? null,
+        gradedBy: s && s.score !== null ? s.graded_by : null,
+        ai: m.user_id === null ? null : aiState(ai.get(m.user_id)),
       };
     }),
   });
@@ -416,19 +466,21 @@ homeworkRoutes.post('/:id/submit', async (c) => {
     const returned = !!s?.returned_at && s.returned_at >= s.submitted_at;
     const late = returned ? s!.late : a.due_at && t > a.due_at ? 1 : 0;
     // 退回后重交：分数清掉等老师重新批，评语留着
-    const row = { text: d.text, submitted_at: t, late, updated_at: t, ...(returned && { score: null, graded_at: null }) };
+    const row = { text: d.text, submitted_at: t, late, updated_at: t, ...(returned && { score: null, graded_at: null, graded_by: null, items: null, ai_grade_id: null }) };
     const sid = s ? (db.update('submissions', s.id, row), s.id) : db.insert('submissions', { assignment_id: a.id, user_id: u.id, ...row });
     attach(u, 'submission_id', sid, d.fileIds);
     return sid;
   });
   audit(c, 'homework.submit', `homework:${a.id}`, { submission: id });
+  // 用助教批的作业：排上批
+  gradeOnSubmit(id);
   return c.json({ ok: true });
 });
 
 /* ---------------- 批作业 ---------------- */
 
 /** 老师点开一个学生：他交的文字、文件、分数、评语 */
-function studentOf(classId: number, csid: number) {
+export function studentOf(classId: number, csid: number) {
   const m = db.get<{ id: number; student_no: string; name: string; user_id: number | null }>(
     'SELECT id, student_no, name, user_id FROM class_students WHERE id=? AND class_id=?',
     csid,
@@ -442,7 +494,40 @@ homeworkRoutes.get('/:id/students/:sid', (c) => {
   const { a } = assignmentFor(u, intParam(c));
   const m = studentOf(a.class_id, intParam(c, 'sid'));
   const s = m.user_id === null ? undefined : db.get<SubmissionRow>('SELECT * FROM submissions WHERE assignment_id=? AND user_id=?', a.id, m.user_id);
+  // 助教对这一版最新的那次批改（排着、在批、批好、没批成）
+  const g = s
+    ? db.get<{
+        id: number;
+        status: string;
+        score: number | null;
+        items: string | null;
+        marks: string | null;
+        comment: string | null;
+        flag: string | null;
+        text: string | null;
+        released_at: number | null;
+        error: string | null;
+      }>(
+        "SELECT id, status, score, items, marks, comment, flag, text, released_at, error FROM ai_grades WHERE submission_id=? AND submitted_at=? AND status<>'stale' ORDER BY id DESC LIMIT 1",
+        s.id,
+        s.submitted_at,
+      )
+    : undefined;
   return c.json({
+    ai: g
+      ? {
+          id: g.id,
+          status: g.status,
+          score: g.score,
+          items: gradeItems(g.items),
+          marks: gradeMarks(g.marks),
+          comment: g.comment,
+          flag: g.flag,
+          workText: g.text,
+          released: !!g.released_at,
+          error: g.status === 'error' ? g.error : null,
+        }
+      : null,
     id: m.id,
     studentNo: m.student_no,
     name: m.name,
@@ -458,12 +543,15 @@ homeworkRoutes.get('/:id/students/:sid', (c) => {
           gradedAt: s.graded_at,
           returnedAt: s.returned_at,
           files: files('submission_id', s.id),
+          gradedBy: s.score !== null ? s.graded_by : null,
+          items: gradeItems(s.items),
+          aiGradeId: s.ai_grade_id,
         }
       : null,
   });
 });
 
-function submissionOf(a: AssignmentRow, csid: number) {
+export function submissionOf(a: AssignmentRow, csid: number) {
   const m = studentOf(a.class_id, csid);
   const s = m.user_id === null ? undefined : db.get<SubmissionRow>('SELECT * FROM submissions WHERE assignment_id=? AND user_id=?', a.id, m.user_id);
   if (!s) throw conflict('这个学生还没交');
@@ -475,19 +563,45 @@ homeworkRoutes.post('/:id/students/:sid/grade', async (c) => {
   const u = requireRole(c, 'teacher', 'admin');
   const { a, k } = assignmentFor(u, intParam(c));
   live(k);
-  const d = await body(c, z.object({ score: z.number().min(0).nullable(), comment: z.string().max(5000) }));
-  if (d.score !== null && d.score > a.points) throw bad(`分数不能超过满分 ${a.points}`);
+  const d = await body(
+    c,
+    z.object({
+      score: z.number().min(0).nullable(),
+      comment: z.string().max(5000),
+      /** 按评分标准每项给的分（助教批过、有评分标准时）；有这个，总分按它加 */
+      items: z.array(z.object({ title: z.string().max(80), max: z.number().min(0), got: z.number().min(0), why: z.string().max(1000) })).max(20).optional(),
+      /** 采用的是助教哪一次批的（批注跟着显示） */
+      aiGradeId: z.number().int().positive().nullable().optional(),
+    }),
+  );
+  let items: GradeItem[] | null = null;
+  let score = d.score;
+  if (d.items?.length) {
+    items = d.items.map((x) => ({ ...x, got: Math.min(x.max, Math.round(x.got * 2) / 2) }));
+    score = Math.round(items.reduce((n, x) => n + x.got, 0) * 10) / 10;
+  }
+  if (score !== null && score > a.points) throw bad(`分数不能超过满分 ${a.points}`);
   const s = submissionOf(a, intParam(c, 'sid'));
+  const aiId = d.aiGradeId && db.get('SELECT id FROM ai_grades WHERE id=? AND submission_id=?', d.aiGradeId, s.id) ? d.aiGradeId : s.ai_grade_id;
+  // 跟助教批的不一样的项，原因后面注明老师改成了几分
+  if (items && aiId) {
+    const ai = gradeItems(db.value<string>('SELECT items FROM ai_grades WHERE id=?', aiId));
+    items = items.map((x, i) => noteChange(x, ai[i]?.got));
+  }
   const t = now();
   db.update('submissions', s.id, {
-    score: d.score === null ? null : Math.round(d.score * 10) / 10,
+    score: score === null ? null : Math.round(score * 10) / 10,
     comment: d.comment.trim() || null,
-    graded_at: d.score === null ? null : t,
+    graded_at: score === null ? null : t,
+    graded_by: score === null ? null : 'teacher',
+    // 只给了总分：原来每项的分加起来对不上了就不留（不然学生看到的每项和总分不一样）
+    items: score === null ? null : items ? JSON.stringify(items) : sameTotal(s.items, score) ? s.items : null,
+    ai_grade_id: aiId ?? null,
     returned_at: null,
     updated_at: t,
   });
-  audit(c, 'homework.grade', `homework:${a.id}`, { submission: s.id, score: d.score });
-  return c.json({ ok: true });
+  audit(c, 'homework.grade', `homework:${a.id}`, { submission: s.id, score });
+  return c.json({ ok: true, score });
 });
 
 /** 退回重交：分数清掉，学生那边显示「已退回」，截止了也能重交 */
@@ -498,7 +612,7 @@ homeworkRoutes.post('/:id/students/:sid/return', async (c) => {
   const d = await body(c, z.object({ comment: z.string().max(5000) }));
   const s = submissionOf(a, intParam(c, 'sid'));
   const t = now();
-  db.update('submissions', s.id, { score: null, graded_at: null, comment: d.comment.trim() || null, returned_at: t, updated_at: t });
+  db.update('submissions', s.id, { score: null, graded_at: null, graded_by: null, items: null, comment: d.comment.trim() || null, returned_at: t, updated_at: t });
   audit(c, 'homework.return', `homework:${a.id}`, { submission: s.id });
   return c.json({ ok: true });
 });

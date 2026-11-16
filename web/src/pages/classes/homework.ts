@@ -8,6 +8,55 @@ export interface HwFile {
   name: string;
   size: number;
 }
+/** 批改方式：助教批完直接发、助教批完老师看过再发、老师自己批 */
+export type AiMode = 'release' | 'hold' | 'off';
+export const AI_MODES: { value: AiMode; label: string }[] = [
+  { value: 'release', label: '助教批，批完直接发' },
+  { value: 'hold', label: '助教批，我看过再发' },
+  { value: 'off', label: '我自己批' },
+];
+/** 评分标准的一项（只有老师看得到） */
+export interface RubricItem {
+  title: string;
+  points: number;
+  criteria: string;
+  answer: string;
+}
+export interface Rubric {
+  items: RubricItem[];
+  source: 'ai' | 'teacher';
+  status: 'drafting' | 'ready' | 'error';
+  error: string | null;
+  updatedAt: number;
+}
+/** 批出来的一项 */
+export interface GradeItem {
+  title: string;
+  max: number;
+  got: number;
+  why: string;
+}
+/** 批注：批改稿里 start 到 end 那一段（找不到原文是 -1） */
+export interface Mark {
+  quote: string;
+  kind: 'wrong' | 'good';
+  note: string;
+  start: number;
+  end: number;
+}
+/** 助教对一份的批改 */
+export interface AiGrade {
+  id: number;
+  status: 'queued' | 'running' | 'done' | 'error';
+  score: number | null;
+  items: GradeItem[];
+  marks: Mark[];
+  comment: string | null;
+  flag: string | null;
+  workText: string | null;
+  released: boolean;
+  error: string | null;
+}
 export interface Homework {
   id: number;
   classId: number;
@@ -18,6 +67,7 @@ export interface Homework {
   allowLate: boolean;
   publishAt: number;
   createdAt: number;
+  aiMode?: AiMode;
   /** 老师看到的 */
   submitted?: number;
   graded?: number;
@@ -35,16 +85,50 @@ export interface Submission {
   gradedAt: number | null;
   returnedAt: number | null;
   files: HwFile[];
+  /** 发出去的批改：谁批的、每项、批注和批改稿 */
+  gradedBy?: 'ai' | 'teacher' | null;
+  items?: GradeItem[];
+  marks?: Mark[];
+  workText?: string | null;
+  /** 学生：助教正在批 */
+  grading?: boolean;
+  /** 老师：采用的是助教哪一次批的 */
+  aiGradeId?: number | null;
+}
+/** 发给学生的讲评（不带名字） */
+export interface StudentReview {
+  summary: string;
+  errors: { title: string; why: string; n: number }[];
+  avg: number | null;
+  points: number | null;
+  sharedAt: number;
 }
 export interface HomeworkDetail extends Homework {
   className: string;
   archived: boolean;
   files: HwFile[];
   /** 老师：班里每个学生交的情况 */
-  students?: { id: number; studentNo: string; name: string; joined: boolean; status: HwStatus | null; submittedAt: number | null; late: boolean; score: number | null }[];
+  students?: {
+    id: number;
+    studentNo: string;
+    name: string;
+    joined: boolean;
+    status: HwStatus | null;
+    submittedAt: number | null;
+    late: boolean;
+    score: number | null;
+    gradedBy: 'ai' | 'teacher' | null;
+    ai: { status: AiGrade['status']; score: number | null; flag: string | null; released: boolean; error: string | null } | null;
+  }[];
+  rubric?: Rubric | null;
+  /** 正在批几份 */
+  grading?: number;
+  review?: { status: 'writing' | 'ready' | 'error'; shared: boolean } | null;
   /** 学生：自己交的、还能不能交 */
   mine?: Submission | null;
   lock?: string | null;
+  /** 学生：老师发了的讲评 */
+  studentReview?: StudentReview | null;
 }
 export interface StudentWork {
   id: number;
@@ -53,11 +137,21 @@ export interface StudentWork {
   joined: boolean;
   status: HwStatus | null;
   submission: Submission | null;
+  ai: AiGrade | null;
 }
 
 export const useHomeworkList = (classId: number) =>
   useQuery({ queryKey: ['homework', 'class', classId], queryFn: () => get<{ homework: Homework[] }>(`/homework/class/${classId}`) });
-export const useHomework = (id: number) => useQuery({ queryKey: ['homework', id], queryFn: () => get<HomeworkDetail>(`/homework/${id}`), enabled: id > 0 });
+/** 助教在批、在拟评分标准、在写讲评时隔两秒半刷一次 */
+const busy = (h?: HomeworkDetail) => !!h && (!!h.grading || h.rubric?.status === 'drafting' || h.review?.status === 'writing' || !!h.mine?.grading);
+export const useHomework = (id: number) =>
+  useQuery({
+    queryKey: ['homework', id],
+    queryFn: () => get<HomeworkDetail>(`/homework/${id}`),
+    enabled: id > 0,
+    // 老师开着作业页：学生随时会交，隔一会儿也刷一次
+    refetchInterval: (q) => (busy(q.state.data) ? 2500 : q.state.data?.students ? 15_000 : false),
+  });
 
 /** 传一个附件，拿到编号 */
 export const uploadFile = (file: File) => api<HwFile>(`/homework/files?name=${encodeURIComponent(file.name)}`, { method: 'POST', body: file });

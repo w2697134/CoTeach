@@ -114,6 +114,16 @@ export const TOOL_SPECS: ToolSpec[] = [
     ),
   },
   {
+    name: 'grade_homework',
+    description: '让助教批一份作业：学生交了还没批的都批（照评分标准在后台批，批完告诉老师）。redo 传 true 连助教批过的也重批；老师自己批过的不动。',
+    parameters: obj({ ...HOMEWORK, redo: { type: 'boolean', description: 'true 重批' } }, ['homework']),
+  },
+  {
+    name: 'homework_review',
+    description: '一份作业的讲评：分数分布、错得多的几类问题、做得好的、下节课该讲的。还没写的现在写，要半分钟左右；share 传 true 把不带名字的那一版发给学生。',
+    parameters: obj({ ...HOMEWORK, rewrite: { type: 'boolean', description: 'true 重写' }, share: { type: 'boolean', description: 'true 发给学生' } }, ['homework']),
+  },
+  {
     name: 'class_grades',
     description: '看一个班的成绩：每个学生每份作业的分数和平均分（百分制）。要导出 Excel 时 export 传 true，老师会看到下载按钮。',
     parameters: obj({ class: str('班名'), export: { type: 'boolean', description: '要不要给老师 Excel' } }, ['class']),
@@ -309,7 +319,7 @@ function locate(teacherId: number, args: Record<string, unknown>) {
   throw bad(tried.join('\n'));
 }
 
-const SNAP = ['score', 'comment', 'graded_at', 'returned_at', 'submitted_at'] as const;
+const SNAP = ['score', 'comment', 'graded_at', 'returned_at', 'submitted_at', 'graded_by', 'items', 'ai_grade_id'] as const;
 const pickSnap = (row: Record<string, unknown> | undefined, keys: readonly string[]) => Object.fromEntries(keys.map((k) => [k, row?.[k] ?? null]));
 
 /* ---------------- 各个工具 ---------------- */
@@ -532,13 +542,26 @@ const handlers: Record<string, Handler> = {
       const d = await callApi<any>(ctx.user.id, 'GET', `/homework/${h.id}`);
       const k = classes.get(h.class_id)!;
       const by = (f: (s: any) => boolean) => d.students.filter(f).map((s: any) => s.name);
-      const graded = d.students.filter((s: any) => s.status === 'graded').map((s: any) => `${s.name} ${s.score === null ? '只写了评语' : score(s.score)}`);
-      const waiting = d.students.filter((s: any) => s.status === 'submitted' || s.status === 'late').map((s: any) => `${s.name}${s.late ? '（迟交）' : ''}`);
+      const graded = d.students
+        .filter((s: any) => s.status === 'graded')
+        .map((s: any) => `${s.name} ${s.score === null ? '只写了评语' : score(s.score)}${s.gradedBy === 'ai' ? '（助教批的）' : ''}`);
+      const waiting = d.students.filter((s: any) => s.status === 'submitted' || s.status === 'late');
+      const ai = (s: any) =>
+        !s.ai
+          ? ''
+          : s.ai.status === 'queued' || s.ai.status === 'running'
+            ? '，助教在批'
+            : s.ai.status === 'error'
+              ? '，助教没批成'
+              : s.ai.flag
+                ? `，助教留给老师看：${s.ai.flag}`
+                : `，助教拟了 ${score(s.ai.score ?? 0)} 分等发布`;
+      const mode = { release: '助教批完直接发', hold: '助教批完老师看过再发', off: '老师自己批' }[d.aiMode as string] || '';
       out.push(
         [
-          `「${d.title}」（${k.name}，满分 ${score(d.points)}，${d.dueAt ? `截止 ${showTime(d.dueAt)}` : '不设截止'}${d.publishAt > Date.now() ? `，${showTime(d.publishAt)} 发布` : ''}）`,
+          `「${d.title}」（${k.name}，满分 ${score(d.points)}，${d.dueAt ? `截止 ${showTime(d.dueAt)}` : '不设截止'}${d.publishAt > Date.now() ? `，${showTime(d.publishAt)} 发布` : ''}${mode ? `，${mode}` : ''}）`,
           `已批 ${graded.length}：${graded.join('、') || '无'}`,
-          `待批 ${waiting.length}：${waiting.join('、') || '无'}`,
+          `待批 ${waiting.length}：${waiting.map((s: any) => `${s.name}${s.late ? '（迟交）' : ''}${ai(s)}`).join('、') || '无'}`,
           `退回等重交：${by((s) => s.status === 'returned').join('、') || '无'}`,
           `没交：${by((s) => s.joined && (s.status === 'todo' || s.status === 'missing')).join('、') || '无'}`,
           ...(by((s) => !s.joined).length ? [`还没加入班级：${by((s) => !s.joined).join('、')}`] : []),
@@ -559,7 +582,9 @@ const handlers: Record<string, Handler> = {
       `${s.name}（${s.student_no}）${showTime(sub.submittedAt)} 交的${sub.late ? '（迟交）' : ''}${w.status === 'returned' ? '，已退回等重交' : ''}`,
       sub.text?.trim() ? `内容：\n${sub.text.slice(0, 4000)}` : '没写文字',
       sub.files?.length ? `附件：${sub.files.map((f: any) => f.name).join('、')}` : '',
-      sub.score !== null ? `分数 ${score(sub.score)}` : '还没打分',
+      sub.score !== null ? `分数 ${score(sub.score)}${sub.gradedBy === 'ai' ? '（助教批的）' : sub.gradedBy === 'teacher' ? '（老师批的）' : ''}` : '还没打分',
+      ...(sub.score !== null && sub.items?.length ? sub.items.map((x: any) => `- ${x.title} ${score(x.got)}/${score(x.max)}：${x.why}`) : []),
+      sub.score === null && w.ai?.status === 'done' ? `助教拟了 ${score(w.ai.score ?? 0)} 分${w.ai.flag ? `，留给老师看：${w.ai.flag}` : '，等老师发'}` : '',
       sub.comment ? `评语：${sub.comment}` : '',
     ]
       .filter(Boolean)
@@ -593,6 +618,79 @@ const handlers: Record<string, Handler> = {
       { kind: 'submission.grade', submissionId: sub.id, before, after: pickSnap(now, SNAP) },
     );
     return `${title}（${k.name}，满分 ${score(h.points)}）`;
+  },
+
+  async grade_homework(ctx, a) {
+    const { rows, classes } = findHomework(ctx.user.id, String(a.homework ?? ''), text(a.class) || null);
+    const redo = bool(a.redo) === true;
+    let total = 0;
+    const parts: string[] = [];
+    for (const h of rows) {
+      const r = await callApi<{ queued: number }>(ctx.user.id, 'POST', `/homework/${h.id}/ai-grade`, { redo });
+      total += r.queued;
+      parts.push(`「${classes.get(h.class_id)!.name}」${r.queued} 份`);
+    }
+    recordAction(
+      ctx.ref,
+      'homework.ai_grade',
+      { title: total ? `开始批「${rows[0].title}」` : `「${rows[0].title}」没有要批的`, lines: rows.length > 1 || total ? [parts.join('，')] : [], links: [homeworkLink(rows[0])] },
+      null,
+    );
+    if (!total) return `「${rows[0].title}」没有要批的：交了的都批过了（重批 redo 传 true），或者还没人交`;
+    return `开始批「${rows[0].title}」：${parts.join('，')}。在后台批，一份半分钟左右，批完会告诉老师`;
+  },
+
+  async homework_review(ctx, a) {
+    const uid = ctx.user.id;
+    const { rows, classes } = findHomework(uid, String(a.homework ?? ''), text(a.class) || null);
+    if (rows.length > 1) throw bad(`「${rows[0].title}」发给了 ${rows.map((h) => `「${classes.get(h.class_id)!.name}」`).join('、')}，讲评一个班一份，说是哪个班的`);
+    const h = rows[0],
+      k = classes.get(h.class_id)!;
+    tool(ctx.ref, 'ta_look', '查看', { text: `「${h.title}」的讲评` });
+    let d = await callApi<any>(uid, 'GET', `/homework/${h.id}/review`);
+    const stale = d.review?.status === 'ready' && d.graded > (d.review.gradedAtWrite || 0);
+    if (!d.review || d.review.status === 'error' || stale || bool(a.rewrite) === true) {
+      if (!d.graded) return `「${h.title}」（${k.name}）还没有批好的作业，批完才能写讲评`;
+      await callApi(uid, 'POST', `/homework/${h.id}/review`);
+    }
+    // 等它写完（一般半分钟）
+    for (let i = 0; i < 150; i++) {
+      d = await callApi<any>(uid, 'GET', `/homework/${h.id}/review`);
+      if (d.review?.status !== 'writing') break;
+      await new Promise((ok) => setTimeout(ok, 1000));
+    }
+    if (d.review?.status !== 'ready') return `讲评没写成：${d.review?.error || '再试一次'}`;
+    let shared = !!d.review.sharedAt;
+    if (bool(a.share) === true && !shared) {
+      await callApi(uid, 'POST', `/homework/${h.id}/review/share`, { on: true });
+      shared = true;
+    }
+    const w = d.review.write,
+      st = d.review.stats;
+    recordAction(
+      ctx.ref,
+      'homework.review',
+      {
+        title: `「${h.title}」讲评${shared ? '（已发给学生）' : ''}`,
+        lines: [w.summary].filter(Boolean),
+        links: [
+          { label: '看讲评', to: `/classes/${h.class_id}/homework/${h.id}/review` },
+          { label: '下载 Word', href: `/api/homework/${h.id}/review/docx` },
+        ],
+      },
+      null,
+    );
+    return [
+      `「${h.title}」（${k.name}）班里 ${st.total} 人，交了 ${st.submitted} 人，批了 ${st.graded} 份，平均 ${st.avg ?? '—'} 分（满分 ${score(st.points)}）`,
+      w.summary,
+      ...w.errors.map((e: any, i: number) => `${i + 1}. ${e.title}（${e.students.length} 人：${e.students.join('、')}）；怎么讲：${e.teach}`),
+      w.next ? `下节课：${w.next}` : '',
+      st.missing.length ? `没交：${st.missing.join('、')}` : '',
+      st.similar.length ? `很像的：${st.similar.map((x: any) => `${x.names.join('和')} ${x.ratio}%`).join('；')}` : '',
+      shared ? '学生那边已经能看到不带名字的讲评' : '',
+    ]
+      .filter(Boolean)
+      .join('\n');
   },
 
   async class_grades(ctx, a) {

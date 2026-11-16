@@ -307,3 +307,6 @@ export async function runHelper(o: { teacherId: number; classId: number; mode: H
     throw err;
   }
 }
+
+/** 批作业、拟评分标准的助教也用这几样翻资料 */
+export { SEARCH as SEARCH_KB, READ as READ_KB, search as searchKb, read as readKb, catalog as kbCatalog };

@@ -11,8 +11,8 @@ export interface StepResult {
   /** 模型这一步的思考（开着思考时才有），要记下来往后原样传回去 */
   reasoning?: string;
 }
-/** 谁在调：老师的助教（ta）、学生的学伴（stu）、替老师回学伴和写资料包的助教（helper） */
-export type Agent = 'ta' | 'stu' | 'helper';
+/** 谁在调：老师的助教（ta）、学生的学伴（stu）、替老师回学伴和写资料包的助教（helper）、批作业写讲评的助教（grader） */
+export type Agent = 'ta' | 'stu' | 'helper' | 'grader';
 export type ModelStep = (o: {
   agent: Agent;
   messages: Msg[];
@@ -28,7 +28,7 @@ export type ModelStep = (o: {
  * 想不想、想多深。
  * DeepSeek 只有 low / high / max 三档，它把 medium 当 high 算，所以默认 high；各自的设置项可改（off 是不想）。
  */
-const THINK_KEY: Record<Agent, string> = { ta: 'ta_think', stu: 'stu_think', helper: 'helper_think' };
+const THINK_KEY: Record<Agent, string> = { ta: 'ta_think', stu: 'stu_think', helper: 'helper_think', grader: 'grader_think' };
 export const thinkOf = (agent: Agent) => getSetting<'off' | Effort>(THINK_KEY[agent], 'high');
 
 const deepseekStep: ModelStep = async (o) => {

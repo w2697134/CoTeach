@@ -5,6 +5,7 @@
  * 跟老师的助教一样：每一轮记在 kb_runs（agent='stu'，teacher_id 是学生自己），跟模型说的话只往后加，会话可以开新的。
  */
 import { db, getSetting, j, now } from '../db/index.js';
+import { gradeItems, gradeMarks } from '../grading/common.js';
 import { bad, conflict, HttpError, notFound } from '../lib/http.js';
 import type { ToolCall, ToolSpec } from '../llm/types.js';
 import { publish, record, type RunRef } from '../kb/agent/events.js';
@@ -23,7 +24,7 @@ export const buddyPrompt = `你是学生的 CoT 学伴。学生问作业、截�
 
 下面是学生所在各个班的资料包，是老师的助教整理的。跟这门课有关的事（老师的资料、作业要求、规矩、通知）只按资料包和工具查到的说；资料包里没有、拿不准的，用 ask_ta 问助教，不要自己编。
 学生要老师拍板的事（晚交、对分数有意见、请假、找老师）也用 ask_ta。
-作业不代写，也不直接给答案（资料包的规矩里老师说了可以才给），可以讲思路和知识点。
+作业不代写，也不直接给答案（资料包的规矩里老师说了可以才给），可以讲思路和知识点，课上没讲到的知识点也照样讲。
 跟学生说话先说结论，简短。`;
 
 const str = (description: string) => ({ type: 'string', description });
@@ -98,8 +99,23 @@ interface SubRow {
   comment: string | null;
   graded_at: number | null;
   returned_at: number | null;
+  graded_by: 'ai' | 'teacher' | null;
+  items: string | null;
+  ai_grade_id: number | null;
 }
 const score = (n: number) => String(Math.round(n * 10) / 10);
+
+/** 批过的作业：谁批的、每项得分和原因、批注（学生问「我哪里错了」时用；参考答案不在这里面） */
+function gradedLines(s: SubRow): string[] {
+  if (s.score === null || (s.returned_at && s.returned_at >= s.submitted_at)) return [];
+  const items = gradeItems(s.items);
+  const marks = s.ai_grade_id ? gradeMarks(db.value<string>('SELECT marks FROM ai_grades WHERE id=?', s.ai_grade_id)) : [];
+  return [
+    `批改：${s.graded_by === 'ai' ? 'CoT 助教批的（老师可以改）' : '老师批的'}`,
+    ...items.map((x) => `- ${x.title} ${score(x.got)}/${score(x.max)}：${x.why}`),
+    ...(marks.length ? ['批注：', ...marks.map((m) => `- ${m.kind === 'good' ? '写得好' : '有问题'}「${m.quote.slice(0, 120)}」：${m.note}`)] : []),
+  ];
+}
 
 function homeworkOf(classIds: number[]): HwRow[] {
   if (!classIds.length) return [];
@@ -183,6 +199,7 @@ async function runTool(ctx: Ctx, call: ToolCall): Promise<string> {
           h.body.trim() ? `要求：${h.body.trim().slice(0, 3000)}` : '',
           files.length ? `附件：${files.join('、')}` : '',
           `学生的情况：${stateOf(h, s, t)}`,
+          ...(s ? gradedLines(s) : []),
           s?.text?.trim() ? `学生交的文字：${s.text.trim().slice(0, 2000)}` : '',
           mine.length ? `学生交的附件：${mine.join('、')}` : '',
         ]

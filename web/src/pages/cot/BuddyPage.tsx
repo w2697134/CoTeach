@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { useSearchParams } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { ArrowUp, History, Square, SquarePen } from 'lucide-react';
 import { post } from '../../lib/api';
@@ -90,7 +91,12 @@ export function BuddyPage() {
   const q = useStuRuns();
   const live = useStuStream();
   const qc = useQueryClient();
-  const [text, setText] = useState('');
+  // 从别的页面带着一句话过来（比如作业页的「问 CoT 学伴」）：放进输入框，学生自己点发送
+  const [params, setParams] = useSearchParams();
+  const [text, setText] = useState(() => params.get('ask') || '');
+  useEffect(() => {
+    if (params.get('ask')) setParams({}, { replace: true });
+  }, [params, setParams]);
   const [sending, setSending] = useState(false);
   const runs = q.data?.runs || [];
   const activeId = q.data?.activeRunId ?? null;

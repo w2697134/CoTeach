@@ -581,3 +581,56 @@ CREATE TABLE pack_jobs (
 CREATE INDEX idx_pack_jobs_status ON pack_jobs(status, id);
 ALTER TABLE kb_runs ADD COLUMN class_ids TEXT;
 `);
+
+// 第 16 次：助教批改和讲评。
+// 批改默认「全部直接发，老师事后可改」：每份作业有个批改方式 ai_mode（release 批完直接发、hold 批完老师看过再发、off 不用助教批）。
+// 评分标准一份作业一份（hw_rubrics，学生看不到，里面有参考答案）；助教每批一次记一行（ai_grades，重交、重批都留着），
+// 发出去的分数、每项得分照旧写在 submissions 上，graded_by 记是助教批的还是老师批的。讲评一份作业一份（hw_reviews）。
+migrations.push(`
+ALTER TABLE assignments ADD COLUMN ai_mode TEXT NOT NULL DEFAULT 'release';
+ALTER TABLE submissions ADD COLUMN graded_by TEXT;
+ALTER TABLE submissions ADD COLUMN items TEXT;
+ALTER TABLE submissions ADD COLUMN ai_grade_id INTEGER;
+CREATE TABLE hw_rubrics (
+  assignment_id INTEGER PRIMARY KEY REFERENCES assignments(id),
+  items TEXT NOT NULL DEFAULT '[]',
+  source TEXT NOT NULL DEFAULT 'ai',
+  status TEXT NOT NULL,
+  run_id INTEGER REFERENCES kb_runs(id),
+  error TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE TABLE ai_grades (
+  id INTEGER PRIMARY KEY,
+  submission_id INTEGER NOT NULL REFERENCES submissions(id),
+  assignment_id INTEGER NOT NULL REFERENCES assignments(id),
+  user_id INTEGER NOT NULL REFERENCES users(id),
+  submitted_at INTEGER NOT NULL,
+  status TEXT NOT NULL,
+  score REAL,
+  items TEXT,
+  marks TEXT,
+  comment TEXT,
+  flag TEXT,
+  text TEXT,
+  auto_release INTEGER NOT NULL DEFAULT 0,
+  released_at INTEGER,
+  error TEXT,
+  created_at INTEGER NOT NULL,
+  started_at INTEGER,
+  finished_at INTEGER
+);
+CREATE INDEX idx_ai_grades_sub ON ai_grades(submission_id, id);
+CREATE INDEX idx_ai_grades_hw ON ai_grades(assignment_id, status);
+CREATE INDEX idx_ai_grades_status ON ai_grades(status, id);
+CREATE TABLE hw_reviews (
+  assignment_id INTEGER PRIMARY KEY REFERENCES assignments(id),
+  status TEXT NOT NULL,
+  data TEXT,
+  error TEXT,
+  shared_at INTEGER,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+`);

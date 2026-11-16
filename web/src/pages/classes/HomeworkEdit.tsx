@@ -7,7 +7,7 @@ import { toast } from '../../lib/store';
 import { Button, Card, ErrorState, Input, Skeleton, Textarea, cn } from '../../components/ui';
 import { useClass, useClasses } from './data';
 import { FilePicker } from './HwFiles';
-import { fromLocalInput, toLocalInput, useHomework, when, type HwFile } from './homework';
+import { AI_MODES, fromLocalInput, toLocalInput, useHomework, when, type AiMode, type HwFile } from './homework';
 import { Switch } from './Invite';
 
 /** 默认截止：一周后的晚上 23:59 */
@@ -55,6 +55,7 @@ export function HomeworkEditPage() {
     [later, setLater] = useState(false),
     [publish, setPublish] = useState(toLocalInput(tomorrowMorning())),
     [to, setTo] = useState<number[]>([classId]),
+    [aiMode, setAiMode] = useState<AiMode>('release'),
     [busy, setBusy] = useState(false),
     [error, setError] = useState(''),
     [loaded, setLoaded] = useState(!editing);
@@ -70,6 +71,7 @@ export function HomeworkEditPage() {
     setAllowLate(h.allowLate);
     setLater(h.publishAt > Date.now());
     if (h.publishAt > Date.now()) setPublish(toLocalInput(h.publishAt));
+    if (h.aiMode) setAiMode(h.aiMode);
     setLoaded(true);
   }, [editing, existing.data, loaded]);
   const published = !!existing.data && existing.data.publishAt <= Date.now();
@@ -92,6 +94,7 @@ export function HomeworkEditPage() {
       allowLate,
       publishAt: later && !published ? fromLocalInput(publish) : null,
       fileIds: files.map((f) => f.id),
+      aiMode,
     };
     try {
       if (editing) {
@@ -183,6 +186,16 @@ export function HomeworkEditPage() {
                 </label>
               </>
             )}
+          </Row>
+          <Row label="批改">
+            <div className="space-y-1">
+              {AI_MODES.map((m) => (
+                <label key={m.value} className="flex cursor-pointer items-center gap-2.5 rounded-md px-1 py-1 text-[14.5px] text-ink hover:bg-surface-2">
+                  <input type="radio" name="ai-mode" className="size-4 accent-[var(--c-primary)]" checked={aiMode === m.value} onChange={() => setAiMode(m.value)} />
+                  {m.label}
+                </label>
+              ))}
+            </div>
           </Row>
           {!published && (
             <Row label="发布">

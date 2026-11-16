@@ -7,6 +7,9 @@ import { recoverRuns } from './kb/keeper.js';
 import { recoverIntakes } from './kb/intake/service.js';
 import { recoverStuRuns } from './assistant/buddy.js';
 import { backfillPacks, recoverPackJobs } from './assistant/pack-jobs.js';
+import { recoverGrades } from './grading/jobs.js';
+import { recoverRubrics } from './grading/rubric.js';
+import { watchDemoRequest } from './demo/seed.js';
 
 // 不显示 node:sqlite 的实验特性警告
 process.removeAllListeners('warning');
@@ -21,6 +24,10 @@ recoverStuRuns();
 recoverRuns();
 recoverIntakes();
 recoverPackJobs();
+recoverRubrics();
+recoverGrades();
+// 数据目录里放了 seed-demo.json 就建演示班
+watchDemoRequest();
 backfillPacks();
 
 const app = createApp();

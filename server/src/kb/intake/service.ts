@@ -669,3 +669,67 @@ export async function closeReaders() {
   await pool?.close();
   pool = null;
 }
+
+/**
+ * 学生交的作业附件读成文字，给助教批改、讲评查重用（2026-11-16）。读法和收资料一样，图片、扫描件里的字请模型认；
+ * 同一份文件（按内容指纹）只读一次，记在 kb_conversions 里。读不成的给一句老师看得懂的原因。
+ */
+export async function documentText(name: string, file: string, userId: number, signal?: AbortSignal): Promise<{ text: string } | { reason: string }> {
+  let bytes: Buffer;
+  try {
+    bytes = readFileSync(file);
+  } catch {
+    return { reason: '文件不在了' };
+  }
+  const hash = hashBytes(bytes);
+  const cached = db.get<{ text_hash: string }>('SELECT text_hash FROM kb_conversions WHERE original_hash=? AND version=?', hash, READER_VERSION);
+  if (cached) {
+    try {
+      return { text: readBlobText(cached.text_hash).trim() };
+    } catch {}
+  }
+  if (bytes.length > config.intake.maxDocBytes) return { reason: '文件太大，没读' };
+  let result: ReadResult;
+  try {
+    result = (await readers().run({ op: 'read', name, file }, config.intake.readTimeoutMs)) as ReadResult;
+  } catch (err) {
+    if (err instanceof WorkerFailed) return { reason: '文件太大或太复杂，没读完' };
+    throw err;
+  }
+  if (result.type === 'archive') return { reason: '是压缩包，没打开' };
+  if (result.type === 'cannot' || result.type === 'failed') return { reason: result.reason };
+  const doc = result;
+  const texts = new Map<number, string>();
+  let missed = '';
+  await Promise.all(
+    doc.blocks.map(async (b, k) => {
+      if (b.t !== 'img' || missed) return;
+      try {
+        texts.set(k, await readImage(b.image, b.key, { userId, signal, concurrency: config.intake.visionConcurrency }));
+      } catch (err) {
+        missed ||= err instanceof VisionUnavailable ? err.reason : '图片里的字暂时认不了';
+      }
+    }),
+  );
+  if (missed) return { reason: missed };
+  const images = doc.blocks.some((b) => b.t === 'img');
+  const text = doc.blocks
+    .map((b, k) => (b.t === 'md' ? b.text : texts.get(k) || ''))
+    .filter((s) => s.trim())
+    .join('\n\n')
+    .trim();
+  if (!meaningful(text)) return { reason: images ? '图片里没有认出字' : '里面没有能读出的文字' };
+  const method = !images ? 'text' : doc.blocks.some((b) => b.t === 'md' && meaningful(b.text.replace(/^##[^\n]*$/gm, '')) > 0) ? 'mixed' : 'vision';
+  const textHash = storeText(text + '\n');
+  db.run(
+    'INSERT OR REPLACE INTO kb_conversions(original_hash,version,kind,text_hash,method,notes,created_at) VALUES(?,?,?,?,?,?,?)',
+    hash,
+    READER_VERSION,
+    doc.kind,
+    textHash,
+    method,
+    null,
+    now(),
+  );
+  return { text };
+}

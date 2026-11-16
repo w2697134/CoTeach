@@ -19,7 +19,9 @@ export type ActionKind =
   | 'students.notify'
   | 'student.reply'
   | 'pack.update'
-  | 'pack.files';
+  | 'pack.files'
+  | 'homework.ai_grade'
+  | 'homework.review';
 
 /** 卡片上显示的东西 */
 export interface ActionCard {
