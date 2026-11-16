@@ -513,3 +513,9 @@ CREATE INDEX idx_ta_sessions_owner ON ta_sessions(owner_id, id);
 ALTER TABLE kb_runs ADD COLUMN session_id INTEGER REFERENCES ta_sessions(id);
 CREATE INDEX idx_kb_runs_session ON kb_runs(teacher_id, session_id, id);
 `);
+
+// 第 14 次：CoT 助教开思考。
+// DeepSeek 开着思考又带工具时，之前每一步的思考要原样传回去，所以跟模型说的话里把它的思考也记下。
+migrations.push(`
+ALTER TABLE agent_messages ADD COLUMN reasoning TEXT;
+`);

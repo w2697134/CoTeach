@@ -21,6 +21,13 @@ mkdirSync(join(out, 'base'), { recursive: true });
 const dev = join(ROOT, 'server', 'data');
 new DatabaseSync(join(dev, 'coteach.db'), { readOnly: true }).exec(`VACUUM INTO '${join(out, 'base', 'coteach.db').replace(/'/g, "''")}'`);
 copyFileSync(join(dev, '.secret'), join(out, 'base', '.secret'));
+// 思考开到哪一档：TA_THINK=off|low|high|max（不写按代码里的默认）
+const THINK = process.env.TA_THINK || '';
+if (THINK) {
+  const b = new DatabaseSync(join(out, 'base', 'coteach.db'));
+  b.prepare("INSERT INTO settings (key, value) VALUES ('ta_think', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(JSON.stringify(THINK));
+  b.close();
+}
 
 const cases = CASES.filter((c) => !only.length || only.includes(c.id));
 const PARALLEL = Number(process.env.TA_PARALLEL || 4);
@@ -66,11 +73,26 @@ const wrong = results.reduce((n: number, r: any) => n + (r.wrong?.length || 0), 
 const missedAsk = results.filter((r: any) => r.expectAsk === true && !r.asked).length;
 const extraAsk = results.filter((r: any) => r.expectAsk === false && r.asked).length;
 const errors = results.filter((r: any) => r.error).length;
+// 用了多少字（每句一份库，里面记着每次调模型的用量）
+let input = 0,
+  output = 0,
+  calls = 0;
+for (const c of cases) {
+  const f = join(out, 'cases', c.id, 'coteach.db');
+  if (!existsSync(f)) continue;
+  const d = new DatabaseSync(f, { readOnly: true });
+  const s = d.prepare("SELECT count(*) n, coalesce(sum(prompt_tokens),0) i, coalesce(sum(completion_tokens),0) o FROM llm_calls WHERE purpose='ta:chat'").get() as any;
+  d.close();
+  calls += s.n;
+  input += s.i;
+  output += s.o;
+}
 const lines = [
-  `# 助教尺子 ${label}`,
+  `# 助教尺子 ${label}（思考：${THINK || '默认'}）`,
   '',
   `办对 ${ok}/${results.length}；办错 ${wrong} 处；该问没问 ${missedAsk}；不该问问了 ${extraAsk}；出错 ${errors}`,
   `每一步等的时间：中位 ${q(0.5)} 秒，四分之一到四分之三 ${q(0.25)}–${q(0.75)} 秒，最慢 ${q(1)} 秒`,
+  `调模型 ${calls} 次，读进 ${input} 字（词元），写出 ${output}（含思考）`,
   '',
   '| 句子 | 类 | 结果 | 问了 | 办错 | 时间 | 哪里不对 |',
   '|---|---|---|---|---|---|---|',
@@ -84,4 +106,4 @@ const lines = [
   }),
 ];
 writeFileSync(join(out, 'summary.md'), lines.join('\n'));
-console.log(lines.slice(0, 4).join('\n'));
+console.log(lines.slice(0, 5).join('\n'));

@@ -64,6 +64,24 @@ const NOTE_LAB3 = `# 实验三 SQL 查询
 3. 找出平均分高于 80 的学生。
 `;
 
+/**
+ * 换成线上那位老师的样子：原来那几个班收起来（删掉，助教看不到），换成「一班」「二班」「测试班」这种短名字的班。
+ * 出错的例子就出在这种班名上：先建了计科5班，又说「6班」，它照字面建了「6班」。
+ */
+export function shortNamedClasses(w: World) {
+  const t = now();
+  db.run('UPDATE classes SET deleted_at=? WHERE teacher_id=?', t, w.teacher);
+  const add = (name: string, homework: string[] = []) => {
+    const id = db.insert('classes', { teacher_id: w.teacher, name, join_code: Math.random().toString(36).slice(2, 8).toUpperCase(), join_open: 1, archived_at: null, created_at: t, updated_at: t });
+    for (const title of homework)
+      db.insert('assignments', { class_id: id, teacher_id: w.teacher, title, body: '', points: 100, due_at: null, allow_late: 1, publish_at: t - 86_400_000, created_at: t, updated_at: t });
+    w.classes[name] = id;
+  };
+  add('一班', ['测试']);
+  add('二班');
+  add('测试班', ['测试']);
+}
+
 export async function seed(): Promise<World> {
   const t = now();
   const teacher = db.insert('users', { username: 'ruler-teacher', name: TEACHER, role: 'teacher', password_hash: 'x', created_at: t });

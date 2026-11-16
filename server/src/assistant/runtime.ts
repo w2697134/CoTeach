@@ -4,11 +4,11 @@
  * 整理资料交给后台的整理助手（还是 Claude Code），它做完的消息在下一轮带给助教。
  */
 import { config } from '../config.js';
-import { db, j, now } from '../db/index.js';
+import { db, getSetting, j, now } from '../db/index.js';
 import { conflict, HttpError, notFound } from '../lib/http.js';
 import { estimateTokens } from '../lib/text.js';
 import { streamChat } from '../llm/index.js';
-import type { Msg, ToolCall, ToolSpec } from '../llm/types.js';
+import type { Effort, Msg, ToolCall, ToolSpec } from '../llm/types.js';
 import { publish, record, type RunRef } from '../kb/agent/events.js';
 import { findKb, listKbs } from '../kb/bases.js';
 import { intakeItems, readBlobText } from '../kb/intake/store.js';
@@ -31,12 +31,22 @@ const KEEP_RECENT = 24;
 export interface StepResult {
   text: string;
   toolCalls: ToolCall[];
+  /** 模型这一步的思考（开着思考时才有），要记下来往后原样传回去 */
+  reasoning?: string;
 }
 export type ModelStep = (o: { messages: Msg[]; tools: ToolSpec[]; userId: number; signal: AbortSignal; onText: (t: string) => void }) => Promise<StepResult>;
 
+/**
+ * 助教想不想、想多深。
+ * DeepSeek 只有 low / high / max 三档，它把 medium 当 high 算，所以默认 high；设置 ta_think 可改（off 是不想）。
+ */
+const taThink = () => getSetting<'off' | Effort>('ta_think', 'high');
+
 const deepseekStep: ModelStep = async (o) => {
   let text = '';
+  let reasoning = '';
   const toolCalls: ToolCall[] = [];
+  const think = taThink();
   for await (const d of streamChat({
     agentKey: 'ta',
     messages: o.messages,
@@ -45,19 +55,23 @@ const deepseekStep: ModelStep = async (o) => {
     purpose: 'ta:chat',
     signal: o.signal,
     countQuota: false,
-    maxTokens: 4000,
+    think,
+    // 想的字也算在这个上限里：开着思考放宽（只按实际用的算钱）
+    maxTokens: think === 'off' ? 4000 : 32000,
   })) {
     if (d.type === 'text') {
       text += d.text;
       o.onText(d.text);
-    } else if (d.type === 'tool') toolCalls.push(d.call);
+    } else if (d.type === 'reasoning') reasoning += d.text;
+    else if (d.type === 'tool') toolCalls.push(d.call);
     else if (d.type === 'model') {
       // 换了备用模型重来：前面的不算
       text = '';
+      reasoning = '';
       toolCalls.length = 0;
     }
   }
-  return { text, toolCalls };
+  return { text, toolCalls, ...(reasoning ? { reasoning } : {}) };
 };
 let step: ModelStep = deepseekStep;
 /** 测试用：换成写好的模型回答；传 null 换回 DeepSeek */
@@ -74,12 +88,14 @@ interface Stored {
   content: string;
   tool_calls: string | null;
   tool_call_id: string | null;
+  reasoning: string | null;
 }
 const toMsg = (r: Stored): Msg => ({
   role: r.role,
   content: j<Msg['content']>(r.content, ''),
   ...(r.tool_calls ? { toolCalls: j<ToolCall[]>(r.tool_calls, []) } : {}),
   ...(r.tool_call_id ? { toolCallId: r.tool_call_id } : {}),
+  ...(r.reasoning ? { reasoning: r.reasoning } : {}),
 });
 
 /* ---------------- 会话：开新会话就是换个新助教，从头聊（2026-11-16） ---------------- */
@@ -124,7 +140,7 @@ function thread(ownerId: number, key: string) {
 }
 function stored(ownerId: number, key: string, after: number): Stored[] {
   return db.all<Stored>(
-    'SELECT id, run_id, role, content, tool_calls, tool_call_id FROM agent_messages WHERE owner_id=? AND thread=? AND id>? ORDER BY id',
+    'SELECT id, run_id, role, content, tool_calls, tool_call_id, reasoning FROM agent_messages WHERE owner_id=? AND thread=? AND id>? ORDER BY id',
     ownerId,
     key,
     after,
@@ -139,6 +155,7 @@ function append(ownerId: number, key: string, runId: number, m: Msg) {
     content: JSON.stringify(m.content ?? ''),
     tool_calls: m.toolCalls?.length ? m.toolCalls.map(({ id, name, args }) => ({ id, name, args })) : null,
     tool_call_id: m.toolCallId ?? null,
+    reasoning: m.reasoning || null,
     created_at: now(),
   });
 }
@@ -450,7 +467,12 @@ async function execute(user: { id: number; name: string }, ref: RunRef, turn: Tu
       onText: (text) => publish(ref, 'delta', { runId: ref.runId, text }),
     });
     signal.throwIfAborted();
-    append(user.id, key, ref.runId, { role: 'assistant', content: r.text, ...(r.toolCalls.length ? { toolCalls: r.toolCalls } : {}) });
+    append(user.id, key, ref.runId, {
+      role: 'assistant',
+      content: r.text,
+      ...(r.toolCalls.length ? { toolCalls: r.toolCalls } : {}),
+      ...(r.reasoning ? { reasoning: r.reasoning } : {}),
+    });
     if (!r.toolCalls.length) {
       db.update('kb_runs', ref.runId, { reply: r.text.trim() || null });
       return 'done';

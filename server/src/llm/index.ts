@@ -6,7 +6,7 @@ import { estimateTokens, truncate } from '../lib/text.js';
 import { anthropicAdapter } from './adapters/anthropic.js';
 import { geminiAdapter } from './adapters/gemini.js';
 import { openaiAdapter } from './adapters/openai.js';
-import { LlmError, textOf, type Adapter, type Delta, type Msg, type Protocol, type ProviderConn, type ToolCall, type ToolSpec } from './types.js';
+import { LlmError, textOf, type Adapter, type Delta, type Effort, type Msg, type Protocol, type ProviderConn, type ToolCall, type ToolSpec } from './types.js';
 
 export * from './types.js';
 
@@ -72,6 +72,8 @@ export interface CallOptions {
   signal?: AbortSignal;
   /** 是否计入用户每日额度 */
   countQuota?: boolean;
+  /** 这一次思考不思考、开到哪一档（只对会思考的 DeepSeek 起作用）；不传按模型设置 */
+  think?: 'off' | Effort;
 }
 
 export interface CallResult {
@@ -128,9 +130,10 @@ function logCall(
 /** 部分模型对单次输出长度有硬上限，超出会直接报错，这里按模型收紧 */
 const OUTPUT_CAPS: [RegExp, number][] = [[/deepseek-v3/i, 8192]];
 
-/** DeepSeek V4 默认开启深度思考，按模型的「推理」能力决定开关；其他模型不传 */
-export function thinkingFor(ref: { model: string; caps: { reasoning?: boolean } }) {
-  return /^deepseek-(flash|v4)/i.test(ref.model) ? ref.caps.reasoning === true : undefined;
+/** DeepSeek V4 默认开启深度思考，按模型的「推理」能力决定开关（这一次指定了就按指定的）；其他模型不传 */
+export function thinkingFor(ref: { model: string; caps: { reasoning?: boolean } }, want?: 'off' | Effort) {
+  if (!/^deepseek-(flash|v4)/i.test(ref.model)) return undefined;
+  return want ? want !== 'off' : ref.caps.reasoning === true;
 }
 export function capMaxTokens(model: string, n?: number) {
   if (!n) return n;
@@ -197,7 +200,8 @@ export async function* streamChat(
           tools,
           temperature: o.temperature,
           maxTokens: capMaxTokens(ref.model, o.maxTokens),
-          thinking: thinkingFor(ref),
+          thinking: thinkingFor(ref, o.think),
+          effort: o.think && o.think !== 'off' ? o.think : undefined,
           signal: ctrl.signal,
         });
         for await (const d of gen) {

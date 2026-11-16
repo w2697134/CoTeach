@@ -35,7 +35,7 @@ async function req(path: string, body?: unknown, who = 'teacher', method?: strin
 }
 
 /** 写好的模型回答：一步一个；每一步能看到发给模型的整段（检查有没有补上回音、带没带后台消息） */
-type Reply = { text?: string; calls?: { name: string; args: Record<string, unknown> }[] };
+type Reply = { text?: string; reasoning?: string; calls?: { name: string; args: Record<string, unknown> }[] };
 const seen: any[][] = [];
 function script(...steps: Reply[]) {
   let n = 0;
@@ -43,7 +43,11 @@ function script(...steps: Reply[]) {
     seen.push(messages);
     const s = steps[n++];
     if (!s) throw new Error('模型回答写少了');
-    return { text: s.text || '', toolCalls: (s.calls || []).map((c, i) => ({ id: `call_${randomUUID().slice(0, 8)}_${i}`, name: c.name, args: c.args, raw: JSON.stringify(c.args) })) };
+    return {
+      text: s.text || '',
+      toolCalls: (s.calls || []).map((c, i) => ({ id: `call_${randomUUID().slice(0, 8)}_${i}`, name: c.name, args: c.args, raw: JSON.stringify(c.args) })),
+      ...(s.reasoning ? { reasoning: s.reasoning } : {}),
+    };
   });
 }
 async function settled(runId: number) {
@@ -302,4 +306,29 @@ test('助教正在回上一句：再说要等它说完', async () => {
   release();
   assert.equal(await settled(a.json.runId), 'done');
   runtime.setModelStep(null);
+});
+
+test('开着思考：每一步的思考记下来，往后原样传回去（DeepSeek 带工具时要它）；没开思考时的旧记录照常', async () => {
+  script(
+    { reasoning: '老师要建一个班，班名是思考测试班。', calls: [{ name: 'create_class', args: { name: '思考测试班' } }] },
+    { reasoning: '建好了，告诉老师加课码。', text: '建好了。' },
+    { text: '不客气。' },
+  );
+  await say('建个班叫思考测试班');
+  await say('谢谢');
+  const asked = seen[seen.length - 1].filter((m: any) => m.role === 'assistant');
+  assert.deepEqual(
+    asked.slice(-2).map((m: any) => m.reasoning),
+    ['老师要建一个班，班名是思考测试班。', '建好了，告诉老师加课码。'],
+  );
+  // 以前没开思考时说的那些没有思考，也不硬塞一个空的
+  assert.ok(asked.slice(0, -2).every((m: any) => m.reasoning === undefined));
+
+  // 只有会思考的 DeepSeek 才传开关；指定了就按指定的，没指定按模型设置
+  const { thinkingFor } = await import('../src/llm/index.js');
+  const flash = { model: 'deepseek-flash', caps: { reasoning: false } };
+  assert.equal(thinkingFor(flash), false);
+  assert.equal(thinkingFor(flash, 'high'), true);
+  assert.equal(thinkingFor(flash, 'off'), false);
+  assert.equal(thinkingFor({ model: 'gpt-5', caps: { reasoning: true } }, 'high'), undefined);
 });

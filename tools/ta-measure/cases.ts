@@ -4,7 +4,7 @@
  * 每句写好：允许的变化（不在里面的都算办错）和结果对不对（返回 null 是对）。
  * 不为哪一句改提示词：这些句子只拿来量。
  */
-import { dayAt, nextWeek, rowOf, type Snapshot, type World } from './world.js';
+import { dayAt, nextWeek, rowOf, shortNamedClasses, type Snapshot, type World } from './world.js';
 
 export type Turn = { say: string } | { answer: string[] };
 export interface CheckInput {
@@ -17,10 +17,12 @@ export interface CheckInput {
 }
 export interface Case {
   id: string;
-  cat: '清楚' | '该问' | '一句几件' | '只问不办' | '撤回' | '办不了';
+  cat: '清楚' | '该问' | '一句几件' | '只问不办' | '撤回' | '办不了' | '接上文';
   turns: Turn[];
   /** true 该问；false 不该问；不写是问不问都行 */
   ask?: boolean;
+  /** 这一句要换个样子的世界（在比对的「之前」之前） */
+  setup?: (w: World) => void;
   allow: RegExp[];
   check: (o: CheckInput) => string | null;
 }
@@ -39,6 +41,10 @@ const show = (ms: unknown) => (typeof ms === 'number' ? new Date(ms).toLocaleStr
 
 const NEW_CLASS = /^新增 班\d+/;
 const NEW_HW = /^新增 作业\d+/;
+/** 这次新建、最后还在的班和作业 */
+const newLive = (o: CheckInput) =>
+  [...o.after.classes].filter(([id, r]) => !o.before.classes.has(id) && !r.deleted).map(([, r]) => String(r.name)).sort();
+const newLiveHw = (o: CheckInput) => newHw(o).filter((h) => !h.deleted);
 
 export const CASES: Case[] = [
   /* ---------- 说清楚了的一件事：直接办，不问 ---------- */
@@ -400,6 +406,135 @@ export const CASES: Case[] = [
     turns: [{ say: '知识库里有没有第三章的课后题？' }],
     allow: [],
     check: (o) => fail(o.tools.some((t) => t === 'search_kb' || t === 'read_kb') && /有|找到/.test(reply(o)), `用了：${o.tools.join('、')}；回话：${reply(o).slice(0, 80)}`),
+  },
+
+  /* ---------- 接上文：老师接着上一句说的短话，按上文补全了办，补不全的问（2026-11-16 加 12 句。
+     例子：建了计科5班，又说「6班」，它建了个叫「6班」的班。问不问都行，办出来要对） ---------- */
+  {
+    id: 'k01',
+    cat: '接上文',
+    turns: [{ say: '帮我建个计科5班' }, { say: '6班' }, { answer: ['再建一个计科6班'] }],
+    allow: [NEW_CLASS],
+    check: (o) => fail(newLive(o).join() === '计科5班,计科6班', `新建的班：${newLive(o).join('、') || '没有'}`),
+  },
+  {
+    id: 'k02',
+    cat: '接上文',
+    turns: [{ say: '给计科2505 Python 发个作业，第三章课后题，下周五交' }, { say: '2506 的也要' }, { answer: ['计科2506 Python 也发一份'] }],
+    allow: [NEW_HW],
+    check: (o) => {
+      const made = newLiveHw(o);
+      const classes = made.map((h) => h.class).sort();
+      return classes.join() === '计科2505 Python,计科2506 Python' && made.every((h) => has(h.title, '第三章') && h.due_at === nextWeek(5))
+        ? null
+        : made.map((h) => `${h.class}「${h.title}」${show(h.due_at)}`).join('；') || '没发';
+    },
+  },
+  {
+    id: 'k03',
+    cat: '接上文',
+    turns: [{ say: '第一次作业的截止改到下周三' }, { say: '第二章练习也是' }, { answer: ['两个班都改'] }],
+    allow: [/^作业\d+\.due_at/],
+    check: (o) => {
+      const all = [...hw(o.after, '第一次作业'), ...hw(o.after, '第二章练习')];
+      return all.length === 3 && all.every((h) => h.due_at === nextWeek(3)) ? null : all.map((h) => `${h.class}「${h.title}」${show(h.due_at)}`).join('；');
+    },
+  },
+  {
+    id: 'k04',
+    cat: '接上文',
+    turns: [{ say: '第一次作业，张浩然给 85 分' }, { say: '刘欣怡 90' }],
+    allow: [/^交\d+\.score/],
+    check: (o) => {
+      const a = sub(o.after, '第一次作业', '张浩然')?.score,
+        b = sub(o.after, '第一次作业', '刘欣怡')?.score;
+      return a === 85 && b === 90 ? null : `张浩然 ${a}，刘欣怡 ${b}`;
+    },
+  },
+  {
+    id: 'k05',
+    cat: '接上文',
+    turns: [{ say: '建个班叫数据结构1班' }, { say: '再来一个' }, { answer: ['数据结构2班'] }],
+    allow: [NEW_CLASS],
+    check: (o) => fail(newLive(o).join() === '数据结构1班,数据结构2班', `新建的班：${newLive(o).join('、') || '没有'}`),
+  },
+  {
+    id: 'k06',
+    cat: '接上文',
+    turns: [{ say: '把计科2505 Python 的加课码换一个' }, { say: '2506 的也换' }],
+    allow: [/^班\d+\.join_code/],
+    check: (o) => {
+      const changed = ['计科2505 Python', '计科2506 Python'].filter((n) => cls(o.after, n).join_code !== cls(o.before, n).join_code);
+      return changed.length === 2 ? null : `换了的：${changed.join('、') || '没有'}`;
+    },
+  },
+  {
+    id: 'k07',
+    cat: '接上文',
+    turns: [{ say: '第一次作业谁还没交' }, { say: '第二章练习呢' }],
+    allow: [],
+    check: (o) => {
+      const last = o.replies[o.replies.length - 1] || '';
+      return has(last, '刘欣怡') && has(last, '陈子轩') && has(last, '赵宇航') ? null : `第二句的回话：${last.slice(0, 80)}`;
+    },
+  },
+  {
+    id: 'k08',
+    cat: '接上文',
+    turns: [{ say: '给计科2505 Python 发个作业，第四章练习，周五交' }, { say: '不对，下周五' }],
+    allow: [NEW_HW],
+    check: (o) => {
+      const made = newLiveHw(o);
+      return made.length === 1 && made[0].class === '计科2505 Python' && made[0].due_at === nextWeek(5)
+        ? null
+        : made.map((h) => `${h.class}「${h.title}」${show(h.due_at)}`).join('；') || '没发';
+    },
+  },
+  {
+    id: 'k09',
+    cat: '接上文',
+    turns: [{ say: '计科2505 Python 停止加入' }, { say: '算了，还是开着吧' }],
+    allow: [/^班\d+\.join_open/],
+    check: (o) => fail(!!cls(o.after, '计科2505 Python').join_open, '还是停止加入'),
+  },
+  {
+    id: 'k10',
+    cat: '接上文',
+    turns: [{ say: '建个班，叫计科2508 Java' }, { say: '名字写错了，是2509' }],
+    allow: [NEW_CLASS],
+    check: (o) => fail(newLive(o).join() === '计科2509 Java', `新建的班：${newLive(o).join('、') || '没有'}`),
+  },
+  {
+    id: 'k11',
+    cat: '接上文',
+    turns: [{ say: '第二章练习，孙思雨给 80' }, { say: '张浩然也是' }],
+    allow: [/^交\d+\.score/],
+    check: (o) => {
+      const a = sub(o.after, '第二章练习', '孙思雨')?.score,
+        b = sub(o.after, '第二章练习', '张浩然')?.score;
+      return a === 80 && b === 80 ? null : `孙思雨 ${a}，张浩然 ${b}`;
+    },
+  },
+  {
+    // 照线上原样：老师的班叫一班、二班、测试班，先打招呼，再建计科5班，再说「6班」
+    id: 'k13',
+    cat: '接上文',
+    setup: shortNamedClasses,
+    turns: [{ say: 'hi' }, { say: '帮我建个计科5班' }, { say: '6班' }, { answer: ['再建一个计科6班'] }],
+    allow: [NEW_CLASS],
+    check: (o) => fail(newLive(o).join() === '计科5班,计科6班', `新建的班：${newLive(o).join('、') || '没有'}`),
+  },
+  {
+    id: 'k12',
+    cat: '接上文',
+    turns: [{ say: '软工2402 数据库发个作业，实验三报告，下周一交' }, { say: '截止往后推两天' }],
+    allow: [NEW_HW],
+    check: (o) => {
+      const made = newLiveHw(o);
+      return made.length === 1 && made[0].class === '软工2402 数据库' && made[0].due_at === nextWeek(3)
+        ? null
+        : made.map((h) => `${h.class}「${h.title}」${show(h.due_at)}`).join('；') || '没发';
+    },
   },
 
   /* ---------- 撤回 ---------- */

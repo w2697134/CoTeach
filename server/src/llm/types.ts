@@ -26,7 +26,12 @@ export interface Msg {
   toolCalls?: ToolCall[];
   toolCallId?: string;
   name?: string;
+  /** 模型这一步的思考：DeepSeek 开着思考又带工具时，按它的文档原样传回去（只有 OpenAI 协议的接口会发） */
+  reasoning?: string;
 }
+
+/** 思考开到哪一档（DeepSeek：low / high / max；它把 medium 当 high） */
+export type Effort = 'low' | 'high' | 'max';
 
 export interface ToolSpec {
   name: string;
@@ -42,6 +47,8 @@ export interface ChatParams {
   maxTokens?: number;
   /** 是否开启深度思考；不传时按服务商默认 */
   thinking?: boolean;
+  /** 开着思考时开到哪一档；不传按服务商默认 */
+  effort?: Effort;
   signal?: AbortSignal;
 }
 

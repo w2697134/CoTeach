@@ -26,6 +26,7 @@ const c = CASES.find((x) => x.id === id);
 if (!c) throw new Error(`没有 ${id}`);
 createApp();
 const world = await seed();
+c.setup?.(world);
 const user = { id: world.teacher, name: TEACHER };
 const before = snapshot(world);
 

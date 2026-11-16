@@ -23,6 +23,8 @@ function toWire(m: Msg): Record<string, unknown> {
       out.tool_calls = m.toolCalls.map(tc => ({ id: tc.id, type: 'function', function: { name: tc.name, arguments: JSON.stringify(tc.args ?? {}) } }));
       if (!out.content) out.content = null;
     }
+    // DeepSeek 思考模式带工具：之前每一步的思考要原样传回去（它的文档这么要求，传了会接进上下文）
+    if (m.reasoning) out.reasoning_content = m.reasoning;
     return out;
   }
   if (typeof m.content === 'string') return { role: m.role, content: m.content };
@@ -39,6 +41,7 @@ interface Knobs {
   temperature: boolean;
   streamOptions: boolean;
   thinking: boolean;
+  effort: boolean;
 }
 
 function buildBody(conn: ProviderConn, p: ChatParams, k: Knobs) {
@@ -47,6 +50,7 @@ function buildBody(conn: ProviderConn, p: ChatParams, k: Knobs) {
   if (k.temperature && p.temperature !== undefined) body.temperature = p.temperature;
   if (k.maxTokensField && p.maxTokens) body[k.maxTokensField] = p.maxTokens;
   if (k.thinking && p.thinking !== undefined) body.thinking = { type: p.thinking ? 'enabled' : 'disabled' };
+  if (k.effort && p.thinking && p.effort) body.reasoning_effort = p.effort;
   if (p.tools?.length) {
     body.tools = p.tools.map(t => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.parameters } }));
     body.tool_choice = 'auto';
@@ -62,6 +66,7 @@ function adjustKnobs(k: Knobs, errBody: string): Knobs | null {
   if (k.temperature && s.includes('temperature')) return { ...k, temperature: false };
   if (k.streamOptions && (s.includes('stream_options') || s.includes('include_usage'))) return { ...k, streamOptions: false };
   if (k.thinking && s.includes('thinking')) return { ...k, thinking: false };
+  if (k.effort && s.includes('reasoning_effort')) return { ...k, effort: false };
   return null;
 }
 
@@ -73,6 +78,7 @@ export const openaiAdapter: Adapter = {
       temperature: true,
       streamOptions: conn.kind !== 'ollama',
       thinking: true,
+      effort: true,
     };
     let res: Response | null = null;
     for (let attempt = 0; attempt < 4 && !res; attempt++) {
