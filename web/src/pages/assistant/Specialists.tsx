@@ -44,6 +44,7 @@ function Row({ s, onRetire }: { s: SpecialistInfo; onRetire: () => void }) {
         {s.recent[0] && (
           <p className="mt-1 line-clamp-2 text-[13px] text-ink-3">
             最近：{s.recent[0].what}
+            {s.recent[0].status === 'error' ? '（没办成）' : s.recent[0].status === 'running' ? '（在办）' : ''}
             {s.lastUsedAt ? ` · ${when(s.lastUsedAt)}` : ''}
           </p>
         )}
@@ -85,7 +86,7 @@ export function SpecialistsButton({ compact }: { compact: boolean }) {
   };
   return (
     <Popover
-      width={380}
+      width={Math.min(380, window.innerWidth - 16)}
       trigger={({ toggle }) =>
         compact ? (
           <IconButton label="专门助手" onClick={toggle}>

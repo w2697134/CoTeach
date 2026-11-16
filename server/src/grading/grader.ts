@@ -60,11 +60,21 @@ export const gradePrompt = (teacherName: string) => `你是${teacherTitle(teache
  * 交批改结果的工具：评分标准有几项，items 里就是这几格，格子名就是项名（2026-11-16：原来是一个随便几条的列表，
  * 评分标准每道题底下又分了（1）（2）（3）小项，助教按小项一条条交，交成了十几条，程序拿前三条当三道题）。
  */
-/** 交分格子的名字：就是项名；万一两项重名，后面加「（第几项）」分开 */
+/**
+ * 交分格子的名字：项名去掉标点和符号（2026-11-17：Gemini 交 JSON 时，带括号、冒号、加号的格子名会被换成
+ * the_1、__dummy__ 这种乱名字或者交空的，同一份作业第一次就认得出 0/12；去掉标点 11/12，每次也快三四倍，尺子 tools/grade-keys）。
+ * 万一两项重名，后面加「第几项」分开。对回项名时不看标点（itemOf 的 bare），所以对得回去。
+ */
+const plainKey = (t: string) =>
+  t
+    .replace(/[\p{P}\p{S}]/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 export function itemKeys(rubric: RubricItem[]) {
+  const keys = rubric.map((r, k) => plainKey(r.title) || `第${k + 1}项`);
   const n = new Map<string, number>();
-  for (const r of rubric) n.set(r.title, (n.get(r.title) || 0) + 1);
-  return rubric.map((r, k) => (n.get(r.title)! > 1 ? `${r.title}（第${k + 1}项）` : r.title));
+  for (const key of keys) n.set(key, (n.get(key) || 0) + 1);
+  return keys.map((key, k) => (n.get(key)! > 1 ? `${key} 第${k + 1}项` : key));
 }
 
 export function submitTool(rubric: RubricItem[]): ToolSpec {
@@ -141,8 +151,8 @@ export function cleanResult(raw: any, rubric: RubricItem[], text: string): Grade
     got.set(k + 1, { got: Number.isFinite(g) ? g : 0, why: String(x?.why ?? '').trim().slice(0, 1000) });
   }
   if (got.size < rubric.length) {
-    const missing = rubric.filter((_, k) => !got.has(k + 1)).map((r) => `「${r.title}」`);
-    throw new Error(`${missing.join('、')}没给分，评分标准每一项都要给，名字照评分标准写`);
+    const missing = keys.filter((_, k) => !got.has(k + 1)).map((key) => `「${key}」`);
+    throw new Error(`${missing.join('、')}没给分，评分标准每一项都要给，格子名照 submit_grade 里的写`);
   }
   const items: GradeItem[] = rubric.map((r, k) => {
     const g = got.get(k + 1)!;

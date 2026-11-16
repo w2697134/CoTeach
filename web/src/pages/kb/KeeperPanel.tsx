@@ -770,7 +770,14 @@ export const KeeperPanel = forwardRef<
         {page && <SpecialistsButton compact={false} />}
         <SessionButtons compact={!page} disabled={busy} />
       </div>
-      {slot && createPortal(<SessionButtons compact disabled={busy} />, slot)}
+      {slot &&
+        createPortal(
+          <div className="flex items-center">
+            <SpecialistsButton compact />
+            <SessionButtons compact disabled={busy} />
+          </div>,
+          slot,
+        )}
       <div ref={scroller} className={cn('min-h-0 flex-1 overflow-y-auto py-5', page ? 'px-3 lg:px-6' : 'px-4')}>
         <div ref={content} className="space-y-6">
           {page && q.data && !runs.length && (

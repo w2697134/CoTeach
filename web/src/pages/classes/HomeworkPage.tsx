@@ -13,7 +13,7 @@ import { AiBar, AiCell, GradedBy, ItemBars, ItemEditor, MarkList, MarkedText, Ru
 import { themeOf } from './look';
 
 /** 一份作业的抬头：标题、满分、截止、截止后收不收、什么时候发，下面要求和附件 */
-function Brief({ h, menu, mark }: { h: HomeworkDetail; menu?: React.ReactNode; mark?: React.ReactNode }) {
+function Brief({ h, menu, mark, note }: { h: HomeworkDetail; menu?: React.ReactNode; mark?: React.ReactNode; note?: React.ReactNode }) {
   const theme = themeOf(h.classId);
   const facts = [`满分 ${num(h.points)}`, h.dueAt ? `截止 ${when(h.dueAt)}` : '不设截止', h.dueAt && (h.allowLate ? '截止后还能交' : '截止后不收')].filter(Boolean);
   return (
@@ -27,6 +27,7 @@ function Brief({ h, menu, mark }: { h: HomeworkDetail; menu?: React.ReactNode; m
             {facts.join(' · ')}
             {h.publishAt > Date.now() && <span className="ml-2 rounded-full bg-surface-3 px-2 py-0.5 text-[12.5px] text-ink-2">{when(h.publishAt)} 发布</span>}
           </p>
+          {note && <div className="mt-2.5">{note}</div>}
         </div>
         {mark}
         {menu}
@@ -390,10 +391,11 @@ function TeacherView({ h }: { h: HomeworkDetail }) {
       <Brief
         h={h}
         menu={menu}
-        mark={
+        note={
           h.specialist ? (
-            <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-brand-soft py-1 pl-1 pr-3 text-[13px] text-brand-ink" title="助教分出来的专门助手">
-              <img src={h.specialist.avatar} alt="" className="size-6 rounded-full" />由「{h.specialist.name}」批
+            <span className="inline-flex max-w-full items-center gap-1.5 rounded-full bg-brand-soft py-1 pl-1 pr-3 text-[13px] text-brand-ink" title="助教分出来的专门助手">
+              <img src={h.specialist.avatar} alt="" className="size-6 shrink-0 rounded-full" />
+              <span className="truncate">由「{h.specialist.name}」批</span>
             </span>
           ) : undefined
         }
