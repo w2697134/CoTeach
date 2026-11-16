@@ -5,6 +5,8 @@ import { bootstrap } from './bootstrap.js';
 import { config } from './config.js';
 import { recoverRuns } from './kb/keeper.js';
 import { recoverIntakes } from './kb/intake/service.js';
+import { recoverStuRuns } from './assistant/buddy.js';
+import { backfillPacks, recoverPackJobs } from './assistant/pack-jobs.js';
 
 // 不显示 node:sqlite 的实验特性警告
 process.removeAllListeners('warning');
@@ -14,8 +16,12 @@ process.on('warning', w => {
 process.on('unhandledRejection', err => console.error('[unhandledRejection]', err));
 
 await bootstrap();
+// 学伴、替老师回学伴的助教做到一半的先标好（整理助手那边的 recoverRuns 会把所有在跑的标成中断，这里换成它们自己的说法）
+recoverStuRuns();
 recoverRuns();
 recoverIntakes();
+recoverPackJobs();
+backfillPacks();
 
 const app = createApp();
 const server = serve({ fetch: app.fetch, hostname: config.host, port: config.port }, info => {

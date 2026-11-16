@@ -4,99 +4,26 @@
  * 整理资料交给后台的整理助手（还是 Claude Code），它做完的消息在下一轮带给助教。
  */
 import { config } from '../config.js';
-import { db, getSetting, j, now } from '../db/index.js';
+import { db, j, now } from '../db/index.js';
 import { conflict, HttpError, notFound } from '../lib/http.js';
-import { estimateTokens } from '../lib/text.js';
-import { streamChat } from '../llm/index.js';
-import type { Effort, Msg, ToolCall, ToolSpec } from '../llm/types.js';
 import { publish, record, type RunRef } from '../kb/agent/events.js';
 import { findKb, listKbs } from '../kb/bases.js';
 import { intakeItems, readBlobText } from '../kb/intake/store.js';
 import { KIND_LABEL, type Kind } from '../kb/intake/kinds.js';
 import { publishRun, setTaFilesHandler, startKeeperJob } from '../kb/keeper.js';
-import { ensureThread, takeNotes, TA_THREAD } from './notes.js';
+import { modelStep } from './model.js';
+import { takeNotes, TA_THREAD } from './notes.js';
 import { taPrompt, turnBlock } from './prompt.js';
 import { classesOf } from './resolve.js';
 import { nowLine } from './time.js';
+import { append, compact, dangling, requestMessages } from './thread.js';
 import { ASK_TOOL, runTaTool, TOOL_SPECS, type TaContext } from './tools.js';
+import { afterTeacherAnswer, pendingAsksLine, type StudentAskCard } from './bridge.js';
+
+export { setModelStep, type ModelStep, type StepResult } from './model.js';
 
 /** 一轮里最多来回几次（调一次工具算一次） */
 const MAX_STEPS = 16;
-/** 对话太长时把前面的压成一段：超过这么多（估算）就压，留最近这么多条原样 */
-const COMPACT_AT = 60_000;
-const KEEP_RECENT = 24;
-
-/* ---------------- 模型那一步（测试里换成写好的） ---------------- */
-
-export interface StepResult {
-  text: string;
-  toolCalls: ToolCall[];
-  /** 模型这一步的思考（开着思考时才有），要记下来往后原样传回去 */
-  reasoning?: string;
-}
-export type ModelStep = (o: { messages: Msg[]; tools: ToolSpec[]; userId: number; signal: AbortSignal; onText: (t: string) => void }) => Promise<StepResult>;
-
-/**
- * 助教想不想、想多深。
- * DeepSeek 只有 low / high / max 三档，它把 medium 当 high 算，所以默认 high；设置 ta_think 可改（off 是不想）。
- */
-const taThink = () => getSetting<'off' | Effort>('ta_think', 'high');
-
-const deepseekStep: ModelStep = async (o) => {
-  let text = '';
-  let reasoning = '';
-  const toolCalls: ToolCall[] = [];
-  const think = taThink();
-  for await (const d of streamChat({
-    agentKey: 'ta',
-    messages: o.messages,
-    tools: o.tools,
-    userId: o.userId,
-    purpose: 'ta:chat',
-    signal: o.signal,
-    countQuota: false,
-    think,
-    // 想的字也算在这个上限里：开着思考放宽（只按实际用的算钱）
-    maxTokens: think === 'off' ? 4000 : 32000,
-  })) {
-    if (d.type === 'text') {
-      text += d.text;
-      o.onText(d.text);
-    } else if (d.type === 'reasoning') reasoning += d.text;
-    else if (d.type === 'tool') toolCalls.push(d.call);
-    else if (d.type === 'model') {
-      // 换了备用模型重来：前面的不算
-      text = '';
-      reasoning = '';
-      toolCalls.length = 0;
-    }
-  }
-  return { text, toolCalls, ...(reasoning ? { reasoning } : {}) };
-};
-let step: ModelStep = deepseekStep;
-/** 测试用：换成写好的模型回答；传 null 换回 DeepSeek */
-export function setModelStep(fn: ModelStep | null) {
-  step = fn ?? deepseekStep;
-}
-
-/* ---------------- 对话记录 ---------------- */
-
-interface Stored {
-  id: number;
-  run_id: number | null;
-  role: Msg['role'];
-  content: string;
-  tool_calls: string | null;
-  tool_call_id: string | null;
-  reasoning: string | null;
-}
-const toMsg = (r: Stored): Msg => ({
-  role: r.role,
-  content: j<Msg['content']>(r.content, ''),
-  ...(r.tool_calls ? { toolCalls: j<ToolCall[]>(r.tool_calls, []) } : {}),
-  ...(r.tool_call_id ? { toolCallId: r.tool_call_id } : {}),
-  ...(r.reasoning ? { reasoning: r.reasoning } : {}),
-});
 
 /* ---------------- 会话：开新会话就是换个新助教，从头聊（2026-11-16） ---------------- */
 
@@ -134,88 +61,6 @@ export function ownSession(ownerId: number, session: number | null | undefined):
   return session;
 }
 
-function thread(ownerId: number, key: string) {
-  ensureThread(ownerId, key);
-  return db.get<{ summary: string | null; summary_upto: number }>('SELECT summary, summary_upto FROM agent_threads WHERE owner_id=? AND thread=?', ownerId, key)!;
-}
-function stored(ownerId: number, key: string, after: number): Stored[] {
-  return db.all<Stored>(
-    'SELECT id, run_id, role, content, tool_calls, tool_call_id, reasoning FROM agent_messages WHERE owner_id=? AND thread=? AND id>? ORDER BY id',
-    ownerId,
-    key,
-    after,
-  );
-}
-function append(ownerId: number, key: string, runId: number, m: Msg) {
-  return db.insert('agent_messages', {
-    owner_id: ownerId,
-    thread: key,
-    run_id: runId,
-    role: m.role,
-    content: JSON.stringify(m.content ?? ''),
-    tool_calls: m.toolCalls?.length ? m.toolCalls.map(({ id, name, args }) => ({ id, name, args })) : null,
-    tool_call_id: m.toolCallId ?? null,
-    reasoning: m.reasoning || null,
-    created_at: now(),
-  });
-}
-
-/** 发给模型的整段：说明（加上以前的概要）+ 概要以后的每一条 */
-function requestMessages(user: { id: number; name: string }, key: string): Msg[] {
-  const t = thread(user.id, key);
-  const system = taPrompt(user.name) + (t.summary ? `\n\n之前的对话概要：\n${t.summary}` : '');
-  return [{ role: 'system', content: system }, ...stored(user.id, key, t.summary_upto).map(toMsg)];
-}
-
-/** 还没有回音的工具调用（问了老师还没答的）：下一句来之前要先补上回音 */
-function dangling(ownerId: number, key: string): ToolCall[] {
-  const rows = stored(ownerId, key, thread(ownerId, key).summary_upto);
-  const answered = new Set(rows.filter((r) => r.role === 'tool').map((r) => r.tool_call_id));
-  const last = [...rows].reverse().find((r) => r.role === 'assistant' && r.tool_calls);
-  if (!last) return [];
-  return j<ToolCall[]>(last.tool_calls, []).filter((c) => !answered.has(c.id));
-}
-
-/**
- * 对话太长：把前面的压成一段概要（留最近 KEEP_RECENT 条），以后每轮带概要和后面的。
- * 只在一轮开头压，切在老师说话那一条前面，不把一次工具调用和它的回音拆开。
- */
-async function compact(user: { id: number; name: string }, key: string, signal: AbortSignal) {
-  const t = thread(user.id, key);
-  const rows = stored(user.id, key, t.summary_upto);
-  const size = rows.reduce((n, r) => n + estimateTokens(r.content) + (r.tool_calls ? estimateTokens(r.tool_calls) : 0), 0);
-  if (size < COMPACT_AT || rows.length <= KEEP_RECENT) return;
-  let cut = rows.length - KEEP_RECENT;
-  while (cut > 0 && rows[cut].role !== 'user') cut--;
-  if (cut <= 0) return;
-  const old = rows.slice(0, cut);
-  const talk = old
-    .map((r) => {
-      const m = toMsg(r);
-      const body = typeof m.content === 'string' ? m.content : JSON.stringify(m.content);
-      if (r.role === 'tool') return `（工具回音）${body.slice(0, 600)}`;
-      if (r.role === 'assistant') return `助教：${body}${m.toolCalls?.length ? `（用了 ${m.toolCalls.map((c) => c.name).join('、')}）` : ''}`;
-      return `老师：${body.slice(0, 2000)}`;
-    })
-    .join('\n');
-  let summary = '';
-  for await (const d of streamChat({
-    agentKey: 'ta',
-    purpose: 'ta:compact',
-    userId: user.id,
-    countQuota: false,
-    signal,
-    maxTokens: 1500,
-    messages: [
-      { role: 'system', content: '把老师和助教之前的对话压成一段要点，给助教接着干活用：还没办完的事、老师交代过的要求和习惯、办过的事和它们的记录编号。' },
-      { role: 'user', content: `${t.summary ? `更早的概要：\n${t.summary}\n\n` : ''}对话：\n${talk}` },
-    ],
-  }))
-    if (d.type === 'text') summary += d.text;
-  if (!summary.trim()) return;
-  db.run('UPDATE agent_threads SET summary=?, summary_upto=?, updated_at=? WHERE owner_id=? AND thread=?', summary.trim(), old[old.length - 1].id, now(), user.id, key);
-}
-
 /* ---------------- 每一轮 ---------------- */
 
 interface Busy {
@@ -237,6 +82,10 @@ interface Turn {
   session: number | null;
   /** 回答问题卡片：问题那一次调用的编号 → 老师怎么答的 */
   answers?: Map<string, string>;
+  /** 给模型看的这句话（不传就是 message）：老师在学生来问的卡片上答的，要带上是谁问的什么 */
+  modelMessage?: string;
+  /** 老师答的是哪个学生来问的（student_asks） */
+  studentAsk?: number;
 }
 
 function checkQuota(userId: number) {
@@ -251,8 +100,11 @@ function checkQuota(userId: number) {
 function newRun(user: { id: number }, kbId: number | null, message: string, session: number | null) {
   if (busy.has(user.id)) throw conflict('CoT 助教正在回上一句，等它说完');
   checkQuota(user.id);
-  // 还挂着没答的问题卡片：老师接着说了别的，那一问就算过去了（卡片上显示没选）
-  for (const w of db.all<{ id: number; kb_id: number | null }>("SELECT id, kb_id FROM kb_runs WHERE teacher_id=? AND agent='ta' AND status='waiting'", user.id)) {
+  // 还挂着没答的问题卡片：老师接着说了别的，那一问就算过去了（卡片上显示没选）。学生来问的卡片不算，一直等老师回
+  for (const w of db.all<{ id: number; kb_id: number | null }>(
+    "SELECT id, kb_id FROM kb_runs WHERE teacher_id=? AND agent='ta' AND status='waiting' AND kind<>'student_ask'",
+    user.id,
+  )) {
     const ev = db.get<{ id: number; data: string }>("SELECT id, data FROM kb_events WHERE run_id=? AND type='ask' ORDER BY id DESC LIMIT 1", w.id);
     if (ev) db.update('kb_events', ev.id, { data: { ...j<object>(ev.data, {}), skipped: true } });
     db.update('kb_runs', w.id, { status: 'done', finished_at: now() });
@@ -315,7 +167,7 @@ export function answerAsk(user: { id: number; name: string }, askRunId: number, 
   if (run.status !== 'waiting') throw conflict('这个问题已经答过了');
   const ev = db.get<{ id: number; data: string }>("SELECT id, data FROM kb_events WHERE run_id=? AND type='ask' ORDER BY id DESC LIMIT 1", askRunId);
   if (!ev) throw notFound('没有这次提问');
-  const ask = j<{ toolCallId: string; questions: { question: string; options: string[] }[] }>(ev.data, { toolCallId: '', questions: [] });
+  const ask = j<{ toolCallId: string; questions: { question: string; options: string[] }[]; from?: StudentAskCard }>(ev.data, { toolCallId: '', questions: [] });
   const said = ask.questions.map((q, i) => {
     const a = answers[i] || {};
     const words = [...(a.picks || []).filter(Boolean), ...(a.text?.trim() ? [a.text.trim()] : [])];
@@ -324,6 +176,8 @@ export function answerAsk(user: { id: number; name: string }, askRunId: number, 
   if (said.every((s) => !s.a)) throw conflict('还没选');
   const reply = said.map((s) => `${s.q} ${s.a || '（没选）'}`).join('\n');
   const message = said.map((s) => s.a || '（没选）').join('；');
+  // 学生来问的卡片：老师答的话交给助教，由它转告学生（还要带上是谁问的、问的什么、它原来拟的回复）
+  const from = run.kind === 'student_ask' ? ask.from : undefined;
   const runId = newRun(user, run.kb_id ?? null, message, run.session_id ?? null);
   db.update('kb_events', ev.id, { data: { ...ask, answered: said } });
   db.update('kb_runs', askRunId, { status: 'done', finished_at: run.finished_at || now() });
@@ -336,7 +190,12 @@ export function answerAsk(user: { id: number; name: string }, askRunId: number, 
     file: null,
     intakeId: null,
     session: run.session_id ?? null,
-    answers: new Map([[ask.toolCallId, `老师答：\n${reply}`]]),
+    ...(from
+      ? {
+          studentAsk: from.askId,
+          modelMessage: `（${from.className}的${from.student}来问：${from.question}${from.draft ? `。你拟的回复：${from.draft}` : ''}）\n老师在卡片上答：${message}`,
+        }
+      : { answers: new Map([[ask.toolCallId, `老师答：\n${reply}`]]) }),
   });
   return runId;
 }
@@ -381,6 +240,8 @@ function launch(user: { id: number; name: string }, runId: number, turn: Turn) {
     .finally(() => {
       if (busy.get(user.id)?.runId === runId) busy.delete(user.id);
       publishRun(turn.kbId, runId);
+      // 老师在学生来问的卡片上答了，助教却没转告（出错、停下、忘了）：照老师的原话转给学生
+      if (turn.studentAsk) afterTeacherAnswer(turn.studentAsk, turn.message);
     });
 }
 
@@ -433,7 +294,15 @@ async function execute(user: { id: number; name: string }, ref: RunRef, turn: Tu
       toolCallId: call.id,
       content: turn.answers?.get(call.id) ?? '（老师没有在卡片上选，直接说了下面这句）',
     });
-  await compact(user, key, signal).catch((err) => console.error('[ta] compact', err));
+  await compact({
+    ownerId: user.id,
+    key,
+    signal,
+    who: { user: '老师', agent: '助教' },
+    instruction: '把老师和助教之前的对话压成一段要点，给助教接着干活用：还没办完的事、老师交代过的要求和习惯、办过的事和它们的记录编号。',
+    agentKey: 'ta',
+    purpose: 'ta:compact',
+  }).catch((err) => console.error('[ta] compact', err));
   const block = turnBlock({
     now: nowLine(),
     classes: classesOf(user.id).map((k) => `「${k.name}」${k.archived_at ? '（已归档）' : ''}${homeworkTitles(k.id)}`),
@@ -444,8 +313,10 @@ async function execute(user: { id: number; name: string }, ref: RunRef, turn: Tu
     jobs: runningJobs(user.id),
     notes: takeNotes(user.id),
     files: turn.intakeId ? filesBlock(turn.intakeId) : null,
+    asks: pendingAsksLine(user.id),
   });
-  append(user.id, key, ref.runId, { role: 'user', content: `${block}\n${turn.message.trim() || '（老师只发了文件，没写话）'}` });
+  const said = (turn.modelMessage ?? turn.message).trim();
+  append(user.id, key, ref.runId, { role: 'user', content: `${block}\n${said || '（老师只发了文件，没写话）'}` });
 
   const ctx: TaContext = {
     user,
@@ -459,8 +330,9 @@ async function execute(user: { id: number; name: string }, ref: RunRef, turn: Tu
   };
   for (let n = 0; n < MAX_STEPS; n++) {
     signal.throwIfAborted();
-    const r = await step({
-      messages: requestMessages(user, key),
+    const r = await modelStep({
+      agent: 'ta',
+      messages: requestMessages(user.id, key, taPrompt(user.name)),
       tools: TOOL_SPECS,
       userId: user.id,
       signal,

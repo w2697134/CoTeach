@@ -835,6 +835,8 @@ keeperRoutes.get('/runs', (c) => {
     session,
     activeRunId: taBusy(u.id)?.runId || null,
     keeperRunId: teacherBusy(u.id)?.runId || null,
+    // 学生来问、在等老师回的（卡片可能在别的会话里，顶上那行字提一句）
+    waitingStudents: db.value<number>("SELECT count(*) FROM student_asks WHERE teacher_id=? AND status='teacher'", u.id) || 0,
   });
 });
 /** 会话列表（说过话的，新的在前）和现在这段 */

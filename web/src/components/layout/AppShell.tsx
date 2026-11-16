@@ -6,7 +6,7 @@ import { APP_NAME, APP_SHORT_NAME } from '../../lib/brand';
 import { post } from '../../lib/api';
 import { toast, useAuth, useTheme, useUi } from '../../lib/store';
 import { AgentAvatar, Avatar, Button, IconButton, Input, MenuItem, MenuLabel, Modal, Popover, cn } from '../ui';
-import { TA, useKnowledgeBases } from '../../pages/kb/data';
+import { BUDDY, TA, useKnowledgeBases } from '../../pages/kb/data';
 import { CrumbTrail, useCurrentCrumbs } from './Crumbs';
 
 /** 现在打开的是哪个知识库（不在某个知识库里时为 null） */
@@ -25,7 +25,7 @@ export function Logo({ size = 32, className }: { size?: number; className?: stri
   );
 }
 
-/** 左边栏：老师第一项是「CoT 助教」，然后「班级」；老师的「知识库」固定在最下面。学生只有「班级」 */
+/** 左边栏：老师第一项是「CoT 助教」，然后「班级」；老师的「知识库」固定在最下面。学生是「CoT 学伴」和「班级」 */
 function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const role = useAuth((s) => s.user?.role);
   const student = role === 'student',
@@ -50,17 +50,16 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
         </div>
       </div>
       <nav className="no-scrollbar min-h-0 flex-1 space-y-1 overflow-y-auto px-3 pb-4 pt-2">
-        {!student && (
-          <NavLink to="/assistant" onClick={onNavigate} className={({ isActive }) => item(isActive)}>
-            {({ isActive }) => (
-              <>
-                {isActive && mark}
-                <AgentAvatar agent={TA} size={20} />
-                <span className="min-w-0 flex-1">{TA.name}</span>
-              </>
-            )}
-          </NavLink>
-        )}
+        {/* 第一项：老师是 CoT 助教，学生是 CoT 学伴 */}
+        <NavLink to={student ? '/cot' : '/assistant'} onClick={onNavigate} className={({ isActive }) => item(isActive)}>
+          {({ isActive }) => (
+            <>
+              {isActive && mark}
+              <AgentAvatar agent={student ? BUDDY : TA} size={20} />
+              <span className="min-w-0 flex-1">{student ? BUDDY.name : TA.name}</span>
+            </>
+          )}
+        </NavLink>
         <NavLink to="/classes" onClick={onNavigate} className={({ isActive }) => item(isActive)}>
           {({ isActive }) => (
             <>
@@ -344,7 +343,9 @@ export function AppShell() {
         ? '班级'
         : /^\/assistant/.test(location.pathname)
           ? TA.name
-          : undefined;
+          : /^\/cot/.test(location.pathname)
+            ? BUDDY.name
+            : undefined;
   // 班级那边的页面自己报位置（useCrumbs）：电脑上顶栏写「班级 › 一班 › 测试」；
   // 手机上最外层是菜单加「班级」，往里一层换成「← 上一层的名字」（像微信、iOS 的返回），跟下面内容的标题不重复
   const crumbs = useCurrentCrumbs();
@@ -353,7 +354,7 @@ export function AppShell() {
   const mobileTitle = crumbs.length ? crumbs[0].label : title;
   useEffect(() => setMobileNav(false), [location.pathname, setMobileNav]);
   // 知识库页面占满整屏高度，自己管滚动；班级页面是普通页面
-  const full = location.pathname.startsWith('/c/') || /^\/(knowledge|assistant)(\/|$)/.test(location.pathname);
+  const full = location.pathname.startsWith('/c/') || /^\/(knowledge|assistant|cot)(\/|$)/.test(location.pathname);
   return (
     <div className="min-h-screen bg-bg">
       <aside className="fixed inset-y-0 left-0 z-40 hidden w-[248px] border-r border-line bg-surface lg:block">

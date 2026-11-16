@@ -19,6 +19,8 @@ export function turnBlock(o: {
   jobs: string[];
   notes: string[];
   files: string | null;
+  /** 学生来问、还在等老师回的（没有就是 null） */
+  asks?: string | null;
 }) {
   const head = [
     `现在是 ${o.now}`,
@@ -29,6 +31,7 @@ export function turnBlock(o: {
   ].filter(Boolean);
   const lines = [`（${head.join('。')}）`];
   if (o.notes.length) lines.push(`（后台的消息：${o.notes.join('；')}）`);
+  if (o.asks) lines.push(o.asks);
   if (o.files) lines.push(o.files);
   return lines.join('\n');
 }

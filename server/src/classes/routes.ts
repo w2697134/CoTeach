@@ -7,6 +7,7 @@ import { db, now } from '../db/index.js';
 import { hashPassword } from '../lib/crypto.js';
 import { bad, body, clientIp, conflict, forbidden, intParam, notFound, rateLimit, HttpError } from '../lib/http.js';
 import { homeworkCounts } from './homework.js';
+import { packOnClassCreated } from '../assistant/pack-jobs.js';
 import { cleanName, looksName, looksNo, rosterFromFile, rosterFromText, tableFromFile, type RosterStudent } from './roster.js';
 
 /**
@@ -212,6 +213,8 @@ classRoutes.post('/', async (c) => {
     return db.insert('classes', { teacher_id: u.id, name: d.name, join_code: newCode(), created_at: t, updated_at: t });
   });
   audit(c, 'class.create', `class:${id}`, {});
+  // 助教在后台给这个班的资料包写课程说明（学生的学伴照着它回答）
+  packOnClassCreated(id);
   return c.json({ id });
 });
 

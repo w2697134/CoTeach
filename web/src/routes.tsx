@@ -44,22 +44,31 @@ const JoinLanding = page(() => import('./pages/classes/Landing'), 'JoinLandingPa
 const HomeworkDetail = page(() => import('./pages/classes/HomeworkPage'), 'HomeworkPage');
 const HomeworkEdit = page(() => import('./pages/classes/HomeworkEdit'), 'HomeworkEditPage');
 const Assistant = page(() => import('./pages/assistant/AssistantPage'), 'AssistantPage');
+const Buddy = page(() => import('./pages/cot/BuddyPage'), 'BuddyPage');
+const StudentChat = page(() => import('./pages/classes/StudentChat'), 'StudentChatPage');
 
 function S({ children }: { children: ReactNode }) {
   return <Suspense fallback={<PageLoading />}>{children}</Suspense>;
 }
 
-/** 老师进来先到 CoT 助教（左边栏第一项），学生先看班级；知识库在左边栏最下面 */
+/** 老师进来先到 CoT 助教（左边栏第一项），学生先到 CoT 学伴（2026-11-16）；知识库在左边栏最下面 */
 function Start() {
   const role = useAuth((s) => s.user?.role);
   if (role !== 'teacher' && role !== 'admin' && role !== 'student') return <Empty title="这个账号没有可用的页面" />;
-  return <Navigate replace to={role === 'student' ? '/classes' : '/assistant'} />;
+  return <Navigate replace to={role === 'student' ? '/cot' : '/assistant'} />;
 }
 
 /** 管理页只给管理员 */
 function AdminOnly({ children }: { children: ReactNode }) {
   const role = useAuth((s) => s.user?.role);
   if (role !== 'admin') return <Navigate replace to="/classes" />;
+  return <>{children}</>;
+}
+
+/** 学伴页只给学生；老师打开它的网址，带回 CoT 助教 */
+function StudentOnly({ children }: { children: ReactNode }) {
+  const role = useAuth((s) => s.user?.role);
+  if (role !== 'student') return <Navigate replace to="/assistant" />;
   return <>{children}</>;
 }
 
@@ -135,10 +144,27 @@ export const router = createBrowserRouter([
         ),
       },
       {
+        path: 'cot',
+        element: (
+          <S>
+            <StudentOnly><Buddy /></StudentOnly>
+          </S>
+        ),
+      },
+      {
         path: 'classes',
         element: (
           <S>
             <Classes />
+          </S>
+        ),
+      },
+      // 老师看一个学生跟 CoT 学伴说的
+      {
+        path: 'classes/:id/students/:sid/cot',
+        element: (
+          <S>
+            <TeacherOnly><StudentChat /></TeacherOnly>
           </S>
         ),
       },

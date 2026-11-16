@@ -139,6 +139,8 @@ export interface AskData {
   questions: { question: string; options: string[]; multiple?: boolean }[];
   answered?: { q: string; a: string }[] | null;
   skipped?: boolean;
+  /** 学生通过学伴来问、助教要老师拍板的（2026-11-16）：谁、哪个班、助教拟的回复 */
+  from?: { student: string; className: string; draft?: string };
 }
 
 /**
@@ -151,9 +153,15 @@ export function AskCard({ runId, data, live }: { runId: number; data: AskData; l
   const [picks, setPicks] = useState<string[][]>(() => qs.map(() => []));
   const [texts, setTexts] = useState<string[]>(() => qs.map(() => ''));
   const [busy, setBusy] = useState(false);
+  const from = data.from;
   if (data.answered?.length)
     return (
       <div className="space-y-0.5 text-[13px] leading-relaxed text-ink-3">
+        {from && (
+          <p>
+            {from.className} · {from.student}
+          </p>
+        )}
         {data.answered.map((x, i) => (
           <p key={i} className="flex items-start gap-1.5">
             <Check className="mt-[3px] size-3.5 shrink-0 text-ok" />
@@ -190,9 +198,16 @@ export function AskCard({ runId, data, live }: { runId: number; data: AskData; l
   const ready = qs.every((q, i) => picks[i].length > 0 || texts[i].trim());
   return (
     <div className="rounded-xl border border-brand/40 bg-surface px-3.5 py-3 shadow-xs ring-2 ring-brand/10">
+      {/* 学生来问的：哪个班谁问的写在最上面，助教拟的回复摆在问题下面，选项下面能自己回一句 */}
+      {from && (
+        <p className="mb-1 text-[12.5px] text-ink-3">
+          {from.className} · {from.student}
+        </p>
+      )}
       {qs.map((q, i) => (
         <div key={i} className={i ? 'mt-3.5' : ''}>
           <p className="break-words text-[14px] font-medium leading-snug text-ink">{q.question}</p>
+          {from?.draft && i === 0 && <p className="mt-1 break-words text-[13px] leading-relaxed text-ink-3">拟回复：{from.draft}</p>}
           {q.options.length ? (
             <div className="mt-2 flex flex-wrap gap-1.5">
               {q.options.map((o) => {
@@ -221,6 +236,21 @@ export function AskCard({ runId, data, live }: { runId: number; data: AskData; l
               onChange={(e) => setTexts(texts.map((t, j) => (j === i ? e.target.value : t)))}
               onKeyDown={(e) => e.key === 'Enter' && !e.nativeEvent.isComposing && ready && !busy && send(picks, texts)}
             />
+          )}
+          {from && q.options.length > 0 && i === 0 && (
+            <div className="mt-2.5 flex items-center gap-1.5">
+              <Input
+                className="min-w-0 flex-1"
+                value={texts[0]}
+                maxLength={2000}
+                placeholder="自己回一句"
+                onChange={(e) => setTexts(texts.map((t, j) => (j === 0 ? e.target.value : t)))}
+                onKeyDown={(e) => e.key === 'Enter' && !e.nativeEvent.isComposing && texts[0].trim() && !busy && send(qs.map(() => []), texts)}
+              />
+              <Button size="sm" variant="primary" loading={busy} disabled={!texts[0].trim()} onClick={() => send(qs.map(() => []), texts)}>
+                回复
+              </Button>
+            </div>
           )}
         </div>
       ))}

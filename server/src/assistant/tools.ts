@@ -12,6 +12,9 @@ import { isTextEntry, manifest, readEntry, sourceBytes } from '../kb/repo.js';
 import { blobPath, readBlobText } from '../kb/intake/store.js';
 import { callApi } from './api.js';
 import { recordAction, undoAction } from './actions.js';
+import { notifyClass, replyStudent } from './bridge.js';
+import { myClasses } from './buddy.js';
+import { dropPack, grantFile, isPackKind, kbOriginal, putPack, renderPack, revokeFile } from './pack.js';
 import { classesOf, findClass, findHomework, findStudent, type ClassRow, type HomeworkRow } from './resolve.js';
 import { parseWhen, showTime, weekLater } from './time.js';
 
@@ -173,6 +176,58 @@ export const TOOL_SPECS: ToolSpec[] = [
     name: 'reset_password',
     description: '学生忘了密码时给他重置一个新密码，新密码只给老师看。',
     parameters: obj({ student: str('学生姓名或学号'), class: str('哪个班的；学生只在一个班里时不用填') }, ['student']),
+  },
+  {
+    name: 'notify_students',
+    description: '给学生发通知，送到学生的 CoT 学伴那里。只发给某份作业还没交的学生时传 homework。',
+    parameters: obj(
+      {
+        classes: { type: 'array', items: { type: 'string' }, description: '发给哪些班（班名）' },
+        message: str('通知的话，学生看到的就是这段'),
+        homework: str('只发给这份作业还没交的学生时，填作业标题'),
+      },
+      ['classes', 'message'],
+    ),
+  },
+  {
+    name: 'reply_student',
+    description: '回复学生来问、在等老师回的事：把老师的意思写成对学生说的话，送到学生那里。',
+    parameters: obj({ student: str('学生姓名'), reply: str('对学生说的话'), question: str('他问的哪件事；同一个学生有几件在等时才填') }, ['student', 'reply']),
+  },
+  {
+    name: 'update_pack',
+    description: '改班级资料包（学生的学伴照着它回答学生）：写一条规矩、通知或答复，同一个标题再写就是改；或者去掉一条（标题写文件名就是不再给学生这份文件）。',
+    parameters: obj(
+      {
+        classes: { type: 'array', items: { type: 'string' }, description: '哪些班（班名）' },
+        kind: { type: 'string', enum: ['rule', 'notice', 'qa'], description: 'rule 规矩，notice 通知，qa 答复' },
+        title: str('标题'),
+        body: str('内容；去掉时不用写'),
+        remove: { type: 'boolean', description: 'true 去掉这一条' },
+      },
+      ['classes', 'title'],
+    ),
+  },
+  {
+    name: 'give_files',
+    description: '把知识库里的原件（课件、讲义这类）放进班级资料包，学生的学伴就能发给学生。',
+    parameters: obj(
+      {
+        classes: { type: 'array', items: { type: 'string' }, description: '哪些班（班名）' },
+        files: { type: 'array', items: obj({ path: str('「知识库名/路径」'), note: str('一句话说是什么') }, ['path']) },
+      },
+      ['classes', 'files'],
+    ),
+  },
+  {
+    name: 'view_pack',
+    description: '看一个班的资料包：学生的学伴现在知道些什么、能发哪些文件。',
+    parameters: obj({ class: str('班名') }, ['class']),
+  },
+  {
+    name: 'student_questions',
+    description: '看学生最近问了学伴什么（学情）：每句原话和谁问的，转来问老师的也在里面。',
+    parameters: obj({ class: str('班名'), days: { type: 'number', description: '最近几天，默认 7' } }, ['class']),
   },
 ];
 
@@ -680,6 +735,114 @@ const handlers: Record<string, Handler> = {
       null,
     );
     return `已重置${hit.s.name}（${hit.s.student_no}）的密码，新密码在卡片上给老师了`;
+  },
+
+  async notify_students(ctx, a) {
+    const names = [...new Set(list(a.classes).map((x) => String(x).trim()).filter(Boolean))];
+    if (!names.length) throw bad('发给哪个班没说，问老师');
+    const message = String(a.message ?? '').trim();
+    if (!message) throw bad('通知的话没写');
+    const ks = names.map((n) => findClass(ctx.user.id, n)).filter((k, i, all) => all.findIndex((x) => x.id === k.id) === i);
+    const hwTitle = text(a.homework)?.trim();
+    const out: string[] = [];
+    const lines: string[] = [];
+    for (const k of ks) {
+      const h = hwTitle ? findHomework(ctx.user.id, hwTitle, k.name).rows[0] : null;
+      const sent = notifyClass({ classId: k.id, text: message, missingHomework: h?.id ?? null });
+      const who = h ? `「${h.title}」没交的 ${sent.length} 人` : `${sent.length} 人`;
+      out.push(`「${k.name}」${who}${sent.length && h ? `：${sent.slice(0, 30).join('、')}` : ''}`);
+      lines.push(`「${k.name}」${who}`);
+    }
+    recordAction(ctx.ref, 'students.notify', { title: '发了通知', lines: [message, ...lines] }, null);
+    return `通知发出去了：${out.join('；')}${hwTitle ? '' : '。也写进了资料包，学生以后问学伴也知道'}`;
+  },
+
+  async reply_student(ctx, a) {
+    const r = replyStudent(ctx.user.id, { student: String(a.student ?? ''), reply: String(a.reply ?? ''), question: text(a.question) });
+    recordAction(ctx.ref, 'student.reply', { title: `回复了${r.student}`, lines: [`${r.className} · 问的：${r.ask.question.slice(0, 80)}`, String(a.reply ?? '').trim()] }, null);
+    return `已经回复${r.className}的${r.student}`;
+  },
+
+  async update_pack(ctx, a) {
+    const names = [...new Set(list(a.classes).map((x) => String(x).trim()).filter(Boolean))];
+    if (!names.length) throw bad('哪个班没说');
+    const title = String(a.title ?? '').trim();
+    if (!title) throw bad('标题没写');
+    const ks = names.map((n) => findClass(ctx.user.id, n)).filter((k, i, all) => all.findIndex((x) => x.id === k.id) === i);
+    const where = ks.map((k) => `「${k.name}」`).join('、');
+    if (bool(a.remove) === true) {
+      const gone = ks.filter((k) => !!dropPack(k.id, title) || revokeFile(k.id, title));
+      if (!gone.length) return `${where}的资料包里没有「${title}」`;
+      recordAction(ctx.ref, 'pack.update', { title: `资料包去掉了「${title}」`, lines: [gone.map((k) => `「${k.name}」`).join('、')] }, null);
+      return `去掉了「${title}」（${gone.map((k) => `「${k.name}」`).join('、')}）`;
+    }
+    const body = String(a.body ?? '').trim();
+    if (!body) throw bad('内容没写');
+    const kind = isPackKind(a.kind) && ['rule', 'notice', 'qa'].includes(a.kind) ? a.kind : 'rule';
+    for (const k of ks) putPack(k.id, kind, title, body);
+    recordAction(ctx.ref, 'pack.update', { title: `资料包写了「${title}」`, lines: [where, body] }, null);
+    return `写进了${where}的资料包：「${title}」`;
+  },
+
+  async give_files(ctx, a) {
+    const names = [...new Set(list(a.classes).map((x) => String(x).trim()).filter(Boolean))];
+    if (!names.length) throw bad('哪个班没说');
+    const ks = names.map((n) => findClass(ctx.user.id, n)).filter((k, i, all) => all.findIndex((x) => x.id === k.id) === i);
+    const files = Array.isArray(a.files) ? a.files : [];
+    if (!files.length) throw bad('给哪份没说');
+    const done: string[] = [];
+    const failed: string[] = [];
+    for (const f of files.slice(0, 20)) {
+      try {
+        const hit = kbOriginal(ctx.user.id, String(f?.path ?? ''));
+        for (const k of ks) grantFile(k.id, hit.kb.id, hit.sourceId, hit.name, String(f?.note ?? ''));
+        done.push(hit.name);
+      } catch (err) {
+        failed.push((err as Error).message);
+      }
+    }
+    if (done.length)
+      recordAction(ctx.ref, 'pack.files', { title: `资料包放进了 ${done.length} 份文件`, lines: [ks.map((k) => `「${k.name}」`).join('、'), done.join('、')] }, null);
+    return [done.length ? `放进了${ks.map((k) => `「${k.name}」`).join('、')}的资料包：${done.map((n) => `「${n}」`).join('、')}，学生问学伴就能拿到` : '', ...failed]
+      .filter(Boolean)
+      .join('\n');
+  },
+
+  async view_pack(ctx, a) {
+    const k = findClass(ctx.user.id, String(a.class ?? ''));
+    tool(ctx.ref, 'ta_look', '查看', { text: `「${k.name}」的资料包` });
+    return renderPack(k.id, { teacherView: true });
+  },
+
+  async student_questions(ctx, a) {
+    const k = findClass(ctx.user.id, String(a.class ?? ''));
+    tool(ctx.ref, 'ta_look', '查看', { text: `「${k.name}」学生问的` });
+    const days = Math.min(60, Math.max(1, num(a.days) ?? 7));
+    const since = Date.now() - days * 86400_000;
+    const members = db.all<{ user_id: number; name: string }>('SELECT user_id, name FROM class_students WHERE class_id=? AND user_id IS NOT NULL', k.id);
+    const lines: string[] = [];
+    for (const m of members) {
+      // 学生还有别的老师的班：只看说到这个班的那几轮
+      const all = myClasses(m.user_id).every((c) => c.teacher_id === ctx.user.id);
+      for (const r of db.all<{ request: string; class_ids: string | null; created_at: number }>(
+        "SELECT request, class_ids, created_at FROM kb_runs WHERE teacher_id=? AND agent='stu' AND kind='chat' AND created_at>=? ORDER BY id",
+        m.user_id,
+        since,
+      ))
+        if (all || (JSON.parse(r.class_ids || '[]') as number[]).includes(k.id)) lines.push(`${showTime(r.created_at)} ${m.name}：${r.request.replace(/\s+/g, ' ').slice(0, 120)}`);
+    }
+    const asks = db.all<{ question: string; status: string; reply: string | null; user: string }>(
+      `SELECT a.question, a.status, a.reply, s.name AS user FROM student_asks a JOIN class_students s ON s.class_id=a.class_id AND s.user_id=a.student_id
+       WHERE a.class_id=? AND a.created_at>=? AND a.status IN ('teacher','replied') ORDER BY a.id`,
+      k.id,
+      since,
+    );
+    if (!lines.length && !asks.length) return `「${k.name}」最近 ${days} 天没有学生问学伴`;
+    return [
+      `「${k.name}」最近 ${days} 天，${members.length} 个学生里 ${new Set(lines.map((l) => l.split('：')[0].split(' ').pop())).size} 个问过学伴，一共 ${lines.length} 句：`,
+      ...lines.slice(-200),
+      ...(asks.length ? ['转来问老师的：', ...asks.map((x) => `${x.user}：${x.question.slice(0, 100)}（${x.status === 'replied' ? `已回：${(x.reply || '').slice(0, 60)}` : '还在等老师回'}）`)] : []),
+    ].join('\n');
   },
 };
 

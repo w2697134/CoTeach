@@ -8,6 +8,7 @@ import { audit, me, requireRole, type AppEnv, type User } from '../auth.js';
 import { config } from '../config.js';
 import { db, now } from '../db/index.js';
 import { bad, body, conflict, forbidden, intParam, notFound, rateLimit } from '../lib/http.js';
+import { packOnHomework, packOnHomeworkDeleted } from '../assistant/pack-jobs.js';
 
 /**
  * 作业：照 Google Classroom、课堂派。老师布置（标题、要求、附件、截止、满分、允不允许迟交、定时发布，一次发几个班），
@@ -270,6 +271,8 @@ homeworkRoutes.post('/', async (c) => {
     return made;
   });
   audit(c, 'homework.create', `class:${classes.map((k) => k.id).join(',')}`, { ids, title: d.title });
+  // 助教在后台给每个班的资料包写这份作业的说明
+  ids.forEach(packOnHomework);
   return c.json({ ids });
 });
 
@@ -296,6 +299,8 @@ homeworkRoutes.patch('/:id', async (c) => {
     if (d.fileIds) attach(u, 'assignment_id', a.id, d.fileIds);
   });
   audit(c, 'homework.update', `homework:${a.id}`);
+  // 标题、要求改了：说明重写（只改截止、满分不用，资料包里那些是现取的）
+  if ((d.title !== undefined && d.title !== a.title) || (d.body !== undefined && d.body !== a.body)) packOnHomework(a.id);
   return c.json({ ok: true });
 });
 
@@ -306,6 +311,7 @@ homeworkRoutes.delete('/:id', (c) => {
   live(k);
   db.update('assignments', a.id, { deleted_at: now(), updated_at: now() });
   audit(c, 'homework.delete', `homework:${a.id}`, { title: a.title });
+  packOnHomeworkDeleted(a.id);
   return c.json({ ok: true });
 });
 

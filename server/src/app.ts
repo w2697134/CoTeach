@@ -15,6 +15,7 @@ import { classRoutes } from './classes/routes.js';
 import { homeworkRoutes } from './classes/homework.js';
 import { adminRoutes } from './routes/admin.js';
 import { setInternalApp } from './assistant/api.js';
+import { cotRoutes } from './assistant/routes.js';
 
 export function createApp() {
   const app = new Hono<AppEnv>();
@@ -56,6 +57,7 @@ export function createApp() {
   app.route('/api/classes', classRoutes);
   app.route('/api/homework', homeworkRoutes);
   app.route('/api/admin', adminRoutes);
+  app.route('/api/cot', cotRoutes);
 
   app.get('/api/health', (c) => c.json({ ok: true, time: Date.now() }));
   // CoT 助教替老师办事时直接调上面这些接口

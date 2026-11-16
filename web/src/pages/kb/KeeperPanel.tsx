@@ -647,7 +647,13 @@ export const KeeperPanel = forwardRef<
   const activeId = q.data?.activeRunId ?? null;
   const activeRun = runs.find((r) => r.status === 'running');
   const busy = !!activeId || !!activeRun;
-  const status = statusLine(activeRun, pending, !!archived) || (runs.some((r) => r.status === 'waiting') ? '在等你回答' : '') || jobsLine(runs);
+  // 学生通过学伴来问、在等老师回的：卡片可能在以前的会话里，顶上提一句
+  const students = q.data?.waitingStudents || 0;
+  const status =
+    statusLine(activeRun, pending, !!archived) ||
+    (students ? `${students} 个学生在等你回` : '') ||
+    (runs.some((r) => r.status === 'waiting') ? '在等你回答' : '') ||
+    jobsLine(runs);
   // 手机上顶栏只有菜单和「CoT 助教」，开新会话、翻以前的放到顶栏右边（照 ChatGPT 手机版）
   const [slot, setSlot] = useState<HTMLElement | null>(null);
   useEffect(() => setSlot(page ? document.getElementById('top-actions') : null), [page]);
@@ -746,7 +752,7 @@ export const KeeperPanel = forwardRef<
         <div className="min-w-0 flex-1 leading-tight">
           <p className="truncate text-[15px] font-semibold text-ink">{TA.name}</p>
           {status && (
-            <p className={cn('mt-0.5 truncate text-[12.5px]', !busy && pending && !archived ? 'text-brand-ink' : 'text-ink-3')}>{status}</p>
+            <p className={cn('mt-0.5 truncate text-[12.5px]', !busy && (pending || students) && !archived ? 'text-brand-ink' : 'text-ink-3')}>{status}</p>
           )}
         </div>
         {onOpenChanges && (

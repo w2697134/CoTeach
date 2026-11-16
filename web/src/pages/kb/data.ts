@@ -126,7 +126,7 @@ export interface Run {
   attachmentFolders?: { name: string; count: number; failed: number; same?: number }[];
   /** 带的文件还在收、在读 */
   receiving?: { status: string; done: number; total: number } | null;
-  kind: 'materials' | 'chat' | 'summary' | 'observation' | 'job';
+  kind: 'materials' | 'chat' | 'summary' | 'observation' | 'job' | 'student_ask';
   /** waiting：CoT 助教问了老师，在等回答；queued：交给整理助手的后台活排着队 */
   status: 'running' | 'done' | 'error' | 'canceled' | 'waiting' | 'queued';
   /** 谁的一轮：老师跟 CoT 助教说的（ta）；整理助手的（keeper，助教派给它的后台活带 parentId） */
@@ -149,6 +149,8 @@ export interface Run {
 export const KEEPER = { key: 'keeper', name: '整理助手', color: '#6366f1' };
 /** 老师只跟 CoT 助教说话（2026-11-16 起）；整理助手在后台接它交来的活 */
 export const TA = { key: 'tutor', name: 'CoT 助教', color: '#14b8a6' };
+/** 学生的 CoT 学伴（2026-11-16）：学生跟它说话，它看班级资料包，拿不准去问老师的助教 */
+export const BUDDY = { key: 'question', name: 'CoT 学伴', color: '#8b5cf6' };
 
 export const STATUS_TEXT: Record<ChangeStatus, string> = {
   pending: '待确认',
@@ -227,7 +229,7 @@ export const keeperRunsQuery = (view: SessionView = 'current') =>
   queryOptions({
     queryKey: ['keeper-runs', view],
     queryFn: () =>
-      get<{ runs: Run[]; activeRunId: number | null; session: number | null }>(
+      get<{ runs: Run[]; activeRunId: number | null; session: number | null; waitingStudents?: number }>(
         `/keeper/runs${view === 'current' ? '' : view === null ? '?session=old' : `?session=${view}`}`,
       ),
   });

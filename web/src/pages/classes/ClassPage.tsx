@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
-import { Copy, Download, KeyRound, LogOut, MoreHorizontal, MoreVertical, Upload, UserMinus, UserPlus } from 'lucide-react';
+import { Copy, Download, KeyRound, LogOut, MessageCircle, MoreHorizontal, MoreVertical, Upload, UserMinus, UserPlus } from 'lucide-react';
 import { useCrumbs } from '../../components/layout/Crumbs';
 import { api, post } from '../../lib/api';
 import { toast, useAuth } from '../../lib/store';
@@ -125,6 +125,9 @@ function TeacherPeople({
   onReset: (s: ClassStudent) => void;
 }) {
   const students = k.students || [];
+  const navigate = useNavigate();
+  // 点学生看他跟 CoT 学伴说的（2026-11-16，照 Khanmigo、MagicSchool：老师看得到自己班学生跟 AI 的对话）
+  const openChat = (s: ClassStudent) => navigate(`/classes/${k.id}/students/${s.id}/cot`);
   const [kw, setKw] = useState('');
   const q = kw.trim();
   const shown = q ? students.filter((s) => s.name.includes(q) || s.studentNo.includes(q)) : students;
@@ -209,12 +212,21 @@ function TeacherPeople({
         <ul>
           {shown.map((s) => (
             <li key={s.id} className="group flex items-center gap-3 border-b border-line px-5 py-2.5 last:border-0 hover:bg-surface-2 sm:px-6">
-              <Avatar name={s.name} seed={s.id} size={34} className={cn(!s.joined && 'opacity-45')} />
-              <span className={cn('min-w-0 truncate text-[14.5px] font-medium', s.joined ? 'text-ink' : 'text-ink-3')}>{s.name}</span>
+              {s.joined ? (
+                <button type="button" onClick={() => openChat(s)} className="flex min-w-0 items-center gap-3 text-left">
+                  <Avatar name={s.name} seed={s.id} size={34} />
+                  <span className="min-w-0 truncate text-[14.5px] font-medium text-ink group-hover:text-brand-ink">{s.name}</span>
+                </button>
+              ) : (
+                <>
+                  <Avatar name={s.name} seed={s.id} size={34} className="opacity-45" />
+                  <span className="min-w-0 truncate text-[14.5px] font-medium text-ink-3">{s.name}</span>
+                </>
+              )}
               <span className="shrink-0 text-[13px] tabular-nums text-ink-3">{s.studentNo}</span>
               {!s.joined && <span className="shrink-0 rounded-full bg-surface-3 px-2 py-0.5 text-[12px] text-ink-3">还没加入</span>}
               {s.joined && !s.inRoster && roster > 0 && <span className="shrink-0 rounded-full bg-warn-soft px-2 py-0.5 text-[12px] text-warn">不在名单里</span>}
-              {live && (
+              {(live || s.joined) && (
                 <div className="ml-auto opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100 pointer-coarse:opacity-100">
                   <Popover
                     width={150}
@@ -226,14 +238,21 @@ function TeacherPeople({
                   >
                     {(close) => (
                       <div onClick={close}>
-                        {s.canReset && (
+                        {s.joined && (
+                          <MenuItem icon={<MessageCircle />} onClick={() => openChat(s)}>
+                            学伴对话
+                          </MenuItem>
+                        )}
+                        {live && s.canReset && (
                           <MenuItem icon={<KeyRound />} onClick={() => onReset(s)}>
                             重置密码
                           </MenuItem>
                         )}
-                        <MenuItem icon={<UserMinus />} danger onClick={() => onRemove(s)}>
-                          移出班级
-                        </MenuItem>
+                        {live && (
+                          <MenuItem icon={<UserMinus />} danger onClick={() => onRemove(s)}>
+                            移出班级
+                          </MenuItem>
+                        )}
                       </div>
                     )}
                   </Popover>

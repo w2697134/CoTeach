@@ -15,7 +15,11 @@ export type ActionKind =
   | 'homework.delete'
   | 'submission.grade'
   | 'grades.export'
-  | 'student.password';
+  | 'student.password'
+  | 'students.notify'
+  | 'student.reply'
+  | 'pack.update'
+  | 'pack.files';
 
 /** 卡片上显示的东西 */
 export interface ActionCard {

@@ -519,3 +519,65 @@ CREATE INDEX idx_kb_runs_session ON kb_runs(teacher_id, session_id, id);
 migrations.push(`
 ALTER TABLE agent_messages ADD COLUMN reasoning TEXT;
 `);
+
+// 第 15 次：学生的 CoT 学伴。
+// 班级资料包：助教建班、布置作业时顺手给学伴写的说明（class_pack），能发给学生的知识库原件（class_files）；
+// 学伴拿不准去问助教，助教要老师拍板就在老师的对话里弹卡片，一问一条（student_asks）。
+// 学生跟学伴的对话也记在 kb_runs（agent='stu'，teacher_id 是学生自己），class_ids 记这一轮说的是哪个班的事（老师只看得到自己班的）。
+migrations.push(`
+CREATE TABLE class_pack (
+  id INTEGER PRIMARY KEY,
+  class_id INTEGER NOT NULL REFERENCES classes(id),
+  kind TEXT NOT NULL,
+  ref_id INTEGER,
+  title TEXT NOT NULL,
+  body TEXT NOT NULL DEFAULT '',
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  deleted_at INTEGER
+);
+CREATE INDEX idx_class_pack_class ON class_pack(class_id, kind, id);
+CREATE TABLE class_files (
+  id INTEGER PRIMARY KEY,
+  class_id INTEGER NOT NULL REFERENCES classes(id),
+  kb_id INTEGER NOT NULL REFERENCES knowledge_bases(id),
+  source_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  note TEXT NOT NULL DEFAULT '',
+  created_at INTEGER NOT NULL,
+  removed_at INTEGER,
+  UNIQUE(class_id, source_id)
+);
+CREATE TABLE student_asks (
+  id INTEGER PRIMARY KEY,
+  student_id INTEGER NOT NULL REFERENCES users(id),
+  class_id INTEGER NOT NULL REFERENCES classes(id),
+  teacher_id INTEGER NOT NULL REFERENCES users(id),
+  stu_run_id INTEGER REFERENCES kb_runs(id),
+  stu_session INTEGER REFERENCES ta_sessions(id),
+  question TEXT NOT NULL,
+  answer TEXT,
+  helper_run_id INTEGER REFERENCES kb_runs(id),
+  status TEXT NOT NULL,
+  card_run_id INTEGER REFERENCES kb_runs(id),
+  reply TEXT,
+  created_at INTEGER NOT NULL,
+  answered_at INTEGER,
+  replied_at INTEGER
+);
+CREATE INDEX idx_student_asks_teacher ON student_asks(teacher_id, status, id);
+CREATE INDEX idx_student_asks_student ON student_asks(student_id, id);
+CREATE TABLE pack_jobs (
+  id INTEGER PRIMARY KEY,
+  class_id INTEGER NOT NULL REFERENCES classes(id),
+  kind TEXT NOT NULL,
+  ref_id INTEGER,
+  status TEXT NOT NULL,
+  run_id INTEGER REFERENCES kb_runs(id),
+  error TEXT,
+  created_at INTEGER NOT NULL,
+  finished_at INTEGER
+);
+CREATE INDEX idx_pack_jobs_status ON pack_jobs(status, id);
+ALTER TABLE kb_runs ADD COLUMN class_ids TEXT;
+`);
