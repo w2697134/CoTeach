@@ -19,7 +19,18 @@ function Cell({ cell }: { cell: Grades['rows'][number]['cells'][number] | undefi
  * 班级页「成绩」栏（照 Google Classroom 的成绩表）：老师看一行一个学生、一列一份作业，最后一列平均分（百分制），能导出 Excel；
  * 学生只看到自己的。平均分：批了的按分数算，过了截止没交的算 0，还没批的不算。
  */
-export function GradesTab({ classId, theme, student }: { classId: number; theme: Theme; student: boolean }) {
+export function GradesTab({
+  classId,
+  theme,
+  student,
+  exportAbove = true,
+}: {
+  classId: number;
+  theme: Theme;
+  student: boolean;
+  /** 表上面摆「导出 Excel」；班级页摆在分栏那一行，这里就不摆 */
+  exportAbove?: boolean;
+}) {
   const navigate = useNavigate();
   const q = useGrades(classId);
   if (q.error) return <ErrorState error={q.error} onRetry={() => q.refetch()} />;
@@ -70,11 +81,13 @@ export function GradesTab({ classId, theme, student }: { classId: number; theme:
   const stick = 'sticky left-0 z-[1] bg-surface';
   return (
     <div className="space-y-3">
-      <div className="flex justify-end">
-        <Button size="sm" icon={<Download className="size-4" />} onClick={exportGrades}>
-          导出 Excel
-        </Button>
-      </div>
+      {exportAbove && (
+        <div className="flex justify-end">
+          <Button size="sm" icon={<Download className="size-4" />} onClick={exportGrades}>
+            导出 Excel
+          </Button>
+        </div>
+      )}
       <Card padded={false} className="overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full border-collapse text-[14px]">

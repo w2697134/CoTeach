@@ -5,7 +5,20 @@ import { STATUS, num, useHomeworkList, when, type Homework } from './homework';
 import { EmptyArt, type Theme } from './look';
 
 /** 班级页「作业」栏：照 Google Classroom 的「课堂作业」，新的在上面，一行一份 */
-export function HomeworkList({ classId, theme, student, archived }: { classId: number; theme: Theme; student: boolean; archived: boolean }) {
+export function HomeworkList({
+  classId,
+  theme,
+  student,
+  archived,
+  createAbove = true,
+}: {
+  classId: number;
+  theme: Theme;
+  student: boolean;
+  archived: boolean;
+  /** 列表上面摆「布置作业」；班级页摆在分栏那一行，这里就不摆 */
+  createAbove?: boolean;
+}) {
   const navigate = useNavigate();
   const q = useHomeworkList(classId);
   const list = q.data?.homework || [];
@@ -13,7 +26,7 @@ export function HomeworkList({ classId, theme, student, archived }: { classId: n
   const canCreate = !student && !archived;
   return (
     <div className="space-y-4">
-      {canCreate && list.length > 0 && (
+      {canCreate && createAbove && list.length > 0 && (
         <button
           type="button"
           onClick={create}

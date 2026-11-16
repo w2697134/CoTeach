@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
-import { Copy, Download, KeyRound, LogOut, MessageCircle, MoreHorizontal, MoreVertical, Upload, UserMinus, UserPlus } from 'lucide-react';
+import { Copy, Download, KeyRound, LogOut, MessageCircle, MoreHorizontal, MoreVertical, Plus, Upload, UserMinus, UserPlus } from 'lucide-react';
 import { useCrumbs } from '../../components/layout/Crumbs';
 import { api, post } from '../../lib/api';
 import { toast, useAuth } from '../../lib/store';
@@ -324,6 +324,11 @@ function NewPassword({ shown, onClose }: { shown: { name: string; password: stri
 }
 
 type Tab = 'homework' | 'grades' | 'people';
+const download = (href: string) => {
+  const a = document.createElement('a');
+  a.href = href;
+  a.click();
+};
 /** 一个班：顶上是这个班的封面，班名白字写在上面，老师还看到加课码；下面分栏：作业、成绩、成员（照 Google Classroom） */
 export function ClassPage() {
   const id = Number(useParams().id);
@@ -382,8 +387,8 @@ export function ClassPage() {
         <Skeleton className="h-52 rounded-2xl" />
       ) : (
         <>
-          <ThemeBanner theme={theme} className="h-auto min-h-44 rounded-xl sm:min-h-52">
-            <div className="flex min-h-44 flex-col justify-end p-6 pr-16 sm:min-h-52 sm:p-8">
+          <ThemeBanner theme={theme} className="h-auto min-h-40 rounded-xl sm:min-h-44">
+            <div className="flex min-h-40 flex-col justify-end p-6 pr-16 sm:min-h-44 sm:px-8 sm:py-7">
               <h1 className="break-words text-[28px] font-semibold leading-tight tracking-tight sm:text-[32px]">{k.name}</h1>
               <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[14.5px] text-white/90">
                 <span>{student ? k.teacher : `${joined} 名学生`}</span>
@@ -393,7 +398,7 @@ export function ClassPage() {
                   !student &&
                   k.code && (
                     <>
-                      <span className="h-3.5 w-px bg-white/40" />
+                      <span className="hidden h-3.5 w-px bg-white/40 sm:block" />
                       <CodeLine code={k.code} open={k.joinOpen !== false} onInvite={() => setInviting(true)} />
                     </>
                   )
@@ -423,7 +428,10 @@ export function ClassPage() {
               )}
             </div>
           </ThemeBanner>
+          {/* 分栏那一行右边摆这一栏要做的事（布置作业、导出 Excel），不另起一行 */}
           <Tabs
+            variant="page"
+            className="pt-1"
             value={tab}
             onChange={(v) => setParams(v === 'homework' ? {} : { tab: v }, { replace: true })}
             items={[
@@ -431,11 +439,22 @@ export function ClassPage() {
               { value: 'grades', label: '成绩' },
               { value: 'people', label: '成员' },
             ]}
+            end={
+              student ? undefined : tab === 'homework' && !k.archived ? (
+                <Button size="sm" variant="primary" icon={<Plus className="size-4" />} onClick={() => navigate(`/classes/${id}/homework/new`)}>
+                  布置作业
+                </Button>
+              ) : tab === 'grades' ? (
+                <Button size="sm" icon={<Download className="size-4" />} onClick={() => download(`/api/homework/class/${id}/grades/export`)}>
+                  导出 Excel
+                </Button>
+              ) : undefined
+            }
           />
           {tab === 'homework' ? (
-            <HomeworkList classId={id} theme={theme} student={student} archived={!!k.archived} />
+            <HomeworkList classId={id} theme={theme} student={student} archived={!!k.archived} createAbove={false} />
           ) : tab === 'grades' ? (
-            <GradesTab classId={id} theme={theme} student={student} />
+            <GradesTab classId={id} theme={theme} student={student} exportAbove={false} />
           ) : student ? (
             <StudentPeople theme={theme} teacher={k.teacher || ''} classmates={k.classmates || []} />
           ) : (

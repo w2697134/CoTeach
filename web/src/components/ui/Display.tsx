@@ -320,6 +320,7 @@ export function Tabs<T extends string>({
   items,
   className,
   variant = 'line',
+  end,
 }: {
   value: T;
   onChange: (v: T) => void;
@@ -330,8 +331,39 @@ export function Tabs<T extends string>({
     count?: number | null;
   }[];
   className?: string;
-  variant?: 'line' | 'pill';
+  variant?: 'line' | 'pill' | 'page';
+  /** page 那种分栏右边摆的按钮（这一栏的事：布置作业、导出 Excel、邀请学生） */
+  end?: ReactNode;
 }) {
+  if (variant === 'page') {
+    // 一个页面的几大块（班级页：作业、学情、成绩、成员）：字大一号、隔得开些，这一栏要做的事摆在右边，不另起一行
+    return (
+      <div className={cn('flex items-center gap-4 border-b border-line', className)}>
+        <div className="no-scrollbar -mb-px flex min-w-0 flex-1 gap-8 self-end overflow-x-auto">
+          {items.map((it) => (
+            <button
+              key={it.value}
+              type="button"
+              onClick={() => onChange(it.value)}
+              className={cn(
+                'relative inline-flex shrink-0 items-center gap-2 border-b-2 pb-3 pt-1 text-[16px] font-medium transition-colors [&>svg]:size-[18px]',
+                value === it.value ? 'border-brand text-ink' : 'border-transparent text-ink-3 hover:text-ink-2',
+              )}
+            >
+              {it.icon}
+              {it.label}
+              {it.count !== undefined && it.count !== null && (
+                <span className={cn('rounded-full px-1.5 text-[12.5px] leading-4', value === it.value ? 'bg-brand-soft text-brand-ink' : 'bg-surface-3 text-ink-3')}>
+                  {it.count}
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
+        {end && <div className="flex shrink-0 items-center gap-2 pb-2">{end}</div>}
+      </div>
+    );
+  }
   if (variant === 'pill') {
     return (
       <div className={cn('flex flex-wrap gap-1.5', className)}>

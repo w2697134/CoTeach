@@ -34,28 +34,28 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const pending = bases.reduce((n, k) => n + k.pending, 0);
   const item = (active: boolean) =>
     cn(
-      'group relative flex h-9 items-center gap-3 rounded-md px-3 text-[14.5px] font-medium transition-colors',
+      'group relative flex h-11 items-center gap-3.5 rounded-lg px-3.5 text-[16px] font-medium transition-colors',
       active ? 'bg-brand-soft text-brand-ink' : 'text-ink-2 hover:bg-surface-3 hover:text-ink',
     );
-  const mark = <motion.span layoutId="nav-indicator" className="absolute -left-3 top-1.5 h-6 w-[3px] rounded-r-full bg-brand" />;
+  const mark = <motion.span layoutId="nav-indicator" className="absolute -left-3 top-2.5 h-6 w-[3px] rounded-r-full bg-brand" />;
   return (
     <div className="flex h-full flex-col">
-      <div className="flex h-16 shrink-0 items-center gap-3 px-4">
-        <Logo size={34} />
+      <div className="flex h-[72px] shrink-0 items-center gap-3 px-4">
+        <Logo size={38} />
         <div className="min-w-0 flex-1 leading-tight">
-          <p className="truncate text-[17px] font-semibold tracking-tight text-ink" title={APP_NAME}>
+          <p className="truncate text-[18px] font-semibold tracking-tight text-ink" title={APP_NAME}>
             {APP_SHORT_NAME}
           </p>
-          <p className="mt-0.5 text-[12.5px] text-ink-3">{student ? '学生' : '教师工作台'}</p>
+          <p className="mt-0.5 text-[13px] text-ink-3">{student ? '学生' : '教师工作台'}</p>
         </div>
       </div>
-      <nav className="no-scrollbar min-h-0 flex-1 space-y-1 overflow-y-auto px-3 pb-4 pt-2">
+      <nav className="no-scrollbar min-h-0 flex-1 space-y-1.5 overflow-y-auto px-3 pb-4 pt-3">
         {/* 第一项：老师是 CoT 助教，学生是 CoT 学伴 */}
         <NavLink to={student ? '/cot' : '/assistant'} onClick={onNavigate} className={({ isActive }) => item(isActive)}>
           {({ isActive }) => (
             <>
               {isActive && mark}
-              <AgentAvatar agent={student ? BUDDY : TA} size={20} />
+              <AgentAvatar agent={student ? BUDDY : TA} size={24} />
               <span className="min-w-0 flex-1">{student ? BUDDY.name : TA.name}</span>
             </>
           )}
@@ -64,7 +64,7 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
           {({ isActive }) => (
             <>
               {isActive && mark}
-              <Users className={cn('size-[18px] shrink-0', isActive ? 'text-brand' : 'text-ink-3')} />
+              <Users className={cn('size-5 shrink-0', isActive ? 'text-brand' : 'text-ink-3')} />
               <span className="min-w-0 flex-1">班级</span>
             </>
           )}
@@ -74,7 +74,7 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
             {({ isActive }) => (
               <>
                 {isActive && mark}
-                <ShieldCheck className={cn('size-[18px] shrink-0', isActive ? 'text-brand' : 'text-ink-3')} />
+                <ShieldCheck className={cn('size-5 shrink-0', isActive ? 'text-brand' : 'text-ink-3')} />
                 <span className="min-w-0 flex-1">管理</span>
               </>
             )}
@@ -82,14 +82,14 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
         )}
       </nav>
       {!student && (
-        <div className="shrink-0 border-t border-line px-3 py-3">
+        <div className="shrink-0 border-t border-line px-3 py-3.5">
           <NavLink to="/knowledge" onClick={onNavigate} className={({ isActive }) => item(isActive)}>
             {({ isActive }) => (
               <>
                 {isActive && mark}
-                <BookOpen className={cn('size-[18px] shrink-0', isActive ? 'text-brand' : 'text-ink-3')} />
+                <BookOpen className={cn('size-5 shrink-0', isActive ? 'text-brand' : 'text-ink-3')} />
                 <span className="min-w-0 flex-1">知识库</span>
-                {pending > 0 && <span className="rounded-full bg-brand px-1.5 text-[11.5px] font-semibold text-white">{pending}</span>}
+                {pending > 0 && <span className="rounded-full bg-brand px-1.5 text-[12px] font-semibold text-white">{pending}</span>}
               </>
             )}
           </NavLink>
