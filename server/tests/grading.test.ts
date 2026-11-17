@@ -11,6 +11,8 @@ process.env.CT_DEMO_MODE = '0';
 process.env.CT_SECRET = 'test-only-secret-with-at-least-32-characters';
 process.env.CT_PACK_AUTO = '0';
 process.env.CT_GRADE_AUTO = '0';
+// 助教看一眼要不要分专门助手也不在后台自己跑（会用掉排好的模型回答）
+process.env.CT_SUGGEST_AUTO = '0';
 const { db } = await import('../src/db/index.js');
 const { createApp } = await import('../src/app.js');
 const model = await import('../src/assistant/model.js');

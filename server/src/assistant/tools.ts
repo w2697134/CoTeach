@@ -18,6 +18,7 @@ import { dropPack, grantFile, isPackKind, kbOriginal, putPack, renderPack, revok
 import { classesOf, findClass, findHomework, findStudent, type ClassRow, type HomeworkRow } from './resolve.js';
 import { parseWhen, showTime, weekLater } from './time.js';
 import { createSpecialist, findSpecialist, runSpecialist, updateSpecialist } from './specialists.js';
+import { suggestionTaken } from './suggest.js';
 
 export interface TaContext {
   user: { id: number; name: string };
@@ -1005,6 +1006,8 @@ Object.assign(handlers, {
       { title: `分出专门助手「${s.name}」`, lines: [`管：${s.duty}`, ...(hw ? [`批：${hw.rows.map((h) => `「${h.title}」`).join('、')}`] : [])] },
       { kind: 'specialist.create', id: s.id, homework: hw?.before ?? [] },
     );
+    // 分的正是它提议过的那个（老师在对话里说分、或者刚在卡片上点了分出来）：记上，还挂着的卡片收起来
+    suggestionTaken(ctx.user.id, s, hw?.rows.map((h) => h.id) ?? [], db.value<string>('SELECT request FROM kb_runs WHERE id=?', ctx.ref.runId) || '');
     return `分好了「${s.name}」${hw ? `，以后「${hw.rows[0].title}」交上来的由它批` : ''}。这类活以后用 ask_specialist 交给它`;
   },
 

@@ -6,7 +6,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
-import { Check, Copy, Download, QrCode, Undo2 } from 'lucide-react';
+import { Check, Copy, Download, QrCode, Undo2, Users } from 'lucide-react';
 import { post } from '../../lib/api';
 import { toast } from '../../lib/store';
 import { Avatar, Badge, Button, IconButton, Input, Modal, cn } from '../../components/ui';
@@ -141,6 +141,8 @@ export interface AskData {
   skipped?: boolean;
   /** 学生通过学伴来问、助教要老师拍板的（2026-11-16）：谁、哪个班；classId、sid（班里名单那一行）用来点开他跟学伴的对话 */
   from?: { student: string; className: string; draft?: string; classId?: number; sid?: number; asked?: string };
+  /** 助教自己提议分一个专门助手（2026-11-17）：提议的名字、管什么 */
+  suggest?: { id: number; name: string; duty: string };
 }
 
 /**
@@ -155,6 +157,7 @@ export function AskCard({ runId, data, live }: { runId: number; data: AskData; l
   const [texts, setTexts] = useState<string[]>(() => qs.map(() => ''));
   const [busy, setBusy] = useState(false);
   const from = data.from;
+  const suggest = data.suggest;
   // 答过的收成一行，只写答了什么（问的什么鼠标停上去看）
   if (data.answered?.length) {
     const said = data.answered.filter((x) => x.a && x.a !== '（没选）');
@@ -213,9 +216,21 @@ export function AskCard({ runId, data, live }: { runId: number; data: AskData; l
       )}
       {/* 学生自己的原话：下面的问题只写要老师定什么 */}
       {from?.asked && <p className="mb-2 line-clamp-3 border-l-2 border-line-strong pl-2.5 text-[13.5px] leading-relaxed text-ink-3">{from.asked}</p>}
+      {/* 助教自己提议分专门助手的：上面一行说是助教的提议，问题下面一行小字写提议的名字和管什么 */}
+      {suggest && (
+        <p className="mb-1.5 flex items-center gap-1.5 text-[12.5px] text-ink-3">
+          <Users className="size-3.5 shrink-0" />
+          助教的提议
+        </p>
+      )}
       {qs.map((q, i) => (
         <div key={i} className={i ? 'mt-3.5' : ''}>
           <p className={cn('whitespace-pre-wrap break-words text-ink', from ? 'text-[15px] leading-relaxed' : 'text-[14px] font-medium leading-snug')}>{q.question}</p>
+          {suggest && i === 0 && (
+            <p className="mt-1 break-words text-[13px] leading-relaxed text-ink-3">
+              <span className="text-ink-2">{suggest.name}</span> · {suggest.duty}
+            </p>
+          )}
           {q.options.length ? (
             <div className="mt-2 flex flex-wrap gap-1.5">
               {q.options.map((o) => {

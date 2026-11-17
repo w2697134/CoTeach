@@ -611,11 +611,14 @@ homeworkRoutes.post('/:id/students/:sid/grade', async (c) => {
   if (items && aiId) {
     const ai = gradeItems(db.value<string>('SELECT items FROM ai_grades WHERE id=?', aiId));
     const { changedItems, noteTeacherChange } = await import('../assistant/specialists.js');
+    const changed = changedItems(ai, items);
     noteTeacherChange(
       { id: a.id, title: a.title, teacher_id: a.teacher_id, specialist_id: db.value<number>('SELECT specialist_id FROM assignments WHERE id=?', a.id) ?? null },
       db.value<string>('SELECT name FROM users WHERE id=?', s.user_id) || '一个学生',
-      changedItems(ai, items),
+      changed,
     );
+    // 老师又改了一份助教批的分：过一会儿数一下，同一份作业改得多了让助教看看要不要分专门助手来批
+    if (changed.length) (await import('../assistant/suggest.js')).suggestSoon(a.teacher_id);
   }
   return c.json({ ok: true, score });
 });

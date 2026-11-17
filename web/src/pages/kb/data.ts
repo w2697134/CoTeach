@@ -126,7 +126,8 @@ export interface Run {
   attachmentFolders?: { name: string; count: number; failed: number; same?: number }[];
   /** 带的文件还在收、在读 */
   receiving?: { status: string; done: number; total: number } | null;
-  kind: 'materials' | 'chat' | 'summary' | 'observation' | 'job' | 'student_ask';
+  /** student_ask：学生来问、等老师回的卡片；suggest：助教提议分专门助手的卡片 */
+  kind: 'materials' | 'chat' | 'summary' | 'observation' | 'job' | 'student_ask' | 'suggest';
   /** waiting：CoT 助教问了老师，在等回答；queued：交给整理助手的后台活排着队 */
   status: 'running' | 'done' | 'error' | 'canceled' | 'waiting' | 'queued';
   /** 谁的一轮：老师跟 CoT 助教说的（ta）；整理助手的（keeper，助教派给它的后台活带 parentId） */
@@ -306,11 +307,12 @@ export function useKeeperStream() {
         qc.setQueriesData<{ runs: Run[]; activeRunId: number | null }>({ queryKey: ['keeper-runs'] }, (old) =>
           old ? { ...old, runs: old.runs.map((r) => ({ ...add(r), ...(r.jobs ? { jobs: r.jobs.map(add) } : {}) })) } : old,
         );
-        // 助教办成了一件事（建班、发作业、打分……）：班级、作业那几页跟着变
+        // 助教办成了一件事（建班、发作业、打分、分专门助手……）：班级、作业那几页和顶上的专门助手跟着变
         if (e.type === 'action') {
           qc.invalidateQueries({ queryKey: ['classes'] });
           qc.invalidateQueries({ queryKey: ['class'] });
           qc.invalidateQueries({ queryKey: ['homework'] });
+          if (String(e.data?.kind || '').startsWith('specialist.')) qc.invalidateQueries({ queryKey: ['specialists'] });
         }
         // 派了后台活、问了老师：这一轮的样子（后台活、等回答）重取一次
         if (e.type === 'job' || e.type === 'ask') qc.invalidateQueries({ queryKey: ['keeper-runs'] });
