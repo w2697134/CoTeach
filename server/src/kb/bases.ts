@@ -20,7 +20,7 @@ function cleanName(teacherId: number, value: unknown, except?: number): string {
     .replace(/[\p{Cc}\p{Cf}]/gu, '')
     .replace(/\s+/g, ' ')
     .trim();
-  if (!name) throw bad('请给知识库起个名字');
+  if (!name) throw bad('知识库要起个名字');
   if (name.length > 40) throw bad('名字最多 40 个字');
   const key = name.toLocaleLowerCase();
   if (listKbs(teacherId).some((k) => k.id !== except && k.name.trim().toLocaleLowerCase() === key)) throw conflict(`已经有叫「${name}」的知识库了`);
@@ -89,14 +89,14 @@ export async function transferFiles(fromId: number, toId: number, paths: string[
     for (const e of hits) picked.set(e.id, e);
   }
   const moving = [...picked.values()];
-  if (moving.length > 500) throw bad('一次挪的文件太多，请分几次挪');
+  if (moving.length > 500) throw bad('一次挪的文件太多，分几次挪');
   if (moving.some((e) => e.studentId !== undefined)) throw bad('学生的个人记录不能挪到别的知识库');
   const there = new Set(manifest(to.id).map((e) => e.path.toLocaleLowerCase()));
   const clash = moving.filter((e) => there.has(e.path.toLocaleLowerCase()));
   if (clash.length) throw conflict(`「${to.name}」里已经有同名的：${clash.slice(0, 5).map((e) => `「${documentName(e.path)}」`).join('、')}`);
   const bytes = new Map(moving.map((e) => [e.id, readEntry(from.id, e)]));
   const removeOps: FileOp[] = moving.map((e) => ({ path: e.path, content: null, base: hashBytes(bytes.get(e.id)!), baseEntryId: e.id }));
-  if (checkOps(from.id, removeOps).length) throw conflict('内容已被更新，请重新打开后再挪');
+  if (checkOps(from.id, removeOps).length) throw conflict('内容刚有改动，重新打开再挪');
   // 原件在那边另登记一份，指向同一份存储；这边的历史照样能打开
   const copied: string[] = [];
   const addOps: FileOp[] = moving.map((e) => {

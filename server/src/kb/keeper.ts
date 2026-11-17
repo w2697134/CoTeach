@@ -452,7 +452,7 @@ export function startRun(
   if (kind === 'chat' && !sourceKbId && studentId === undefined && !inboxId) return startChat(user, kbId, request);
   const kb = writableKb(kbId);
   if (kb.teacher_id !== user.id) throw bad('整理任务归属不正确');
-  if (busy.has(user.id)) throw conflict('整理助手正在处理上一件事，请稍后再试');
+  if (busy.has(user.id)) throw conflict('CoT 助教还在办上一件事，等它办完再说');
   if (studentId !== undefined) studentIn(kbId, studentId);
   const origin = inboxId ? db.get<any>('SELECT * FROM kb_inbox WHERE id=? AND kb_id=?', inboxId, kbId) : null;
   if (inboxId && !origin) throw bad('整理来源不属于当前知识库');
@@ -715,7 +715,7 @@ export function openFileRun(user: { id: number; name: string }, kbId: number | n
     const kb = writableKb(kbId);
     if (kb.teacher_id !== user.id) throw bad('整理任务归属不正确');
   }
-  if (busy.has(user.id)) throw conflict('整理助手正在处理上一件事，请稍后再试');
+  if (busy.has(user.id)) throw conflict('CoT 助教还在办上一件事，等它办完再说');
   const since = db.value<number>("SELECT max(created_at) FROM kb_runs WHERE teacher_id=? AND kind='chat'", user.id) ?? 0;
   const runId = db.insert('kb_runs', { kb_id: kbId, teacher_id: user.id, kind: 'chat', status: 'running', request: message, created_by: user.id, created_at: now() });
   const ctrl = new AbortController();
@@ -868,7 +868,7 @@ export function startChat(user: { id: number; name: string }, kbId: number | nul
     const kb = writableKb(kbId);
     if (kb.teacher_id !== user.id) throw bad('整理任务归属不正确');
   }
-  if (busy.has(user.id)) throw conflict('整理助手正在处理上一件事，请稍后再试');
+  if (busy.has(user.id)) throw conflict('CoT 助教还在办上一件事，等它办完再说');
   const since = db.value<number>("SELECT max(created_at) FROM kb_runs WHERE teacher_id=? AND kind='chat'", user.id) ?? 0;
   const runId = db.insert('kb_runs', { kb_id: kbId, teacher_id: user.id, kind: 'chat', status: 'running', request: message, created_by: user.id, created_at: now() });
   const ctrl = new AbortController();

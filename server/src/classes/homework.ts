@@ -146,7 +146,7 @@ homeworkRoutes.post('/files', async (c) => {
   const bytes = new Uint8Array(await c.req.arrayBuffer());
   if (!bytes.length) throw bad('文件是空的');
   if (bytes.length > MAX_FILE) throw bad('一个文件最大 50 MB');
-  if (freeBytes() - bytes.length < RESERVE) throw bad('服务器的存储空间不够了，请联系管理员');
+  if (freeBytes() - bytes.length < RESERVE) throw bad('服务器的存储空间不够了，得找管理员清一清');
   const t = now();
   const rel = `${new Date(t).toISOString().slice(0, 7)}/${randomBytes(16).toString('hex')}`;
   const abs = resolve(DIR, rel);

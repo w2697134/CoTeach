@@ -129,7 +129,7 @@ function applyLocked(c: ChangeRow, by: number | null, as: Author, restore = fals
   const base = loadKb(c.kb_id).head_sha;
   const { sha } = prepareCommit(c.kb_id, c.ops, message(c, c.id), c.author === 'keeper' ? KEEPER_AUTHOR : as, as);
   db.tx(() => {
-    if (loadKb(c.kb_id).head_sha !== base) throw conflict('知识库已更新，请重试');
+    if (loadKb(c.kb_id).head_sha !== base) throw conflict('知识库刚有改动，再试一次');
     writableKb(c.kb_id);
     publishCommit(c.kb_id, sha);
     db.update('kb_changes', c.id, {

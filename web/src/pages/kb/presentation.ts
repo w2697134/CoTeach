@@ -34,11 +34,11 @@ export function when(t: number) {
 
 export function readableError(error: unknown): string {
   const text = typeof error === 'string' ? error : (error as Error)?.message || '';
-  if (/402|余额|insufficient.*balance/i.test(text)) return '整理服务余额不足，请联系管理员充值';
-  if (/401|403|API.?key|api_key|unauthorized|authentication/i.test(text)) return '整理服务暂时无法连接，请联系管理员检查';
-  if (/DeepSeek|模型配置|模型返回|JSON|https?:|HTTP|fetch|network|timeout/i.test(text)) return '整理服务暂时不可用，请稍后重试';
-  if (/调用 done|暂存修改|工具|二进制|student_id|核对发现问题/.test(text)) return '这一步没有完成';
-  return /[\u3400-\u9fff]/.test(text) ? plainText(text) : '操作未完成，请稍后重试';
+  if (/402|余额|insufficient.*balance/i.test(text)) return '模型那边的余额用完了，得找管理员充值';
+  if (/401|403|API.?key|api_key|unauthorized|authentication/i.test(text)) return '连不上模型，得找管理员看看设置';
+  if (/DeepSeek|模型配置|模型返回|JSON|https?:|HTTP|fetch|network|timeout/i.test(text)) return '模型那边出了点问题，过一会儿再试';
+  if (/调用 done|暂存修改|工具|二进制|student_id|核对发现问题/.test(text)) return '这一步没办成';
+  return /[\u3400-\u9fff]/.test(text) ? plainText(text) : '没办成，再试一次';
 }
 const LABELS: Record<string, string> = {
   place_experience: '整理经验',

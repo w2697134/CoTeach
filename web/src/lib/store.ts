@@ -76,7 +76,7 @@ setUnauthorizedHandler(() => {
   const s = useAuth.getState();
   if (s.user) {
     useAuth.setState({ user: null });
-    toast.info('登录已过期，请重新登录');
+    toast.info('登录过期了，重新登录一下');
   }
 });
 

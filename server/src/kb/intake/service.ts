@@ -587,7 +587,7 @@ export function resumeIntake(kbId: number, id: number) {
   const row = ownIntake(kbId, id);
   if (row.status === 'paused') {
     const job = db.get<{ id: number }>("SELECT id FROM kb_inbox WHERE kb_id=? AND sender='intake' AND source_id LIKE ? ORDER BY id DESC LIMIT 1", kbId, `${id}:%`);
-    if (!job) throw conflict('找不到这次整理，请重新交资料');
+    if (!job) throw conflict('这次整理找不到了，重新交一次资料');
     db.update('kb_inbox', job.id, { status: 'pending', error: null });
     setIntake(id, { status: 'digesting', error: null });
     announce(id, true);
@@ -596,7 +596,7 @@ export function resumeIntake(kbId: number, id: number) {
   }
   const retry = db.all<ItemRow>("SELECT * FROM kb_intake_items WHERE intake_id=? AND status='failed' AND retryable=1", id);
   if (!retry.length) throw conflict('没有需要接着做的');
-  if (['uploading', 'reading', 'digesting'].includes(row.status)) throw conflict('还在处理中，请等这一步做完');
+  if (['uploading', 'reading', 'digesting'].includes(row.status)) throw conflict('还在整理，等这一步做完');
   db.tx(() => {
     for (const i of retry) setItem(i.id, { status: 'waiting', retryable: 0, reason: null, advice: null });
     setIntake(id, { status: 'reading', error: null, finished_at: null });
