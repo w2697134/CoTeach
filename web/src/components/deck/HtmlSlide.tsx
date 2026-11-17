@@ -1,6 +1,7 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
 import { cn } from '../ui/cn';
 import { buildSlideNode, serializeSlide } from './html';
+import { fitCode } from './codefit';
 import { SLIDE_EDIT_CSS, SLIDE_KIT_CSS } from './kit';
 
 /**
@@ -172,6 +173,7 @@ export const HtmlSlide = memo(function HtmlSlide(props: HtmlSlideProps) {
     const over = () => el.scrollHeight > el.clientHeight + 1 || el.scrollWidth > el.clientWidth + 1;
     const put = (z: number) => d.body.style.setProperty('--fit', z.toFixed(4));
     put(1);
+    fitCode(el);
     let z = 1,
       overflow = false;
     if (over()) {

@@ -168,6 +168,9 @@ export function serializeSlide(doc: Document): string {
   clone.querySelectorAll('pre').forEach((pre, i) => {
     pre.classList.remove('has-mark');
     pre.removeAttribute('data-label');
+    // 页面为了不折行临时缩的字，不存进去
+    (pre as HTMLElement).style.removeProperty('--cfit');
+    if (!pre.getAttribute('style')?.trim()) pre.removeAttribute('style');
     const code = pre.ownerDocument.createElement('code');
     code.textContent = codes[i] ?? '';
     pre.replaceChildren(code);

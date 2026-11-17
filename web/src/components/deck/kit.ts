@@ -33,12 +33,11 @@ const THEME_CSS = `
   --warn: #d97706; --warn-soft: #fff4df; --warn-ink: #b45309;
   --bad: #dc2626; --bad-soft: #fdecec; --bad-ink: #b91c1c;
   --hl: rgba(139, 92, 246, 0.18);
-  --code-bg: #151a3b; --code-border: #151a3b; --code-fg: #e8eaf8; --code-dim: #8f95bf; --code-gutter: #575d8e;
-  --code-mark: rgba(139, 92, 246, 0.28); --code-shadow: 0 22px 44px -24px rgba(30, 27, 90, 0.6);
+  --code-bg: #f8f8fd; --code-border: #e3e2f4; --code-fg: #1d1f3d; --code-dim: #8a8aa8; --code-gutter: #b3b1cf;
+  --code-mark: rgba(124, 58, 237, 0.1); --code-shadow: none;
   --code-inline-bg: #efeefe; --code-inline-ink: #4338ca;
-  --dot-1: #ff5f57; --dot-2: #febc2e; --dot-3: #28c840;
-  --tk-kw: #ff7ab2; --tk-str: #a5e4b4; --tk-num: #ffc66d; --tk-com: #757db0; --tk-fn: #b9a2ff; --tk-type: #7dd3fc;
-  --tk-bi: #67e8f9; --tk-lit: #ff9e64; --tk-meta: #f9a8d4; --tk-attr: #93c5fd; --tk-tag: #f472b6; --tk-var: #fda4af;
+  --tk-kw: #7c3aed; --tk-str: #0f7a5c; --tk-num: #c2410c; --tk-com: #6e6d8c; --tk-fn: #2457d6; --tk-type: #0e7490;
+  --tk-bi: #2457d6; --tk-lit: #c2410c; --tk-meta: #a21caf; --tk-attr: #0e7490; --tk-tag: #be185d; --tk-var: #b45309;
   --th-bg: #4f46e5; --th-ink: #ffffff; --row-alt: #f8f8fe;
   --cover-ink: #ffffff; --cover-sub: rgba(255, 255, 255, 0.84); --cover-kicker: rgba(255, 255, 255, 0.8); --cover-chip: rgba(255, 255, 255, 0.16); --cover-bar: rgba(255, 255, 255, 0.9);
   --cover-align: flex-start; --cover-text: left; --cover-max: 820px;
@@ -66,7 +65,6 @@ const THEME_CSS = `
   --code-bg: #10162a; --code-border: rgba(255, 255, 255, 0.09); --code-fg: #dbe2f3; --code-dim: #7c86a6; --code-gutter: #4b5576;
   --code-mark: rgba(34, 211, 238, 0.14); --code-shadow: 0 30px 60px -30px rgba(0, 0, 0, 0.9);
   --code-inline-bg: rgba(34, 211, 238, 0.13); --code-inline-ink: #67e8f9;
-  --dot-1: #ff5f57; --dot-2: #febc2e; --dot-3: #28c840;
   --tk-kw: #ff7b72; --tk-str: #a5d6ff; --tk-num: #79c0ff; --tk-com: #6e7a91; --tk-fn: #d2a8ff; --tk-type: #ffa657;
   --tk-bi: #79c0ff; --tk-lit: #79c0ff; --tk-meta: #d2a8ff; --tk-attr: #7ee787; --tk-tag: #7ee787; --tk-var: #ffa657;
   --th-bg: #16263a; --th-ink: #a5f3fc; --row-alt: rgba(255, 255, 255, 0.03);
@@ -96,7 +94,6 @@ const THEME_CSS = `
   --code-bg: #f6f8fa; --code-border: #e4e7eb; --code-fg: #1f2328; --code-dim: #8c959f; --code-gutter: #b1b8c0;
   --code-mark: rgba(15, 157, 122, 0.12); --code-shadow: none;
   --code-inline-bg: #f0f2f4; --code-inline-ink: #0b7a5f;
-  --dot-1: #d8dbe0; --dot-2: #d8dbe0; --dot-3: #d8dbe0;
   --tk-kw: #cf222e; --tk-str: #0a3069; --tk-num: #0550ae; --tk-com: #6e7781; --tk-fn: #8250df; --tk-type: #953800;
   --tk-bi: #0550ae; --tk-lit: #0550ae; --tk-meta: #8250df; --tk-attr: #116329; --tk-tag: #116329; --tk-var: #953800;
   --th-bg: #111827; --th-ink: #ffffff; --row-alt: #fafbfb;
@@ -126,7 +123,6 @@ const THEME_CSS = `
   --code-bg: #efe6d3; --code-border: #e0d2b7; --code-fg: #3b3128; --code-dim: #9a8b78; --code-gutter: #b5a58b;
   --code-mark: rgba(178, 58, 43, 0.11); --code-shadow: none;
   --code-inline-bg: #ece2cf; --code-inline-ink: #8a2c20;
-  --dot-1: #cdbd9f; --dot-2: #cdbd9f; --dot-3: #cdbd9f;
   --tk-kw: #a3332a; --tk-str: #4a7a3d; --tk-num: #a35f12; --tk-com: #9d907f; --tk-fn: #6b4296; --tk-type: #2f5d62;
   --tk-bi: #2f5d62; --tk-lit: #a35f12; --tk-meta: #6b4296; --tk-attr: #2f5d62; --tk-tag: #a3332a; --tk-var: #8a4b1f;
   --th-bg: #3a2f27; --th-ink: #f8f1e4; --row-alt: #f1eadc;
@@ -248,18 +244,17 @@ ol.steps.vertical > li::after { left: 26.5px; right: auto; top: 62px; bottom: -1
 ol.steps.vertical > li > b, ol.steps.vertical > li > strong { display: inline; margin: 0 0.5em 0 0; }
 
 /* 代码块 */
-pre.code { position: relative; display: block; padding: 62px 32px 26px 0; border-radius: var(--radius); background: var(--code-bg); color: var(--code-fg); border: 1px solid var(--code-border); box-shadow: var(--code-shadow);
-  font-family: var(--font-mono); font-size: 22px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; tab-size: 4; counter-reset: ln; font-variant-ligatures: none; text-align: left; }
-pre.code::before { content: ''; position: absolute; left: 24px; top: 25px; width: 12px; height: 12px; border-radius: 50%; background: var(--dot-1); box-shadow: 20px 0 0 var(--dot-2), 40px 0 0 var(--dot-3); }
-pre.code::after { content: attr(data-label); position: absolute; right: 26px; top: 18px; font-size: 15px; line-height: 26px; letter-spacing: 0.06em; color: var(--code-dim); }
+/* 像 PPT 里贴的代码：浅底细边框、行号淡色，不画窗口按钮；一行太长时页面把这一块的字缩小（--cfit），不折行 */
+pre.code { position: relative; display: block; padding: 22px 32px 22px 0; border-radius: min(var(--radius), 16px); background: var(--code-bg); color: var(--code-fg); border: 1.5px solid var(--code-border); box-shadow: var(--code-shadow);
+  font-family: var(--font-mono); font-size: calc(22px * var(--cfit, 1)); line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; tab-size: 4; counter-reset: ln; font-variant-ligatures: none; text-align: left; }
 pre.code code { display: block; padding: 0; border-radius: 0; background: none; color: inherit; font-size: inherit; }
-pre.code .line { display: block; position: relative; padding-left: 76px; min-height: 1.6em; }
+pre.code .line { display: block; position: relative; padding-left: 76px; min-height: 1.6em; margin-right: -32px; padding-right: 32px; }
 pre.code .line::before { content: counter(ln); counter-increment: ln; position: absolute; left: 0; top: 0; width: 54px; text-align: right; color: var(--code-gutter); }
 pre.code .line.mark { background: var(--code-mark); box-shadow: inset 4px 0 0 var(--accent); }
-pre.code.has-mark .line:not(.mark) > span { opacity: 0.55; }
+.t-stage pre.code.has-mark .line:not(.mark) > span { opacity: 0.55; }
 pre.code.plain .line { padding-left: 32px; }
 pre.code.plain .line::before { display: none; }
-pre.code.sm { font-size: 19px; }
+pre.code.sm { font-size: calc(19px * var(--cfit, 1)); }
 .tk-kw { color: var(--tk-kw); } .tk-str { color: var(--tk-str); } .tk-num { color: var(--tk-num); } .tk-com { color: var(--tk-com); }
 .tk-fn { color: var(--tk-fn); } .tk-type { color: var(--tk-type); } .tk-bi { color: var(--tk-bi); } .tk-lit { color: var(--tk-lit); }
 .tk-meta { color: var(--tk-meta); } .tk-attr { color: var(--tk-attr); } .tk-tag { color: var(--tk-tag); } .tk-var { color: var(--tk-var); } .tk-sub, .tk-x { color: var(--code-fg); }
@@ -388,7 +383,7 @@ export const SLIDE_KIT_GUIDE = `你写的是一页课件的 HTML 片段，画布
 - <ol class="steps"><li><b>第一步</b>说明</li>…</ol> 横排带编号和连线，2 到 4 步；超过 4 步用 <ol class="steps vertical">。
 
 代码
-- <pre class="code" data-lang="python"><code>代码原样写，&lt; &gt; &amp; 要转义</code></pre> 深色代码框，自动上色、带行号。
+- <pre class="code" data-lang="python"><code>代码原样写，&lt; &gt; &amp; 要转义</code></pre> 代码框，自动上色、带行号。
 - data-mark="2,4-5" 突出这几行；.plain 不要行号；.sm 字小一号。
 
 提示框
