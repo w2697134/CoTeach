@@ -138,6 +138,8 @@ export function endLecture(l: LectureRow, at = now()) {
   db.tx(() => {
     const changed = db.run("UPDATE lectures SET status='ended', ended_at=?, updated_at=?, screen=NULL WHERE id=? AND status='live'", at, now(), l.id).changes;
     if (!changed) return;
+    // 推过还没公布的题，下课一起公布：学生课后能看到答案和解析（照雨课堂，课后能回看）
+    db.run("UPDATE lecture_questions SET status='revealed', revealed_at=? WHERE lecture_id=? AND status='open'", at, l.id);
     db.update('lectures', l.id, { summary: JSON.stringify(summarize({ ...l, status: 'ended', ended_at: at })) });
   });
   touched.delete(l.id);
