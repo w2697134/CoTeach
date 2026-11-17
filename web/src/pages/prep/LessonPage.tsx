@@ -286,8 +286,8 @@ function Workspace({ l }: { l: Lesson }) {
       </div>
 
       {making ? (
-        // 还在备：一句话说做到哪了，下面一排几步
-        <div className="mt-4 rounded-2xl border border-brand/15 bg-brand-soft/40 px-4 py-3.5">
+        // 还在备：一句话说做到哪了，下面一排几步；钉在顶上，页面跟着新内容往下滚也看得见
+        <div className="sticky top-[76px] z-20 mt-4 rounded-2xl border border-brand/15 bg-brand-soft px-4 py-3.5 shadow-sm">
           <p className="flex items-center gap-2.5 text-[15px] font-medium text-ink">
             <span className="relative flex size-2.5 shrink-0">
               <span className="absolute inline-flex size-full animate-ping rounded-full bg-brand/50" />
