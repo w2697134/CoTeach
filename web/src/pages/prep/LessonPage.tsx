@@ -218,8 +218,8 @@ function Workspace({ l }: { l: Lesson }) {
       {/* 手机上按钮放到课题下面一行（并排会把课题挤成一个字一行） */}
       {/* 放不下就让按钮换到下一行，课题至少留出一截宽，不被挤成一两个字一行 */}
       <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
-        <div className="min-w-0 flex-[1_1_420px]">
-          <h1 className="text-[22px] font-semibold leading-snug text-ink sm:text-[24px]">{l.title || l.request || '下一节课'}</h1>
+        <div className="min-w-0 flex-[1_1_460px]">
+          <h1 className="break-keep text-[22px] font-semibold leading-snug text-ink [overflow-wrap:anywhere] sm:text-[24px]">{l.title || l.request || '下一节课'}</h1>
           <p className="mt-1 text-[14px] text-ink-3">
             {meta.map((m, i) => (
               <Fragment key={i}>
