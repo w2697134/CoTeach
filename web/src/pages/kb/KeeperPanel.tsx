@@ -750,7 +750,7 @@ export const KeeperPanel = forwardRef<
   const cls = active?.title || classes[0]?.name;
   const starters = [
     students > 0 && `${students} 个学生在等我回，帮我理一理`,
-    ...(cls ? [`给「${cls}」发个通知`, `「${cls}」签到，5 分钟`, `给「${cls}」备下一节课`, `「${cls}」最近那份作业交了几个人`] : ['帮我建一门课，叫计科2501 Python 程序设计']),
+    ...(cls ? [`给「${cls}」发个通知`, `给「${cls}」发起签到，5 分钟`, `给「${cls}」备下一节课`, `「${cls}」最近那份作业交了几个人`] : ['帮我建一门课，叫计科2501 Python 程序设计']),
   ]
     .filter((x): x is string => !!x)
     .slice(0, 3);
