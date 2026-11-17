@@ -58,7 +58,7 @@ for (const s of specs) {
   }
   for (let i = a; i <= b; i++) names.push(m[1] + i);
 }
-const password = process.env.ACCOUNT_PASSWORD;
+const password = process.env.ACCOUNT_PASSWORD || undefined;
 if (password !== undefined && password.length < 6) {
   console.error('ACCOUNT_PASSWORD 至少 6 位');
   process.exit(2);
