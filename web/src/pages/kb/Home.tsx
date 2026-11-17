@@ -13,7 +13,7 @@ import { NewKnowledgeBaseModal } from './NewKnowledgeBase';
 import { pickedFromDrop, type Picked } from './intake';
 import { NoteCard, WritingCard } from './Cards';
 import { ActivityList, type KbActivity } from './Activity';
-import { DropTray, useHandIn } from './DropTray';
+import { DropCover, DropTray, useHandIn, usePageDrop } from './DropTray';
 import { activitiesOf, isOriginal, nameOf, originsOf, suggestionsFor, touchedAt, type Origins } from './insight';
 
 const byName = (a: TreeFile, b: TreeFile) => nameOf(a).localeCompare(nameOf(b), 'zh', { numeric: true });
@@ -140,7 +140,6 @@ export function KnowledgeHomePage() {
   const logs = useQueries({ queries: list.map((k) => changesQuery(k.id)) });
   const keeper = useRef<KeeperHandle>(null);
   const [creating, setCreating] = useState(false);
-  const [dragging, setDragging] = useState(0);
   // 手机上一次只放一栏：先看资料
   const [pane, setPane] = useState<'page' | 'keeper'>('page');
   const status = useHandIn(null);
@@ -185,29 +184,11 @@ export function KnowledgeHomePage() {
   };
   const openFile = (kbId: number, path: string) => navigate(`/knowledge/${kbId}?f=${encodeURIComponent(path)}`);
   const openChange = (kbId: number, id: number) => navigate(`/knowledge/${kbId}?change=${id}`);
-  const filesDragged = (e: React.DragEvent) => list.length > 0 && e.dataTransfer.types.includes('Files');
+  const drop = usePageDrop(handIn, list.length > 0);
 
   return (
-    <div
-      className="relative flex h-full min-h-0 flex-col gap-3"
-      onDragEnter={(e) => filesDragged(e) && setDragging((n) => n + 1)}
-      onDragLeave={(e) => filesDragged(e) && setDragging((n) => Math.max(0, n - 1))}
-      onDragOver={(e) => filesDragged(e) && e.preventDefault()}
-      onDrop={(e) => {
-        if (!filesDragged(e)) return;
-        e.preventDefault();
-        setDragging(0);
-        void pickedFromDrop(e.dataTransfer).then(handIn);
-      }}
-    >
-      {dragging > 0 && (
-        <div className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center rounded-2xl border-2 border-dashed border-brand/60 bg-brand-soft/80">
-          <div className="flex flex-col items-center gap-3">
-            <img src="/illustrations/kb/drop.webp" alt="" className="h-32 w-auto" draggable={false} />
-            <p className="text-[18px] font-semibold text-brand-ink">松手就交给助教整理</p>
-          </div>
-        </div>
-      )}
+    <div className="relative flex h-full min-h-0 flex-col gap-3" {...drop.handlers}>
+      {drop.dragging && <DropCover />}
       <div className="px-1 lg:hidden">
         <Segmented
           value={pane}

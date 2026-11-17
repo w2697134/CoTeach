@@ -100,6 +100,50 @@ export function useHandIn(kbId: number | null): HandIn & { touching: { kbId: num
   return { state: 'idle', touching };
 }
 
+/**
+ * 整页都能把文件拖进来：拖着的时候盖一层「松手就交给助教整理」，松手交给 onDrop。
+ * 松手在交资料框或者右边输入框上（它们自己接住、不往外传），整页这层也要收起来：在 window 上听松手和拖拽结束。
+ */
+export function usePageDrop(onDrop: (files: Picked[]) => void, enabled = true) {
+  const [dragging, setDragging] = useState(0);
+  useEffect(() => {
+    const reset = () => setDragging(0);
+    window.addEventListener('drop', reset, true);
+    window.addEventListener('dragend', reset, true);
+    return () => {
+      window.removeEventListener('drop', reset, true);
+      window.removeEventListener('dragend', reset, true);
+    };
+  }, []);
+  const files = (e: React.DragEvent) => enabled && e.dataTransfer.types.includes('Files');
+  return {
+    dragging: dragging > 0,
+    handlers: {
+      onDragEnter: (e: React.DragEvent) => files(e) && setDragging((n) => n + 1),
+      onDragLeave: (e: React.DragEvent) => files(e) && setDragging((n) => Math.max(0, n - 1)),
+      onDragOver: (e: React.DragEvent) => files(e) && e.preventDefault(),
+      onDrop: (e: React.DragEvent) => {
+        if (!files(e)) return;
+        e.preventDefault();
+        setDragging(0);
+        void pickedFromDrop(e.dataTransfer).then((picked) => picked.length && onDrop(picked));
+      },
+    },
+  };
+}
+
+/** 整页拖着文件时盖的那一层 */
+export function DropCover() {
+  return (
+    <div className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center rounded-2xl border-2 border-dashed border-brand/60 bg-brand-soft/80">
+      <div className="flex flex-col items-center gap-3">
+        <img src="/illustrations/kb/drop.webp" alt="" className="h-32 w-auto" draggable={false} />
+        <p className="text-[18px] font-semibold text-brand-ink">松手就交给助教整理</p>
+      </div>
+    </div>
+  );
+}
+
 /** 两个藏起来的选文件框：选文件、选整个文件夹 */
 function usePickers(onPick: (files: Picked[]) => void) {
   const fileInput = useRef<HTMLInputElement>(null);

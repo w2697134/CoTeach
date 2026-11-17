@@ -10,7 +10,7 @@ import { KeeperPanel, type KeeperHandle } from './KeeperPanel';
 import { KnowledgeTools } from './Manage';
 import { CardsSkeleton, FolderGlyph, WritingCard } from './Cards';
 import { ActivityList, Sentence } from './Activity';
-import { DropTray, useHandIn } from './DropTray';
+import { DropCover, DropTray, useHandIn, usePageDrop } from './DropTray';
 import { TA, fileDir, fileTitle, plainPath, plainText, useChange, useChanges, useCourse, useKbStream, useTree, type Change, type TreeFile } from './data';
 import { pickedFromDrop, type Picked } from './intake';
 import { activitiesOf, folderName, isOriginal, nameOf, originsOf, piecesText, sentencesOf, suggestionsFor, touchedAt, type Piece } from './insight';
@@ -53,7 +53,6 @@ function KnowledgeBaseContent({ cid }: { cid: number }) {
         { replace: true },
       );
   });
-  const [dragging, setDragging] = useState(0);
   // 手机上一次只放一栏：先看资料
   const [pane, setPane] = useState<'page' | 'keeper'>('page');
   const [q, setQ] = useState('');
@@ -149,10 +148,10 @@ function KnowledgeBaseContent({ cid }: { cid: number }) {
     setPane('keeper');
     toast.info('助教这会儿在回话', '文件先放在输入框上了，它回完你点发送');
   };
+  const drop = usePageDrop(handIn, !!kb && !archived);
 
   if (course.error) return <ErrorState error={course.error} onRetry={() => course.refetch()} />;
   if (!kb) return <PageLoading />;
-  const filesDragged = (e: React.DragEvent) => !archived && e.dataTransfer.types.includes('Files');
 
   const { here: loose, folders } = layoutOf(files, dir);
   const scope = dir ? files.filter((f) => f.path.startsWith(dir + '/')) : files;
@@ -250,26 +249,8 @@ function KnowledgeBaseContent({ cid }: { cid: number }) {
   );
 
   return (
-    <div
-      className="relative flex h-full min-h-0 flex-col gap-3"
-      onDragEnter={(e) => filesDragged(e) && setDragging((n) => n + 1)}
-      onDragLeave={(e) => filesDragged(e) && setDragging((n) => Math.max(0, n - 1))}
-      onDragOver={(e) => filesDragged(e) && e.preventDefault()}
-      onDrop={(e) => {
-        if (!filesDragged(e)) return;
-        e.preventDefault();
-        setDragging(0);
-        void pickedFromDrop(e.dataTransfer).then(handIn);
-      }}
-    >
-      {dragging > 0 && (
-        <div className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center rounded-2xl border-2 border-dashed border-brand/60 bg-brand-soft/80">
-          <div className="flex flex-col items-center gap-3">
-            <img src="/illustrations/kb/drop.webp" alt="" className="h-32 w-auto" draggable={false} />
-            <p className="text-[18px] font-semibold text-brand-ink">松手就交给助教整理</p>
-          </div>
-        </div>
-      )}
+    <div className="relative flex h-full min-h-0 flex-col gap-3" {...drop.handlers}>
+      {drop.dragging && <DropCover />}
       <div className="px-1 lg:hidden">
         <Segmented
           value={pane}
