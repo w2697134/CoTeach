@@ -4,6 +4,7 @@ import { useQueries, useQueryClient } from '@tanstack/react-query';
 import { ChevronRight, Plus } from 'lucide-react';
 import { useCrumbs } from '../../components/layout/Crumbs';
 import { fmtTime } from '../../lib/format';
+import { toast } from '../../lib/store';
 import { Card, ErrorState, Segmented, Skeleton, cn } from '../../components/ui';
 import { TA, changesQuery, treeQuery, useKnowledgeBases, usePrefetchKb, type Change, type KnowledgeBase, type TreeFile } from './data';
 import { KeeperPanel, type KeeperHandle } from './KeeperPanel';
@@ -178,7 +179,9 @@ export function KnowledgeHomePage() {
   const handIn = (picked: Picked[]) => {
     if (!picked.length) return;
     const sent = keeper.current?.handInNow?.(picked);
-    if (!sent) setPane('keeper');
+    if (sent) return;
+    setPane('keeper');
+    toast.info('助教这会儿在回话', '文件先放在输入框上了，它回完你点发送');
   };
   const openFile = (kbId: number, path: string) => navigate(`/knowledge/${kbId}?f=${encodeURIComponent(path)}`);
   const openChange = (kbId: number, id: number) => navigate(`/knowledge/${kbId}?change=${id}`);
@@ -219,7 +222,7 @@ export function KnowledgeHomePage() {
       <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-[minmax(0,1fr)_340px] min-[90rem]:grid-cols-[minmax(0,1fr)_360px] min-[107.5rem]:grid-cols-[minmax(0,1fr)_384px]">
         <Card padded={false} className={cn('min-h-0 overflow-hidden rounded-2xl lg:block', pane !== 'page' && 'max-lg:hidden')}>
           <div className="h-full min-h-0 overflow-y-auto">
-            <div className="mx-auto w-full max-w-[1120px] px-4 pb-12 pt-5 sm:px-6 sm:pt-6">
+            <div className="mx-auto w-full max-w-[1120px] px-4 pb-12 pt-6 sm:px-6 sm:pt-8">
               {bases.error ? (
                 <ErrorState error={bases.error} onRetry={() => bases.refetch()} />
               ) : !bases.data ? (

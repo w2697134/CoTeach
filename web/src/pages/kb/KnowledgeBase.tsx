@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router';
-import { useAuth } from '../../lib/store';
+import { toast, useAuth } from '../../lib/store';
 import { useCrumbs } from '../../components/layout/Crumbs';
 import { Card, ErrorState, PageLoading, SearchInput, Segmented, cn } from '../../components/ui';
 import { ChangeDetail, ChangesList } from './Changes';
@@ -145,7 +145,9 @@ function KnowledgeBaseContent({ cid }: { cid: number }) {
   const handIn = (picked: Picked[]) => {
     if (!picked.length) return;
     const sent = keeper.current?.handInNow?.(picked);
-    if (!sent) setPane('keeper');
+    if (sent) return;
+    setPane('keeper');
+    toast.info('助教这会儿在回话', '文件先放在输入框上了，它回完你点发送');
   };
 
   if (course.error) return <ErrorState error={course.error} onRetry={() => course.refetch()} />;
