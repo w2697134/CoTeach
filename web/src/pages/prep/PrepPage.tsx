@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
-import { Loader2, Sparkles } from 'lucide-react';
+import { BookOpenCheck, Loader2, Sparkles } from 'lucide-react';
 import { useCrumbs } from '../../components/layout/Crumbs';
 import { post } from '../../lib/api';
 import { toast } from '../../lib/store';
@@ -158,8 +158,10 @@ function LessonTile({ l }: { l: LessonCard }) {
         {l.cover ? (
           <SlideThumb slide={l.cover.slide} theme={l.cover.theme} />
         ) : (
-          <div className="flex h-full items-center justify-center bg-gradient-to-br from-brand-soft to-surface-2 px-5 text-center text-[15px] font-semibold text-brand-ink">
-            {l.title || l.request || '下一节课'}
+          // 还没有课件：放个教案的样子，课题下面写着，封面上不再写一遍
+          <div className="flex h-full flex-col items-center justify-center gap-2 bg-gradient-to-br from-brand-soft to-surface-2 text-brand-ink/70">
+            <BookOpenCheck className="size-9" strokeWidth={1.6} />
+            {!making && <span className="text-[13px]">教案</span>}
           </div>
         )}
         {making && (

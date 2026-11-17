@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { BookOpenCheck, ChevronDown, ClipboardList, Download, FileText, MessageSquareText, MonitorPlay, MoreHorizontal, Play, Presentation, RotateCcw, Send, Sparkles, Trash2, Users } from 'lucide-react';
@@ -30,8 +30,19 @@ export function LessonPage() {
   const q = useLesson(id);
   const l = q.data?.lesson;
   useCrumbs([{ label: '备课', to: '/prep' }, { label: l ? l.title || '下一节课' : null }]);
-  if (q.isError) return <ErrorState error={q.error} onRetry={() => q.refetch()} />;
-  if (!l) return <PageLoading />;
+  // 这一页外面不留边（右边助教一栏要贴着屏幕边），没打开、在打开时自己留边
+  if (q.isError)
+    return (
+      <div className="px-4 py-6 sm:px-6 lg:px-10">
+        <ErrorState error={q.error} onRetry={() => q.refetch()} />
+      </div>
+    );
+  if (!l)
+    return (
+      <div className="px-4 py-6 sm:px-6 lg:px-10">
+        <PageLoading />
+      </div>
+    );
   return <Workspace l={l} />;
 }
 
@@ -196,18 +207,26 @@ function Workspace({ l }: { l: Lesson }) {
   const note = failed.length ? l.lanes[failed[0]]?.note || '' : '';
   const reason = note && /[一-鿿]/.test(note) && !/HTTP|[A-Za-z]{12,}|服务中断/.test(note) ? note : '';
   const lanesShown = making || showLanes || failed.length > 0;
-  const meta = [l.className, l.minutes ? `${l.minutes} 分钟` : '', when(l.updatedAt)].filter(Boolean).join(' · ');
+  const meta = [l.className, l.minutes ? `${l.minutes} 分钟` : '', when(l.updatedAt)].filter(Boolean);
   const missing = !making && l.plan && (!l.deck || !l.practice);
 
   return (
-    <div className="mx-auto w-full max-w-[1440px] px-4 py-5 sm:px-6">
+    // 左边是这节课，右边助教一栏贴着屏幕右边、从顶栏下面到底（屏幕窄的时候收成右下角一个按钮）
+    <div className="flex w-full items-start">
+    <div className="min-w-0 flex-1 px-4 py-5 sm:px-6 lg:px-10 lg:py-7">
       {/* 课题和要做的事 */}
       {/* 手机上按钮放到课题下面一行（并排会把课题挤成一个字一行） */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:gap-4">
-        <div className="min-w-0 flex-1">
+      {/* 放不下就让按钮换到下一行，课题至少留出一截宽，不被挤成一两个字一行 */}
+      <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
+        <div className="min-w-0 flex-[1_1_420px]">
           <h1 className="text-[22px] font-semibold leading-snug text-ink sm:text-[24px]">{l.title || l.request || '下一节课'}</h1>
           <p className="mt-1 text-[14px] text-ink-3">
-            {meta}
+            {meta.map((m, i) => (
+              <Fragment key={i}>
+                {i > 0 && ' · '}
+                <span className="whitespace-nowrap">{m}</span>
+              </Fragment>
+            ))}
             {!making && (
               <button type="button" className="ml-3 text-brand-ink hover:underline" onClick={() => setShowLanes(!showLanes)}>
                 {showLanes ? '收起备课过程' : '备课过程'}
@@ -321,8 +340,8 @@ function Workspace({ l }: { l: Lesson }) {
         </div>
       )}
 
-      <div className="mt-5 flex gap-6">
-        <div className="min-w-0 flex-1">
+      <div className="mt-5">
+        <div className="min-w-0">
           <Tabs<Tab>
             variant="page"
             value={tab}
@@ -366,10 +385,10 @@ function Workspace({ l }: { l: Lesson }) {
               (l.plan ? (
                 <>
                   <PartBar canUndo={!making && (l.versions.plan?.count ?? 0) > 1} onUndo={() => undo('plan')} />
-                  <PlanView plan={l.plan} meta={meta} onSave={making ? undefined : (p: Plan) => save('plan')(p)} />
+                  <PlanView plan={l.plan} onSave={making ? undefined : (p: Plan) => save('plan')(p)} />
                 </>
               ) : making && live.plan ? (
-                <PlanView plan={fullPlan(live.plan)} meta={meta} live />
+                <PlanView plan={fullPlan(live.plan)} live />
               ) : making && at('plan') ? (
                 <PlanComing brief={l.brief} />
               ) : (
@@ -398,15 +417,6 @@ function Workspace({ l }: { l: Lesson }) {
             <div ref={endRef} className="h-4" />
           </div>
         </div>
-        {/* 还在备的时候不摆（那会儿也改不了，摆着是一大块空白）：正在长出来的内容占满 */}
-        {!making && (
-          <AskRail
-            lesson={l}
-            focus={focus}
-            onClearFocus={() => setFocusOff(true)}
-            className="sticky top-4 hidden h-[calc(100vh-120px)] w-[340px] shrink-0 xl:flex"
-          />
-        )}
       </div>
 
       {/* 屏幕窄的时候：右下角一个按钮，点开跟助教说 */}
@@ -421,6 +431,16 @@ function Workspace({ l }: { l: Lesson }) {
 
       {presenting && l.deck && <Present deck={l.deck} start={tab === 'deck' ? page : 0} onClose={() => setPresenting(false)} />}
       <PublishModal open={publishing} lesson={l} onClose={() => setPublishing(false)} onDone={refresh} />
+    </div>
+    {/* 还在备的时候不摆（那会儿也改不了，摆着是一大块空白）：正在长出来的内容占满 */}
+    {!making && (
+      <AskRail
+        lesson={l}
+        focus={focus}
+        onClearFocus={() => setFocusOff(true)}
+        className="sticky top-16 hidden h-[calc(100dvh-4rem)] w-[340px] shrink-0 rounded-none border-0 border-l xl:flex 2xl:w-[380px]"
+      />
+    )}
     </div>
   );
 }

@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { getCookie } from 'hono/cookie';
 import { z } from 'zod';
 import { audit, createSession, destroySession, loadUserById, mayUsePassword, me, publicUser, type AppEnv } from '../auth.js';
-import { anyLoginKey, findLoginKey, hasLoginKey, touchLoginKey } from '../login-keys.js';
+import { anyLoginKey, findLoginKey, touchLoginKey } from '../login-keys.js';
 import { config } from '../config.js';
 import { db, getSetting, now, setSetting } from '../db/index.js';
 import { startingKb } from '../kb/repo.js';
@@ -109,7 +109,7 @@ authRoutes.post('/login', async c => {
   if (!config.passwordLogin && !(row && (row.role === 'admin' || row.is_super))) throw forbidden('账号密码登录暂未开放，用登录密钥进');
   if (!row || !verifyPassword(password, row.password_hash)) throw unauthorized('账号或密码不正确');
   if (row.status !== 'active') throw forbidden('账号已被停用，请联系管理员');
-  if (!mayUsePassword(row)) throw forbidden(hasLoginKey(row.id) ? '这个号现在用密钥登录' : '现在只开放给指定的账号');
+  if (!mayUsePassword(row)) throw forbidden('现在只开放给指定的账号');
   createSession(c, row.id);
   c.set('user', loadUserById(row.id));
   audit(c, 'login', `user:${row.id}`);

@@ -56,11 +56,9 @@ test('一个号一把密钥：管理员发，贴上就进；名单外的号有�
   const loose = first.json.key.toLowerCase().replace(/-/g, ' ').replace(/^ct /, '');
   assert.equal((await call('/auth/key', { key: ` ${loose} ` })).status, 200);
 
-  // 名单外，但手里有密钥：登着算数；用密码进不来，告诉他用密钥
+  // 名单外，但手里有密钥：也算指定的号，登着算数，用密码也能进（「账密也开着吧优先密钥」）
   assert.equal((await call('/auth/me', undefined, byKey.cookie)).json.user.username, 'stu');
-  const pw = await call('/auth/login', { username: 'stu', password: 'pass1234' });
-  assert.equal(pw.status, 403);
-  assert.match(pw.json.error, /密钥/);
+  assert.equal((await call('/auth/login', { username: 'stu', password: 'pass1234' })).status, 200);
   const no = await call('/auth/login', { username: 'other', password: 'pass1234' });
   assert.equal(no.status, 403);
   assert.match(no.json.error, /指定的账号/);
@@ -89,6 +87,8 @@ test('一个号一把密钥：管理员发，贴上就进；名单外的号有�
   assert.equal((await call('/auth/me', undefined, again.cookie)).json.user, null);
   assert.equal((await call(`/admin/users/${stu}/key`, undefined, admin, 'DELETE')).status, 400);
   assert.equal((await call('/auth/config')).json.keyLogin, false);
+  // 密钥停了就不算指定的号了，密码也进不来
+  assert.equal((await call('/auth/login', { username: 'stu', password: 'pass1234' })).status, 403);
 
   // 停用的账号拿着密钥也进不来
   const k3 = (await call(`/admin/users/${stu}/key`, {}, admin)).json.key;
@@ -116,11 +116,11 @@ test('服务器上的发密钥工具：没有的号建好、发的密钥登录�
   for (const k of Object.values(keys)) assert.match(k[3], KEY);
   assert.equal(db.get<{ student_no: string }>("SELECT student_no FROM users WHERE username='s2'")!.student_no, 's2');
 
-  // 工具发的密钥，登录页贴上就进；密码也统一改了（名单外的照样不能用密码进）
+  // 工具发的密钥，登录页贴上就进；密码也统一改了，有密钥的号用这个密码也能进
   const via = await call('/auth/key', { key: keys.t1[3] });
   assert.equal(via.status, 200);
   assert.equal(via.json.user.role, 'teacher');
-  assert.equal((await call('/auth/login', { username: 's1', password: 'same5678' })).status, 403);
+  assert.equal((await call('/auth/login', { username: 's1', password: 'same5678' })).status, 200);
 
   // 再跑一遍：都有密钥了，不再发
   const again = run('t0-t1', 's0-s2');

@@ -116,15 +116,15 @@ export interface InternalEnv {
 
 /**
  * 这个人能不能用账号密码进：管理员总能；账号密码登录关了（config.passwordLogin）别人都不能；
- * 只开放给指定账号（config.loginOnly）时只有名单里的能
+ * 只开放给指定账号（config.loginOnly）时，名单里的和手里有登录密钥的能
  */
-export function mayUsePassword(u: { username: string; role: string; is_super?: number }) {
+export function mayUsePassword(u: { id: number; username: string; role: string; is_super?: number }) {
   if (u.role === 'admin' || u.is_super) return true;
   if (!config.passwordLogin) return false;
-  return !config.loginOnly.length || config.loginOnly.includes(u.username);
+  return !config.loginOnly.length || config.loginOnly.includes(u.username) || hasLoginKey(u.id);
 }
 
-/** 关了账号密码、或者只开放给指定账号的时候，谁还进得来：能用密码进的，加上手里有能用的登录密钥的（那些只能用密钥进） */
+/** 关了账号密码、或者只开放给指定账号的时候，谁还进得来：能用密码进的，加上手里有能用的登录密钥的 */
 export function mayLogIn(u: { id: number; username: string; role: string; is_super?: number }) {
   return mayUsePassword(u) || hasLoginKey(u.id);
 }

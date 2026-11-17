@@ -402,6 +402,8 @@ export function AppShell() {
   // 知识库页面占满整屏高度，自己管滚动；班级页面是普通页面
   // 上课的页面也占满整屏：大块是课件，旁边一栏自己滚动
   const full = location.pathname.startsWith('/c/') || /^\/(knowledge|assistant|cot)(\/|$)/.test(location.pathname) || /^\/classroom\/\d+/.test(location.pathname);
+  // 一节课的页面不设最大宽度：右边助教一栏贴着屏幕右边从上到下，左边内容占满剩下的地方
+  const dock = /^\/prep\/\d+/.test(location.pathname);
   return (
     <div className="min-h-screen bg-bg">
       <aside className="fixed inset-y-0 left-0 z-40 hidden w-[248px] border-r border-line bg-surface lg:block">
@@ -464,7 +466,7 @@ export function AppShell() {
         <main
           className={cn(
             'mx-auto w-full',
-            full ? 'h-[calc(100dvh-4rem)] max-w-[1680px] px-3 py-3 sm:px-4' : 'max-w-[1200px] px-4 py-6 sm:px-6 lg:px-10 lg:py-8',
+            dock ? '' : full ? 'h-[calc(100dvh-4rem)] max-w-[1680px] px-3 py-3 sm:px-4' : 'max-w-[1200px] px-4 py-6 sm:px-6 lg:px-10 lg:py-8',
           )}
         >
           <Outlet />

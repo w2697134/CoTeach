@@ -51,7 +51,7 @@ function StepText({ text }: { text: string }) {
  * 教案：排成一页文档（像 Word 里的教案），老师点「编辑」就地改，存一版（能撤回）。
  * live：还在写（边写边显示）：不能改，新写出来的一段淡入，最后一行写着「还在写」。
  */
-export function PlanView({ plan, meta, onSave, live }: { plan: Plan; meta: string; onSave?: (p: Plan) => Promise<void>; live?: boolean }) {
+export function PlanView({ plan, onSave, live }: { plan: Plan; onSave?: (p: Plan) => Promise<void>; live?: boolean }) {
   const [draft, setDraft] = useState<Plan | null>(null);
   const [saving, setSaving] = useState(false);
   if (draft)
@@ -74,16 +74,15 @@ export function PlanView({ plan, meta, onSave, live }: { plan: Plan; meta: strin
     );
   const total = plan.steps.reduce((n, s) => n + (s.minutes || 0), 0);
   return (
-    <article className="relative mx-auto max-w-[820px] rounded-xl border border-line bg-surface px-5 py-6 shadow-xs sm:px-12 sm:py-10">
+    <article className="relative mx-auto max-w-[820px] rounded-xl border border-line bg-surface px-5 py-6 shadow-xs sm:px-12 sm:py-10 [&>section:first-of-type]:mt-0">
+      {/* 课题、班、时间页面顶上已经有了，教案里不再写一遍 */}
       {!live && onSave && (
-        <Button size="sm" variant="secondary" className="absolute right-4 top-4 sm:right-6 sm:top-6" onClick={() => setDraft(structuredClone(plan))}>
-          编辑
-        </Button>
+        <div className="-mt-2 mb-1 flex justify-end sm:-mt-4">
+          <Button size="sm" variant="secondary" onClick={() => setDraft(structuredClone(plan))}>
+            编辑
+          </Button>
+        </div>
       )}
-      <header className="border-b border-line pb-5 pr-16">
-        <h2 className="text-[24px] font-bold leading-snug text-ink">{plan.title}</h2>
-        <p className="mt-1.5 text-[14px] text-ink-3">{meta}</p>
-      </header>
       {plan.goals.length > 0 && (
         <Section live={live} title="教学目标">
           <ol className="space-y-1.5">

@@ -19,14 +19,14 @@ export interface PublicConfig {
   passwordLogin?: boolean;
 }
 
-/** 上次用的是账号密码还是密钥，下回打开还是那个 */
+/** 上次用的是账号密码还是密钥，下回打开还是那个；没用过就先密钥 */
 type Mode = 'password' | 'key';
 const MODE = 'ct-login-mode';
 function savedMode(): Mode {
   try {
-    return localStorage.getItem(MODE) === 'key' ? 'key' : 'password';
+    return localStorage.getItem(MODE) === 'password' ? 'password' : 'key';
   } catch {
-    return 'password';
+    return 'key';
   }
 }
 export const usePublicConfig = () => {
@@ -106,8 +106,8 @@ function Forgot({ open, onClose }: { open: boolean; onClose: () => void }) {
 
 /**
  * 登录：手机号（老师）或学号（学生）加密码。下面「忘记密码」「注册账号」。
- * 有号发了登录密钥时，上面多一栏「登录密钥」：贴上密钥就进对应的号，不用输账号密码。
- * 账号密码登录关了的时候（比赛期间），密钥那一栏排前面，「账号密码」那一栏只写暂未开放，不显示注册。
+ * 有号发了登录密钥时，上面分两栏，「登录密钥」在前、默认先开它：贴上密钥就进对应的号，不用输账号密码。
+ * 账号密码登录关了的时候，「账号密码」那一栏只写暂未开放，不显示注册。
  * 演示账号不在登录页上露出来，网址带 ?demo 才显示（给自己演示、把演示老师设成正式账号用）。
  */
 export function LoginPage() {
@@ -132,7 +132,7 @@ export function LoginPage() {
     try {
       localStorage.setItem(MODE, m);
     } catch {
-      /* 存不了就算了，下回默认账号密码 */
+      /* 存不了就算了，下回默认先密钥 */
     }
   };
   const navigate = useNavigate();
@@ -198,17 +198,10 @@ export function LoginPage() {
           className="mt-7"
           value={view}
           onChange={pick}
-          items={
-            pwOff
-              ? [
-                  { value: 'key', label: '登录密钥' },
-                  { value: 'password', label: '账号密码' },
-                ]
-              : [
-                  { value: 'password', label: '账号密码' },
-                  { value: 'key', label: '登录密钥' },
-                ]
-          }
+          items={[
+            { value: 'key', label: '登录密钥' },
+            { value: 'password', label: '账号密码' },
+          ]}
         />
       )}
       {view === 'key' ? (
