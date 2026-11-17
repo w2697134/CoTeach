@@ -113,7 +113,7 @@ function Gallery({ deck, initialTheme }: { deck: Deck; initialTheme: string }) {
                 return items.map((it) => (
                   <figure key={it.key} className="m-0">
                     <AutoSlide>{(w) => <SlideView slide={s} theme={t.id} index={i} sectionNo={sections.get(s.id)} width={w} revealed={it.revealed} className="rounded-md shadow-sm ring-1 ring-line" />}</AutoSlide>
-                    <figcaption className="mt-1.5 text-[12.5px] text-ink-3">
+                    <figcaption className="mt-1.5 text-[13px] text-ink-3">
                       {i + 1} · {s.title || s.layout}
                       {it.revealed ? ' · 答案' : ''}
                     </figcaption>

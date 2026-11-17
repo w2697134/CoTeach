@@ -172,7 +172,7 @@ export function FileCard({
       >
         <FileTypeIcon name={name} kind={kind} folder={folder} size={compact ? 30 : 36} />
         <span className="min-w-0 flex-1">
-          <span className={cn('break-all font-medium leading-[1.35] text-ink', compact ? 'line-clamp-1 text-[12.5px]' : 'line-clamp-2 text-[13.5px]')}>{name}</span>
+          <span className={cn('break-all font-medium leading-[1.35] text-ink', compact ? 'line-clamp-1 text-[13px]' : 'line-clamp-2 text-[14px]')}>{name}</span>
           {meta && <span className={cn('mt-0.5 block truncate text-[12px] leading-4', bad ? 'text-bad' : 'text-ink-3')}>{meta}</span>}
         </span>
         {after}

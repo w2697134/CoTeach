@@ -13,6 +13,7 @@ import { fileTitle, readableError, stepLines, type StepLine, when } from './pres
 import { STATUS_TEXT, STATUS_TONE, TA, plainText, useChanges, useKeeperRuns, useKeeperStream, useKnowledgeBases, useTaSession, useTaSessions, type Run } from './data';
 import { ActionCard, AskCard, type ActionData, type AskData } from '../assistant/cards';
 import { SpecialistsButton } from '../assistant/Specialists';
+import { useClasses } from '../classes/data';
 
 const SHOWN = /\.(png|jpe?g|gif|webp)$/i;
 
@@ -81,7 +82,7 @@ function ChangeCard({ cid, changeId, title, kbName, onOpen }: { cid: number; cha
         </span>
         <div className="min-w-0 flex-1">
           {kbName && <p className="truncate text-[12px] text-ink-3">{kbName}</p>}
-          <p className="line-clamp-2 text-[13.5px] leading-snug text-ink-2">{name}</p>
+          <p className="line-clamp-2 text-[14px] leading-snug text-ink-2">{name}</p>
         </div>
         <div className="flex shrink-0 flex-col items-end">
           {status && <Badge tone={STATUS_TONE[status]}>{STATUS_TEXT[status]}</Badge>}
@@ -191,7 +192,7 @@ function Sent({ run }: { run: Run }) {
             {expanded && (
               <ul className="max-h-72 space-y-1.5 overflow-y-auto border-t border-line px-3 py-2.5">
                 {inside.map((a) => (
-                  <li key={a.id} className="flex items-start gap-2 text-[12.5px] leading-5">
+                  <li key={a.id} className="flex items-start gap-2 text-[13px] leading-5">
                     <FileTypeIcon name={a.name} kind={a.kind} size={20} className="mt-px" />
                     <span className="min-w-0 flex-1">
                       <span className="block break-all text-ink-2">{a.name.slice(f.name.length + 1)}</span>
@@ -200,7 +201,7 @@ function Sent({ run }: { run: Run }) {
                     </span>
                   </li>
                 ))}
-                {f.count > inside.length && <li className="pl-7 text-[12.5px] text-ink-3">还有 {f.count - inside.length} 份</li>}
+                {f.count > inside.length && <li className="pl-7 text-[13px] text-ink-3">还有 {f.count - inside.length} 份</li>}
               </ul>
             )}
           </FileCard>
@@ -293,8 +294,8 @@ function JobCard({ job, here, names, onOpenChange }: { job: Run; here: number | 
           <FolderInput className={cn('size-4', job.status === 'running' && 'animate-pulse')} />
         </span>
         <div className="min-w-0 flex-1 leading-snug">
-          <p className="text-[13.5px] font-medium text-ink">整理资料 · {JOB_WORD[job.status] || '整理'}</p>
-          <p className="truncate text-[12.5px] text-ink-3">{plainText(job.request).split('\n')[0]}</p>
+          <p className="text-[14px] font-medium text-ink">整理资料 · {JOB_WORD[job.status] || '整理'}</p>
+          <p className="truncate text-[13px] text-ink-3">{plainText(job.request).split('\n')[0]}</p>
         </div>
         {going && (
           <Button size="xs" variant="ghost" loading={stopping} onClick={stop} className="shrink-0 text-ink-3">
@@ -303,13 +304,13 @@ function JobCard({ job, here, names, onOpenChange }: { job: Run; here: number | 
         )}
       </div>
       {job.status === 'running' && latest && !open && (
-        <p className="truncate pl-[36px] text-[12.5px] text-ink-3">{latest.label ? `${latest.label} ${latest.text}` : latest.text}</p>
+        <p className="truncate pl-[36px] text-[13px] text-ink-3">{latest.label ? `${latest.label} ${latest.text}` : latest.text}</p>
       )}
       {lines.length > 0 && (
         <div className="pl-[36px]">
-          <button type="button" onClick={() => setOpen(!open)} className="inline-flex items-center gap-1 text-[12.5px] text-ink-3 transition-colors hover:text-ink-2">
+          <button type="button" onClick={() => setOpen(!open)} className="inline-flex items-center gap-1 text-[13px] text-ink-3 transition-colors hover:text-ink-2">
             <ChevronRight className={cn('size-3.5 transition-transform', open && 'rotate-90')} />
-            工作记录 · {lines.filter((l) => l.kind === 'tool').length} 步
+            看我是怎么整理的 · {lines.filter((l) => l.kind === 'tool').length} 步
           </button>
           {open && (
             <div className="ml-[6px] mt-1.5 space-y-1.5 border-l-2 border-line pl-3">
@@ -391,10 +392,10 @@ function TaRunBlock({
               <button
                 type="button"
                 onClick={() => setExpanded(!expanded)}
-                className="inline-flex items-center gap-1 py-0.5 text-[12.5px] text-ink-3 transition-colors hover:text-ink-2"
+                className="inline-flex items-center gap-1 py-0.5 text-[13px] text-ink-3 transition-colors hover:text-ink-2"
               >
                 <ChevronRight className={cn('size-3.5 transition-transform', expanded && 'rotate-90')} />
-                工作记录 · {done} 步
+                看我是怎么办的 · {done} 步
               </button>
               {expanded && (
                 <div className="ml-[6px] mt-1.5 space-y-1.5 border-l-2 border-line pl-3">
@@ -579,11 +580,11 @@ function SessionButtons({ compact, disabled }: { compact: boolean; disabled: boo
       >
         {(close) => (
           <div className="max-h-[60vh] overflow-y-auto py-1">
-            <p className="px-3 pb-1.5 pt-1 text-[12.5px] text-ink-3">历史会话</p>
+            <p className="px-3 pb-1.5 pt-1 text-[13px] text-ink-3">历史会话</p>
             {!list.data ? (
               <Skeleton className="mx-3 my-2 h-16" />
             ) : !list.data.sessions.length ? (
-              <p className="px-3 py-3 text-[13.5px] text-ink-3">还没有</p>
+              <p className="px-3 py-3 text-[14px] text-ink-3">还没有</p>
             ) : (
               list.data.sessions.map((s) => (
                 <button
@@ -708,6 +709,20 @@ export const KeeperPanel = forwardRef<
     });
     requestAnimationFrame(() => composer.current?.querySelector('textarea')?.focus());
   };
+  // 点一句建议：放进输入框，老师改改再发（演示账号几个人一起用，点一下就开工容易误动资料）
+  const fill = (s: string) => {
+    setText(s);
+    requestAnimationFrame(() => {
+      const box = composer.current?.querySelector('textarea');
+      box?.focus();
+      box?.setSelectionRange(s.length, s.length);
+    });
+  };
+  const classes = useClasses().data?.classes.filter((c) => !c.archived) || [];
+  const cls = classes[0]?.name;
+  const starters = cls
+    ? [`给「${cls}」布置一份作业，下周五交`, `给「${cls}」备下一节课`, `「${cls}」最近那份作业交了几个人`, '学生这两天都问了学伴什么']
+    : ['帮我建一个班，名字叫计科2501', '学生这两天都问了学伴什么'];
   const detach = (key: string) =>
     setAttached((prev) => {
       const a = prev.find((x) => x.key === key);
@@ -767,7 +782,7 @@ export const KeeperPanel = forwardRef<
         <div className="min-w-0 flex-1 leading-tight">
           <p className="truncate text-[15px] font-semibold text-ink">{TA.name}</p>
           {status && (
-            <p className={cn('mt-0.5 truncate text-[12.5px]', !busy && (pending || students) && !archived ? 'text-brand-ink' : 'text-ink-3')}>{status}</p>
+            <p className={cn('mt-0.5 truncate text-[13px]', !busy && (pending || students) && !archived ? 'text-brand-ink' : 'text-ink-3')}>{status}</p>
           )}
         </div>
         {onOpenChanges && (
@@ -793,13 +808,31 @@ export const KeeperPanel = forwardRef<
         )}
       <div ref={scroller} className={cn('min-h-0 flex-1 overflow-y-auto py-5', page ? 'px-3 lg:px-6' : 'px-4')}>
         <div ref={content} className="space-y-6">
+          {/* 助教页还没说过话：打个招呼，给几句能直接说的（用老师自己的班名），点一下放进输入框，改改再发 */}
           {page && q.data && !runs.length && (
-            <div className="flex flex-col items-center gap-3 pt-[12vh] text-center">
+            <div className="mx-auto flex max-w-[560px] flex-col items-center gap-3 pt-[10vh] text-center">
               <AgentAvatar agent={TA} size={72} />
-              <p className="text-[18px] font-semibold text-ink">{me?.name ? `${me.name}老师好，我是 CoT 助教` : '我是 CoT 助教'}</p>
+              <p className="text-[18px] font-semibold text-ink">{me?.name ? `${me.name}老师好，我是你的 CoT 助教` : '我是你的 CoT 助教'}</p>
+              {!archived && (
+                <>
+                  <p className="text-[15px] text-ink-2">班里的事跟我说一声就行，比如：</p>
+                  <div className="mt-1 flex w-full flex-col gap-2">
+                    {starters.map((s) => (
+                      <button
+                        key={s}
+                        type="button"
+                        onClick={() => fill(s)}
+                        className="w-full rounded-xl border border-line bg-surface px-4 py-2.5 text-left text-[15px] leading-6 text-ink shadow-xs transition-colors hover:border-brand/40 hover:bg-brand-soft/40"
+                      >
+                        {s}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
             </div>
           )}
-          {/* 知识库页右边还没说过话：几句老师会说的话，点一下就发（从这个库现在的样子算出来的） */}
+          {/* 知识库页右边还没说过话：几句老师会说的话（从这个库现在的样子算出来的），点一下放进输入框，改改再发 */}
           {!page && q.data && !runs.length && (
             <div className="flex flex-col items-center gap-3 pt-[6vh] text-center">
               <AgentAvatar agent={TA} size={56} />
@@ -811,7 +844,7 @@ export const KeeperPanel = forwardRef<
                       key={s}
                       type="button"
                       disabled={busy || sending}
-                      onClick={() => send([], s)}
+                      onClick={() => fill(s)}
                       className="w-full rounded-xl border border-line bg-surface px-3.5 py-2.5 text-left text-[14px] leading-[22px] text-ink shadow-xs transition-colors hover:border-brand/40 hover:bg-brand-soft/40 disabled:opacity-50"
                     >
                       {s}
@@ -823,7 +856,7 @@ export const KeeperPanel = forwardRef<
           )}
           {q.error && (
             <Alert tone="bad">
-              工作记录加载失败。
+              对话没打开，网络可能断了一下。
               <Button size="sm" onClick={() => q.refetch()}>
                 重试
               </Button>

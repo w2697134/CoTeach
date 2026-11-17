@@ -171,7 +171,7 @@ export function IntakeCard({ cid, intake }: { cid: number; intake: Intake }) {
         <div className="flex items-center gap-3">
           <FileTypeIcon name={single && first ? first.name : ''} kind={single && first ? first.kind : null} folder={!single} />
           <div className="min-w-0 flex-1">
-            <p className="line-clamp-2 break-all text-[13.5px] font-medium leading-[1.35] text-ink">
+            <p className="line-clamp-2 break-all text-[14px] font-medium leading-[1.35] text-ink">
               {single && first ? fileTitle(first.name) : `${intake.total} 份资料`}
             </p>
             <p className="mt-0.5 truncate text-[12px] leading-4 text-ink-3">
@@ -185,7 +185,7 @@ export function IntakeCard({ cid, intake }: { cid: number; intake: Intake }) {
         {intake.status === 'uploading' && !stalled && (
           <div className="mt-2 space-y-1">
             <Progress value={intake.upload.size ? intake.upload.received / intake.upload.size : 0} />
-            <p className="text-[12.5px] text-ink-3">
+            <p className="text-[13px] text-ink-3">
               已上传 {intake.upload.size ? Math.floor((intake.upload.received / intake.upload.size) * 100) : 0}%
             </p>
           </div>
@@ -193,7 +193,7 @@ export function IntakeCard({ cid, intake }: { cid: number; intake: Intake }) {
         {intake.status === 'reading' && (
           <div className="mt-2 space-y-1">
             <Progress value={intake.total ? handled / intake.total : 0} />
-            <p className="break-all text-[12.5px] text-ink-3">
+            <p className="break-all text-[13px] text-ink-3">
               已读 {handled}/{intake.total} 份
               {intake.current &&
                 ` · 正在读「${fileTitle(intake.current.name)}」${intake.current.progress ? ` ${intake.current.progress.done}/${intake.current.progress.total}` : ''}`}
@@ -203,7 +203,7 @@ export function IntakeCard({ cid, intake }: { cid: number; intake: Intake }) {
         {intake.status === 'digesting' && intake.batches > 1 && (
           <div className="mt-2 space-y-1">
             <Progress value={intake.batch / intake.batches} />
-            <p className="text-[12.5px] text-ink-3">
+            <p className="text-[13px] text-ink-3">
               正在整理第 {Math.min(intake.batch + 1, intake.batches)}/{intake.batches} 批
             </p>
           </div>
