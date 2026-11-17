@@ -279,15 +279,18 @@ function Workspace({ l }: { l: Lesson }) {
           <div className="pt-5">
             {tab === 'deck' &&
               (l.deck ? (
-                <DeckPane
-                  deck={l.deck}
-                  readOnly={making}
-                  busyPage={l.asking && focus?.part === 'deck' && focus.page ? focus.page - 1 : null}
-                  fileName={l.title}
-                  initialSlide={Math.min(page, l.deck.slides.length - 1)}
-                  onChange={onDeckChange}
-                  onAskAI={askAbout}
-                />
+                // 编辑器要一个定高：不然左边缩略图有多长它就多高，中间那页居中跑到屏幕下面去（2026-11-17 截图时看到中间是空的）
+                <div className="md:h-[calc(100vh-250px)] md:min-h-[520px]">
+                  <DeckPane
+                    deck={l.deck}
+                    readOnly={making}
+                    busyPage={l.asking && focus?.part === 'deck' && focus.page ? focus.page - 1 : null}
+                    fileName={l.title}
+                    initialSlide={Math.min(page, l.deck.slides.length - 1)}
+                    onChange={onDeckChange}
+                    onAskAI={askAbout}
+                  />
+                </div>
               ) : (
                 <Waiting making={making} what="课件" lane={doingNow(l.lanes)} />
               ))}
