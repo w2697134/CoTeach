@@ -57,6 +57,14 @@ export const config = {
   /** 整理助手每个老师每天最多跑几轮（一轮里会调好多次模型），0 为不限；管理员不限 */
   keeperDailyTurns: Number(env.CT_KEEPER_DAILY_TURNS || 200),
   sessionDays: Number(env.CT_SESSION_DAYS || 14),
+  /**
+   * 只让这几个账号登录（用户名，逗号分开；管理员总能登）。设了就不开放注册、演示入口，已经登着的不在名单里也算退出。
+   * 比赛期间线上只开放给评委。不设就照旧。
+   */
+  loginOnly: (env.CT_LOGIN_ONLY || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean),
   /** 交资料：单个文件、一次交的总量、单份资料、压缩包里的文件数和解开后的总量 */
   intake: {
     maxFileBytes: Number(env.CT_INTAKE_MAX_FILE_MB || 500) * 1024 * 1024,

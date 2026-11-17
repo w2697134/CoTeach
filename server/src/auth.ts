@@ -113,6 +113,11 @@ export interface InternalEnv {
   ctInternalUser?: number;
 }
 
+/** 只开放给指定账号的时候（config.loginOnly），这个人能不能进；管理员总能进 */
+export function mayLogIn(u: { username: string; role: string; is_super?: number }) {
+  return !config.loginOnly.length || u.role === 'admin' || !!u.is_super || config.loginOnly.includes(u.username);
+}
+
 /** 根据会话 Cookie 取出当前用户 */
 export const sessionMiddleware: MiddlewareHandler<AppEnv> = async (c, next) => {
   c.set('user', null);
@@ -128,7 +133,8 @@ export const sessionMiddleware: MiddlewareHandler<AppEnv> = async (c, next) => {
     const s = db.get<{ user_id: number; expires_at: number }>('SELECT user_id, expires_at FROM sessions WHERE id = ?', sha256(token));
     if (s && s.expires_at > now()) {
       const u = loadUserById(s.user_id);
-      if (u && u.status === 'active') {
+      // 只开放给指定账号时，不在名单里的已经登着也算没登录
+      if (u && u.status === 'active' && mayLogIn(u)) {
         c.set('user', u);
         const t = now();
         if (t - (lastTouch.get(u.id) || 0) > 60_000) {

@@ -6,6 +6,7 @@ import { audit, createSession, loadUserById, me, publicUser, requireRole, type A
 import { db, now } from '../db/index.js';
 import { hashPassword } from '../lib/crypto.js';
 import { bad, body, clientIp, conflict, forbidden, intParam, notFound, rateLimit, HttpError } from '../lib/http.js';
+import { config } from '../config.js';
 import { homeworkCounts } from './homework.js';
 import { packOnClassCreated } from '../assistant/pack-jobs.js';
 import { cleanName, looksName, looksNo, rosterFromFile, rosterFromText, tableFromFile, type RosterStudent } from './roster.js';
@@ -259,6 +260,7 @@ classRoutes.post('/join', async (c) => {
  */
 classRoutes.post('/join/register', async (c) => {
   if (c.get('user')) throw bad('已经登录了，刷新一下页面');
+  if (config.loginOnly.length) throw forbidden('现在只开放给指定的账号，不能注册');
   // 同上，一个大班在同一个 IP 后面一起注册也够用
   rateLimit(`class-register:${clientIp(c)}`, 300, 60 * 60_000);
   const d = await body(c, z.object({ code: z.string().max(20), studentNo: z.string().max(40), name: z.string().max(40), password: z.string().max(128) }));

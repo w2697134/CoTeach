@@ -11,6 +11,8 @@ export interface PublicConfig {
   demoMode: boolean;
   demoAccounts: { role: 'teacher' | 'student'; username: string; label: string; name: string }[];
   teacherSignup: boolean;
+  /** 只开放给指定账号（比赛期间）：不显示注册 */
+  loginOnly?: boolean;
 }
 export const usePublicConfig = () => {
   const [cfg, setCfg] = useState<PublicConfig | null>(null);
@@ -167,9 +169,11 @@ export function LoginPage() {
         <button type="button" onClick={() => setForgot(true)} className="text-ink-3 hover:text-ink">
           忘记密码
         </button>
-        <Link to="/register" className="text-brand hover:underline">
-          注册账号
-        </Link>
+        {!cfg?.loginOnly && (
+          <Link to="/register" className="text-brand hover:underline">
+            注册账号
+          </Link>
+        )}
       </div>
 
       {demos.length > 0 && (

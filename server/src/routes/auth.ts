@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { getCookie } from 'hono/cookie';
 import { z } from 'zod';
-import { audit, createSession, destroySession, loadUserById, me, publicUser, type AppEnv } from '../auth.js';
+import { audit, createSession, destroySession, loadUserById, mayLogIn, me, publicUser, type AppEnv } from '../auth.js';
 import { config } from '../config.js';
 import { db, getSetting, now, setSetting } from '../db/index.js';
 import { startingKb } from '../kb/repo.js';
@@ -22,7 +22,8 @@ authRoutes.get('/config', c => {
         return u ? { ...d, name: u.name } : null;
       }).filter(Boolean)
     : [];
-  return c.json({ demoMode: config.demoMode, demoAccounts: demos, teacherSignup: getSetting('teacher_signup', true) });
+  const only = config.loginOnly.length > 0;
+  return c.json({ demoMode: config.demoMode && !only, demoAccounts: only ? [] : demos, teacherSignup: !only && getSetting('teacher_signup', true), loginOnly: only });
 });
 
 /** 老师的账号用手机号（照课堂派、学习通）；现在不发验证码，以后接短信也还是这个号 */
@@ -47,6 +48,7 @@ function passwordOf(raw: string) {
  */
 authRoutes.post('/register', async c => {
   if (c.get('user')) throw bad('已经登录了，先退出再注册');
+  if (config.loginOnly.length) throw forbidden('现在只开放给指定的账号，不能注册');
   if (!getSetting('teacher_signup', true)) throw forbidden('现在不开放老师注册');
   rateLimit(`register:${clientIp(c)}`, 30, 60 * 60_000);
   const d = await body(c, z.object({ phone: z.string().max(30), name: z.string().max(40), password: z.string().max(128) }));
@@ -89,9 +91,13 @@ authRoutes.post('/login', async c => {
   // 按 IP 放宽（一个教室共用出口 IP），按账号的限制不变，挡住对一个账号猜密码
   rateLimit(`login:${clientIp(c)}`, 300, 10 * 60_000);
   rateLimit(`login:${username.toLowerCase()}`, 10, 10 * 60_000);
-  const row = db.get<{ id: number; password_hash: string; status: string }>('SELECT id, password_hash, status FROM users WHERE username = ?', username.trim());
+  const row = db.get<{ id: number; username: string; role: string; is_super: number; password_hash: string; status: string }>(
+    'SELECT id, username, role, is_super, password_hash, status FROM users WHERE username = ?',
+    username.trim(),
+  );
   if (!row || !verifyPassword(password, row.password_hash)) throw unauthorized('账号或密码不正确');
   if (row.status !== 'active') throw forbidden('账号已被停用，请联系管理员');
+  if (!mayLogIn(row)) throw forbidden('现在只开放给指定的账号');
   createSession(c, row.id);
   c.set('user', loadUserById(row.id));
   audit(c, 'login', `user:${row.id}`);
@@ -100,7 +106,7 @@ authRoutes.post('/login', async c => {
 
 /** 演示模式一键登录 */
 authRoutes.post('/demo', async c => {
-  if (!config.demoMode) throw forbidden('演示入口已关闭');
+  if (!config.demoMode || config.loginOnly.length) throw forbidden('演示入口已关闭');
   const { role } = await body(c, z.object({ role: z.enum(['teacher', 'student']) }));
   rateLimit(`demo:${clientIp(c)}`, 30, 10 * 60_000);
   const acct = DEMO_ACCOUNTS.find(d => d.role === role)!;
