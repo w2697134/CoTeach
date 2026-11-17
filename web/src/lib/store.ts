@@ -28,6 +28,8 @@ interface AuthState {
   load: () => Promise<void>;
   login: (username: string, password: string) => Promise<User>;
   demo: (role: Role) => Promise<User>;
+  /** 贴登录密钥进：一个号一把，不用输账号密码 */
+  keyLogin: (key: string) => Promise<User>;
   /** 扫码注册时服务器已经登录好了，直接用它给的账号 */
   adopt: (user: User) => Promise<void>;
   logout: () => Promise<void>;
@@ -49,6 +51,13 @@ export const useAuth = create<AuthState>((set, getState) => ({
   async login(username, password) {
     authLoadVersion++;
     const r = await post<{ user: User }>('/auth/login', { username, password });
+    set({ user: r.user });
+    await getState().load();
+    return r.user;
+  },
+  async keyLogin(key) {
+    authLoadVersion++;
+    const r = await post<{ user: User }>('/auth/key', { key });
     set({ user: r.user });
     await getState().load();
     return r.user;

@@ -1,6 +1,7 @@
 // 开发用：在一个副本里另开一套后端和页面，数据是开发库复制出来的一份，改服务器代码不会打断主目录那套。
 //   node tools/dev-copy.mjs data <数据目录>            从主目录的开发库复制一份（数据库用 VACUUM INTO 读，开发服务器开着也行）
-//   node tools/dev-copy.mjs api <数据目录> <后端端口>   用这份数据开后端（tsx watch；模型的设置读主目录的 server/.env，不打印）
+//   node tools/dev-copy.mjs api <数据目录> <后端端口> [变量=值 …]   用这份数据开后端（tsx watch；模型的设置读主目录的 server/.env，不打印）；
+//       后面可以跟几个环境变量，比如 CT_PASSWORD_LOGIN=off 看只用密钥登录的样子
 //   node tools/dev-copy.mjs web <页面端口> <后端端口>   开页面，/api 转到这个后端
 import { spawn } from 'node:child_process';
 import { copyFileSync, cpSync, existsSync, mkdirSync } from 'node:fs';
@@ -26,7 +27,8 @@ if (cmd === 'data') {
   for (const d of ['knowledge', 'kb', 'sources', 'homework', 'archives', 'uploads', 'files']) if (existsSync(join(dev, d))) cpSync(join(dev, d), join(out, d), { recursive: true });
   console.log('复制好了：', out);
 } else if (cmd === 'api') {
-  const env = { ...process.env, CT_DATA_DIR: resolve(a), CT_PORT: String(b), CT_ENV_FILE: join(MAIN, 'server', '.env'), CT_DEMO_MODE: '0' };
+  const extra = Object.fromEntries(process.argv.slice(5).map((kv) => [kv.slice(0, kv.indexOf('=')), kv.slice(kv.indexOf('=') + 1)]));
+  const env = { ...process.env, CT_DATA_DIR: resolve(a), CT_PORT: String(b), CT_ENV_FILE: join(MAIN, 'server', '.env'), CT_DEMO_MODE: '0', ...extra };
   spawn('pnpm', ['--dir', ROOT, '--filter', 'server', 'dev'], { env, stdio: 'inherit', shell: true });
 } else if (cmd === 'web') {
   const env = { ...process.env, CT_WEB_PORT: String(a), CT_API_PORT: String(b) };

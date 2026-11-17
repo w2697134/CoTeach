@@ -848,3 +848,21 @@ CREATE TABLE lecture_calls (
 );
 CREATE INDEX idx_lecture_calls ON lecture_calls(lecture_id, id);
 `);
+
+// 第 24 次：登录密钥（2026-11-18）。选了「一个号一把密钥」：
+// 一个号发一把，登录页贴上密钥就进这个号，不用输账号密码；把密钥发给谁，谁才进得来。
+// 只存密钥的 sha256（key_hash），原文只在发的时候给一次，丢了就换一把。hint 是末 4 位，管理员认是哪一把用。
+// revoked_at 不空是停用了（换一把也是把旧的停用）。一个号同时只有一把能用（下面的唯一索引）。
+// 线上只开放给指定账号（CT_LOGIN_ONLY）时，手里有能用的密钥也算指定的账号，但只能用密钥进，不能用密码进。
+migrations.push(`
+CREATE TABLE login_keys (
+  id INTEGER PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id),
+  key_hash TEXT NOT NULL UNIQUE,
+  hint TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  last_used_at INTEGER,
+  revoked_at INTEGER
+);
+CREATE UNIQUE INDEX idx_login_keys_user ON login_keys(user_id) WHERE revoked_at IS NULL;
+`);

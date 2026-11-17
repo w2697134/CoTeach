@@ -4,6 +4,7 @@ import { config, isProd } from './config.js';
 import { db, j, now } from './db/index.js';
 import { randomToken, sha256 } from './lib/crypto.js';
 import { clientIp, forbidden, unauthorized } from './lib/http.js';
+import { hasLoginKey } from './login-keys.js';
 
 export type Role = 'admin' | 'teacher' | 'student';
 
@@ -113,9 +114,19 @@ export interface InternalEnv {
   ctInternalUser?: number;
 }
 
-/** 只开放给指定账号的时候（config.loginOnly），这个人能不能进；管理员总能进 */
-export function mayLogIn(u: { username: string; role: string; is_super?: number }) {
-  return !config.loginOnly.length || u.role === 'admin' || !!u.is_super || config.loginOnly.includes(u.username);
+/**
+ * 这个人能不能用账号密码进：管理员总能；账号密码登录关了（config.passwordLogin）别人都不能；
+ * 只开放给指定账号（config.loginOnly）时只有名单里的能
+ */
+export function mayUsePassword(u: { username: string; role: string; is_super?: number }) {
+  if (u.role === 'admin' || u.is_super) return true;
+  if (!config.passwordLogin) return false;
+  return !config.loginOnly.length || config.loginOnly.includes(u.username);
+}
+
+/** 关了账号密码、或者只开放给指定账号的时候，谁还进得来：能用密码进的，加上手里有能用的登录密钥的（那些只能用密钥进） */
+export function mayLogIn(u: { id: number; username: string; role: string; is_super?: number }) {
+  return mayUsePassword(u) || hasLoginKey(u.id);
 }
 
 /** 根据会话 Cookie 取出当前用户 */

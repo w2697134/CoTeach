@@ -65,6 +65,11 @@ export const config = {
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean),
+  /**
+   * 账号密码登录开不开（默认开）。设成 off：只能用登录密钥进（管理员除外），注册和演示入口关掉，登录页上「账号密码」显示暂未开放；
+   * 没有密钥的号已经登着的也算退出。
+   */
+  passwordLogin: env.CT_PASSWORD_LOGIN !== 'off',
   /** 交资料：单个文件、一次交的总量、单份资料、压缩包里的文件数和解开后的总量 */
   intake: {
     maxFileBytes: Number(env.CT_INTAKE_MAX_FILE_MB || 500) * 1024 * 1024,

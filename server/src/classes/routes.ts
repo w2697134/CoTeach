@@ -260,6 +260,7 @@ classRoutes.post('/join', async (c) => {
  */
 classRoutes.post('/join/register', async (c) => {
   if (c.get('user')) throw bad('已经登录了，刷新一下页面');
+  if (!config.passwordLogin) throw forbidden('注册暂未开放');
   if (config.loginOnly.length) throw forbidden('现在只开放给指定的账号，不能注册');
   // 同上，一个大班在同一个 IP 后面一起注册也够用
   rateLimit(`class-register:${clientIp(c)}`, 300, 60 * 60_000);

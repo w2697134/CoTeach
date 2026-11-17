@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Copy, KeyRound, MoreHorizontal, UserCheck, UserX } from 'lucide-react';
-import { api, get, post } from '../../lib/api';
+import { Ban, Copy, KeyRound, KeySquare, MoreHorizontal, UserCheck, UserX } from 'lucide-react';
+import { api, del, get, post } from '../../lib/api';
 import { toast } from '../../lib/store';
 import { Avatar, Button, Card, Empty, ErrorState, IconButton, MenuItem, Modal, Popover, SearchInput, Skeleton, Tabs, cn, useConfirm } from '../../components/ui';
 import { copyText, Switch } from '../classes/Invite';
@@ -20,6 +20,8 @@ interface Account {
   callsToday: number;
   classes: number;
   joined: number;
+  /** 登录密钥：末 4 位、哪天发的、最近一次用 */
+  key: { hint: string; createdAt: number; lastUsedAt: number | null } | null;
 }
 type Role = '' | 'teacher' | 'student';
 const ROLE: Record<Account['role'], string> = { admin: '管理员', teacher: '老师', student: '学生' };
@@ -50,15 +52,15 @@ function Signup() {
 }
 
 /**
- * 管理页（只有管理员）：所有账号，搜索、按身份分开看；每个账号能重置密码、停用或恢复；老师还看得到今天调了几次模型。
- * 没有短信和邮箱，老师忘了密码就在这里重置。
+ * 管理页（只有管理员）：所有账号，搜索、按身份分开看；每个账号能重置密码、发登录密钥、停用或恢复；老师还看得到今天调了几次模型。
+ * 没有短信和邮箱，老师忘了密码就在这里重置。登录密钥一个号一把，贴上就进这个号，只显示发的那一次。
  */
 export function AdminPage() {
   const qc = useQueryClient(),
     confirm = useConfirm();
   const [kw, setKw] = useState(''),
     [role, setRole] = useState<Role>(''),
-    [secret, setSecret] = useState<{ name: string; password: string } | null>(null);
+    [secret, setSecret] = useState<{ name: string; value: string; kind: 'password' | 'key' } | null>(null);
   const q = useQuery({
     queryKey: ['admin', 'users', kw.trim(), role],
     queryFn: () => get<{ users: Account[]; counts: Record<string, number> }>(`/admin/users?q=${encodeURIComponent(kw.trim())}&role=${role}`),
@@ -69,7 +71,27 @@ export function AdminPage() {
     if (!(await confirm({ title: `重置「${u.name}」的密码？`, desc: '原来的密码不能再用，在别处登着的也会退出。', okText: '重置', danger: true }))) return;
     try {
       const r = await post<{ password: string }>(`/admin/users/${u.id}/password`);
-      setSecret({ name: u.name, password: r.password });
+      setSecret({ name: u.name, value: r.password, kind: 'password' });
+    } catch (e) {
+      toast.fromError(e);
+    }
+  };
+  const giveKey = async (u: Account) => {
+    if (u.key && !(await confirm({ title: `给「${u.name}」换一把密钥？`, desc: '原来那把不能再用。', okText: '换一把' }))) return;
+    try {
+      const r = await post<{ key: string }>(`/admin/users/${u.id}/key`);
+      setSecret({ name: u.name, value: r.key, kind: 'key' });
+      await qc.invalidateQueries({ queryKey: ['admin', 'users'] });
+    } catch (e) {
+      toast.fromError(e);
+    }
+  };
+  const dropKey = async (u: Account) => {
+    if (!(await confirm({ title: `停用「${u.name}」的密钥？`, desc: '这把密钥不能再用，这个号登着的也会退出。', okText: '停用', danger: true }))) return;
+    try {
+      await del(`/admin/users/${u.id}/key`);
+      await qc.invalidateQueries({ queryKey: ['admin', 'users'] });
+      toast.success('密钥停用了');
     } catch (e) {
       toast.fromError(e);
     }
@@ -120,6 +142,11 @@ export function AdminPage() {
                     <span className="rounded-full bg-surface-3 px-2 py-0.5 text-[12px] text-ink-2">{ROLE[u.role]}</span>
                     {u.demo && <span className="rounded-full bg-info-soft px-2 py-0.5 text-[12px] text-info">演示</span>}
                     {!u.active && <span className="rounded-full bg-bad-soft px-2 py-0.5 text-[12px] text-bad">已停用</span>}
+                    {u.key && (
+                      <span className="rounded-full bg-brand-soft px-2 py-0.5 text-[12px] text-brand-ink" title={u.key.lastUsedAt ? `最近用密钥登录 ${when(u.key.lastUsedAt)}` : '密钥还没用过'}>
+                        密钥 ··{u.key.hint}
+                      </span>
+                    )}
                   </p>
                   <p className="mt-0.5 truncate text-[13px] tabular-nums text-ink-3">
                     {[
@@ -139,7 +166,7 @@ export function AdminPage() {
                 )}
                 {!u.super && (
                   <Popover
-                    width={150}
+                    width={160}
                     trigger={({ toggle: open }) => (
                       <IconButton size="sm" label={`${u.name}：更多`} onClick={open} className="text-ink-3">
                         <MoreHorizontal className="size-4" />
@@ -151,6 +178,14 @@ export function AdminPage() {
                         <MenuItem icon={<KeyRound />} onClick={() => reset(u)}>
                           重置密码
                         </MenuItem>
+                        <MenuItem icon={<KeySquare />} onClick={() => giveKey(u)}>
+                          {u.key ? '换一把密钥' : '发登录密钥'}
+                        </MenuItem>
+                        {u.key && (
+                          <MenuItem icon={<Ban />} danger onClick={() => dropKey(u)}>
+                            停用密钥
+                          </MenuItem>
+                        )}
                         {u.active ? (
                           <MenuItem icon={<UserX />} danger onClick={() => toggle(u)}>
                             停用
@@ -172,8 +207,8 @@ export function AdminPage() {
       <Modal
         open={!!secret}
         onClose={() => setSecret(null)}
-        title={secret ? `${secret.name}的新密码` : ''}
-        width={400}
+        title={secret ? `${secret.name}的${secret.kind === 'key' ? '登录密钥' : '新密码'}` : ''}
+        width={secret?.kind === 'key' ? 460 : 400}
         footer={
           <Button variant="primary" onClick={() => setSecret(null)}>
             好了
@@ -181,11 +216,21 @@ export function AdminPage() {
         }
       >
         <div className="flex items-center justify-center gap-2 py-4">
-          <span className="font-mono text-[38px] font-semibold tracking-[0.18em] text-ink">{secret?.password}</span>
-          <IconButton label="复制密码" onClick={() => secret && copyText(secret.password, '密码')}>
+          <span className={cn('font-mono font-semibold text-ink', secret?.kind === 'key' ? 'text-[22px] tracking-[0.06em]' : 'text-[38px] tracking-[0.18em]')}>{secret?.value}</span>
+          <IconButton
+            label={secret?.kind === 'key' ? '复制密钥' : '复制密码'}
+            onClick={() => secret && copyText(secret.value, secret.kind === 'key' ? '密钥' : '密码')}
+          >
             <Copy className="size-4" />
           </IconButton>
         </div>
+        {secret?.kind === 'key' && (
+          <p className="text-center text-[14px] leading-relaxed text-ink-3">
+            只显示这一次，复制好发过去
+            <br />
+            登录页点「登录密钥」，贴上就能进
+          </p>
+        )}
       </Modal>
     </div>
   );

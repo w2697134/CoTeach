@@ -5,9 +5,10 @@ import { audit, requireRole, type AppEnv } from '../auth.js';
 import { db, getSetting, setSetting } from '../db/index.js';
 import { hashPassword } from '../lib/crypto.js';
 import { bad, body, forbidden, intParam, notFound } from '../lib/http.js';
+import { issueLoginKey, loginKeyInfo, revokeLoginKey } from '../login-keys.js';
 
 /**
- * 管理页（只有管理员）：看所有账号、停用和恢复、重置密码、看今天每人调了几次模型；开关老师注册。
+ * 管理页（只有管理员）：看所有账号、停用和恢复、重置密码、发和停用登录密钥、看今天每人调了几次模型；开关老师注册。
  * 没有短信和邮箱，老师忘了密码就在这里重置。
  */
 export const adminRoutes = new Hono<AppEnv>();
@@ -58,6 +59,7 @@ adminRoutes.get('/users', (c) => {
       callsToday: u.calls_today,
       classes: u.classes,
       joined: u.joined,
+      key: loginKeyInfo(u.id),
     })),
     counts: Object.fromEntries(counts.map((r) => [r.role, r.n])),
   });
@@ -81,6 +83,22 @@ adminRoutes.post('/users/:id/password', (c) => {
   db.run('DELETE FROM sessions WHERE user_id=?', u.id);
   audit(c, 'admin.password', `user:${u.id}`);
   return c.json({ password });
+});
+
+/** 发登录密钥：一个号一把，贴上就进这个号；原来有就换掉。密钥只显示这一次 */
+adminRoutes.post('/users/:id/key', (c) => {
+  const u = target(c);
+  const key = issueLoginKey(u.id);
+  audit(c, 'admin.key', `user:${u.id}`);
+  return c.json({ key });
+});
+
+/** 停用登录密钥：这把不能再用，这个号登着的都退出 */
+adminRoutes.delete('/users/:id/key', (c) => {
+  const u = target(c);
+  if (!revokeLoginKey(u.id)) throw bad('这个号没有密钥');
+  audit(c, 'admin.key.revoke', `user:${u.id}`);
+  return c.json({ ok: true });
 });
 
 /** 停用、恢复：停用的登不进来，登着的马上退出 */

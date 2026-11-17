@@ -1,11 +1,11 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router';
-import { ArrowRight, Eye, EyeOff, Lock, User as UserIcon, Users2 } from 'lucide-react';
+import { ArrowRight, Eye, EyeOff, KeyRound, Lock, User as UserIcon, Users2 } from 'lucide-react';
 import { get } from '../lib/api';
 import { APP_NAME, APP_SHORT_NAME, HOST_ART, HOST_NAME } from '../lib/brand';
 import { toast, useAuth, useTheme } from '../lib/store';
 import { Logo } from '../components/layout/AppShell';
-import { AgentAvatar, Button, Input, Modal, cn } from '../components/ui';
+import { AgentAvatar, Button, Input, Modal, Tabs, cn } from '../components/ui';
 
 export interface PublicConfig {
   demoMode: boolean;
@@ -13,6 +13,21 @@ export interface PublicConfig {
   teacherSignup: boolean;
   /** 只开放给指定账号（比赛期间）：不显示注册 */
   loginOnly?: boolean;
+  /** 有号发了登录密钥：登录页上多一个「登录密钥」 */
+  keyLogin?: boolean;
+  /** 账号密码登录开着没有（关了就只能用密钥，比赛期间） */
+  passwordLogin?: boolean;
+}
+
+/** 上次用的是账号密码还是密钥，下回打开还是那个 */
+type Mode = 'password' | 'key';
+const MODE = 'ct-login-mode';
+function savedMode(): Mode {
+  try {
+    return localStorage.getItem(MODE) === 'key' ? 'key' : 'password';
+  } catch {
+    return 'password';
+  }
 }
 export const usePublicConfig = () => {
   const [cfg, setCfg] = useState<PublicConfig | null>(null);
@@ -91,6 +106,8 @@ function Forgot({ open, onClose }: { open: boolean; onClose: () => void }) {
 
 /**
  * 登录：手机号（老师）或学号（学生）加密码。下面「忘记密码」「注册账号」。
+ * 有号发了登录密钥时，上面多一栏「登录密钥」：贴上密钥就进对应的号，不用输账号密码。
+ * 账号密码登录关了的时候（比赛期间），密钥那一栏排前面，「账号密码」那一栏只写暂未开放，不显示注册。
  * 演示账号不在登录页上露出来，网址带 ?demo 才显示（给自己演示、把演示老师设成正式账号用）。
  */
 export function LoginPage() {
@@ -100,7 +117,24 @@ export function LoginPage() {
   const [show, setShow] = useState(false);
   const [forgot, setForgot] = useState(false);
   const [loading, setLoading] = useState<string | null>(null);
-  const { login, demo } = useAuth();
+  const [mode, setMode] = useState<Mode>(savedMode);
+  const [key, setKey] = useState('');
+  const { login, demo, keyLogin } = useAuth();
+  /** 账号密码登录关了（比赛期间）：只留密钥，「账号密码」那一栏显示暂未开放 */
+  const pwOff = cfg?.passwordLogin === false;
+  const tabs = !!cfg?.keyLogin || pwOff;
+  // 关了账号密码时一直先在密钥这一栏，点了「账号密码」才看那一栏
+  const [peek, setPeek] = useState(false);
+  const view: Mode = pwOff ? (peek ? 'password' : 'key') : tabs ? mode : 'password';
+  const pick = (m: Mode) => {
+    if (pwOff) return setPeek(m === 'password');
+    setMode(m);
+    try {
+      localStorage.setItem(MODE, m);
+    } catch {
+      /* 存不了就算了，下回默认账号密码 */
+    }
+  };
   const navigate = useNavigate();
   const [params] = useSearchParams();
 
@@ -115,6 +149,20 @@ export function LoginPage() {
     setLoading('form');
     try {
       await login(username.trim(), password);
+      go();
+    } catch (err) {
+      toast.fromError(err, '登录失败');
+    } finally {
+      setLoading(null);
+    }
+  };
+
+  const submitKey = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!key.trim()) return toast.warning('先把密钥贴进来');
+    setLoading('key');
+    try {
+      await keyLogin(key.trim());
       go();
     } catch (err) {
       toast.fromError(err, '登录失败');
@@ -145,7 +193,47 @@ export function LoginPage() {
           <p className="mt-1 text-[15px] text-ink-2">登录后我带你开始。</p>
         </div>
       </div>
-      <form onSubmit={submit} className="mt-7 space-y-3.5">
+      {tabs && (
+        <Tabs
+          className="mt-7"
+          value={view}
+          onChange={pick}
+          items={
+            pwOff
+              ? [
+                  { value: 'key', label: '登录密钥' },
+                  { value: 'password', label: '账号密码' },
+                ]
+              : [
+                  { value: 'password', label: '账号密码' },
+                  { value: 'key', label: '登录密钥' },
+                ]
+          }
+        />
+      )}
+      {view === 'key' ? (
+        <form onSubmit={submitKey} className="mt-5 space-y-3.5">
+          <Input
+            sizeVariant="lg"
+            icon={<KeyRound />}
+            placeholder="贴上拿到的密钥"
+            value={key}
+            onChange={(e) => setKey(e.target.value)}
+            autoComplete="off"
+            spellCheck={false}
+            autoCapitalize="characters"
+          />
+          <Button type="submit" variant="primary" size="lg" block loading={loading === 'key'} iconRight={<ArrowRight className="size-4" />}>
+            登录
+          </Button>
+        </form>
+      ) : pwOff ? (
+        <div className="mt-5 rounded-xl bg-surface-2 px-5 py-7 text-center">
+          <p className="text-[16px] font-medium text-ink">账号密码登录暂未开放</p>
+          <p className="mt-1.5 text-[14px] text-ink-3">用拿到的登录密钥登录就行</p>
+        </div>
+      ) : (
+      <form onSubmit={submit} className={cn(tabs ? 'mt-5' : 'mt-7', 'space-y-3.5')}>
         <Input sizeVariant="lg" icon={<UserIcon />} placeholder="手机号、学号或账号" value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" />
         <Input
           sizeVariant="lg"
@@ -165,11 +253,18 @@ export function LoginPage() {
           登录
         </Button>
       </form>
-      <div className="mt-4 flex items-center justify-between text-[14px]">
-        <button type="button" onClick={() => setForgot(true)} className="text-ink-3 hover:text-ink">
-          忘记密码
-        </button>
-        {!cfg?.loginOnly && (
+      )}
+      <div className="mt-4 flex min-h-5 items-center justify-between text-[14px]">
+        {view === 'key' ? (
+          <span className="text-ink-3">密钥丢了，找给你密钥的人换一把</span>
+        ) : pwOff ? (
+          <span />
+        ) : (
+          <button type="button" onClick={() => setForgot(true)} className="text-ink-3 hover:text-ink">
+            忘记密码
+          </button>
+        )}
+        {!cfg?.loginOnly && !pwOff && (
           <Link to="/register" className="text-brand hover:underline">
             注册账号
           </Link>

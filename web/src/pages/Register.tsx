@@ -73,7 +73,7 @@ export function RegisterPage() {
       </div>
       {who === 'teacher' ? (
         closed ? (
-          <p className="mt-6 rounded-xl border border-line bg-surface px-4 py-5 text-center text-[15px] text-ink-2">现在不开放老师注册</p>
+          <p className="mt-6 rounded-xl border border-line bg-surface px-4 py-5 text-center text-[15px] text-ink-2">老师注册暂未开放</p>
         ) : (
           <form onSubmit={signUp} className="mt-6 space-y-3.5">
             <Input
