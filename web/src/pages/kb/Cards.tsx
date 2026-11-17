@@ -32,7 +32,7 @@ function Mark({ fresh, pending, working }: { fresh?: { at: number; added: boolea
     );
   if (pending) return <span className="shrink-0 rounded-full bg-brand-soft px-2 text-[13px] leading-[22px] text-brand-ink">等你确认</span>;
   if (!fresh || Date.now() - fresh.at > TEN_MINUTES) return null;
-  return <span className="shrink-0 rounded-full bg-ok-soft px-2 text-[13px] leading-[22px] text-ok">{fresh.added ? '新' : '刚改过'}</span>;
+  return <span className="shrink-0 rounded-full bg-ok-soft px-2 text-[13px] leading-[22px] text-emerald-700 dark:text-emerald-300">{fresh.added ? '新' : '刚改过'}</span>;
 }
 
 /** 卡片里能单独点的一小段（「来自《…》」）：盖在整张卡片的按钮上面 */

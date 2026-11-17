@@ -248,7 +248,8 @@ export function activitiesOf(changes: Change[], files: TreeFile[]): Activity[] {
   for (const c of sorted) {
     if (c.kind === 'revert') continue;
     const upload = c.author === 'keeper' ? uploadBefore(sorted, c) : undefined;
-    if (upload && c.files.some((f) => f.added && !f.deleted)) merged.add(upload.id);
+    // 这一句已经说了「把你交的《A》……」，交资料那一次就不再单列
+    if (upload && c.files.some((f) => !f.deleted && !f.from)) merged.add(upload.id);
     out.push({ change: c, who: c.author === 'keeper' ? 'ta' : 'teacher', at: c.createdAt, pieces: phrase(c, upload, known) });
   }
   return out.filter((a) => !merged.has(a.change.id)).sort((a, b) => b.at - a.at);

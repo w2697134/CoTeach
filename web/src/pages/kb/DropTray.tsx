@@ -155,7 +155,7 @@ export function DropTray({
         <span className="min-w-0 truncate">{status.text}</span>
       </span>
     ) : status.state === 'done' ? (
-      <span className="flex min-w-0 items-center gap-2 text-ok">
+      <span className="flex min-w-0 items-center gap-2 text-emerald-700 dark:text-emerald-300">
         <span className="size-2 shrink-0 rounded-full bg-ok" />
         <span className="shrink-0">整理好了</span>
         {status.changeId && status.kbId && onOpenChange && (
@@ -165,7 +165,7 @@ export function DropTray({
         )}
       </span>
     ) : status.state === 'error' ? (
-      <span className="flex min-w-0 items-center gap-2 text-bad">
+      <span className="flex min-w-0 items-center gap-2 text-red-700 dark:text-red-300">
         <span className="size-2 shrink-0 rounded-full bg-bad" />
         <span className="min-w-0 truncate">没整理完：{status.text}</span>
       </span>

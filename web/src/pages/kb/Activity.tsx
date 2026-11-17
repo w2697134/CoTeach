@@ -52,7 +52,7 @@ function Row({
         <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[13px] leading-5 text-ink-3">
           {item.kbName && <span className="max-w-[12rem] truncate">{item.kbName}</span>}
           <span>{fromNow(item.at)}</span>
-          {note && <span className={c.status === 'pending' ? 'font-medium text-brand-ink' : c.status === 'conflict' ? 'text-warn' : undefined}>{note}</span>}
+          {note && <span className={c.status === 'pending' ? 'font-medium text-brand-ink' : c.status === 'conflict' ? 'text-amber-700 dark:text-amber-300' : undefined}>{note}</span>}
           <button type="button" onClick={() => onOpenChange(item.kbId, c.id)} className="text-ink-2 transition-colors hover:text-ink hover:underline hover:underline-offset-4">
             看改动
           </button>

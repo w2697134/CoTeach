@@ -1,6 +1,6 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
-import { useQueries } from '@tanstack/react-query';
+import { useQueries, useQueryClient } from '@tanstack/react-query';
 import { ChevronRight, Plus } from 'lucide-react';
 import { useCrumbs } from '../../components/layout/Crumbs';
 import { fmtTime } from '../../lib/format';
@@ -146,6 +146,16 @@ export function KnowledgeHomePage() {
 
   // 文件和改动哪个库的变了才重算
   const version = [...trees, ...logs].map((r) => r.dataUpdatedAt).join(',');
+  // 最外层没订各个库的推送：改动记录一变，摆着的笔记卡片重新取一次开头几行
+  const qc = useQueryClient();
+  const changed = logs.map((l) => l.dataUpdatedAt).join(',');
+  const seenChanged = useRef(changed);
+  useEffect(() => {
+    if (seenChanged.current === changed) return;
+    const first = seenChanged.current.split(',').some((t) => t === '0') || !seenChanged.current;
+    seenChanged.current = changed;
+    if (!first) void qc.invalidateQueries({ queryKey: ['kb-file'] });
+  }, [changed, qc]);
   const shelves = useMemo(
     () =>
       list.map((kb, i) => {
