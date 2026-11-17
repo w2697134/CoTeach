@@ -53,6 +53,8 @@ const StudentChat = page(() => import('./pages/classes/StudentChat'), 'StudentCh
 const Classroom = page(() => import('./pages/classroom/ClassroomPage'), 'ClassroomPage');
 const Lecture = page(() => import('./pages/classroom/LecturePage'), 'LecturePage');
 const StudentLive = page(() => import('./pages/classroom/StudentLive'), 'StudentLivePage');
+/** 课件组件的演示页，只在开发环境有（打包上线时这段整个去掉） */
+const DeckLab = import.meta.env.DEV ? lazy(() => import('./pages/lab/DeckLab').then((m) => ({ default: m.DeckLabPage }))) : null;
 
 function S({ children }: { children: ReactNode }) {
   return <Suspense fallback={<PageLoading />}>{children}</Suspense>;
@@ -95,6 +97,19 @@ function RequireUser({ children }: { children: ReactNode }) {
 }
 
 export const router = createBrowserRouter([
+  ...(DeckLab
+    ? [
+        {
+          path: '/lab/deck',
+          errorElement: <RouteError />,
+          element: (
+            <S>
+              <DeckLab />
+            </S>
+          ),
+        },
+      ]
+    : []),
   {
     path: '/login',
     errorElement: <RouteError />,

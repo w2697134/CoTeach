@@ -1,0 +1,160 @@
+import type { Deck } from './types';
+
+/** 演示用的一套课件：Python 程序设计「字典的常用操作」，十种版式都用到 */
+export const SAMPLE_DECK: Deck = {
+  theme: 'violet',
+  slides: [
+    {
+      id: 's01',
+      layout: 'cover',
+      title: '字典的常用操作',
+      subtitle: 'Python 程序设计 · 第 7 讲',
+      notes: '上课。上节课学了列表，今天学另一种天天要用的容器：字典。\n先问一句：手机通讯录是怎么按名字一下子找到电话号码的？带着这个问题往下看。',
+    },
+    {
+      id: 's02',
+      layout: 'points',
+      title: '这节课要会的',
+      points: ['用 `{}` 和 `dict()` 创建字典', '按键取值，分清 `d[k]` 和 `d.get(k)`', '增、删、改、查四种基本操作', '用 `for` 遍历键、值和键值对', '用字典统计一段文字里的词频'],
+      notes: '这是今天的五个目标，下课前回头对一遍，看哪条还没把握。',
+    },
+    {
+      id: 's03',
+      layout: 'section',
+      title: '认识字典',
+      subtitle: '按名字找东西',
+      notes: '第一部分，先弄清字典是什么、跟列表比好在哪。',
+    },
+    {
+      id: 's04',
+      layout: 'compare',
+      title: '列表和字典有什么不同',
+      compare: {
+        left: { head: '列表 list', points: ['按位置找：`a[0]`', '元素可以重复', '适合一串同类的数据'] },
+        right: { head: '字典 dict', points: ["按键找：`d['name']`", '键不能重复', '适合「名字 → 内容」的对应'] },
+      },
+      notes: '列表像一排座位，按座位号找人；字典像通讯录，按名字找人。\n记住一句：要按名字查，就用字典。',
+    },
+    {
+      id: 's05',
+      layout: 'code',
+      title: '创建字典',
+      code: {
+        lang: 'python',
+        text: '# 用花括号，键和值之间用冒号\nstudent = {"name": "小林", "age": 19, "major": "软件工程"}\n\n# 用 dict()，键写成参数名\nscores = dict(math=92, english=85)\n\nempty = {}                # 空字典，后面再往里放\nprint(student["name"])    # 小林',
+        caption: '键通常用字符串，值可以是任何类型，包括列表和另一个字典',
+        mark: [2],
+      },
+      notes: '重点看第 2 行：键和值用冒号隔开，每一对之间用逗号。\n让同学自己写一个描述自己的字典，三对就行。',
+    },
+    {
+      id: 's06',
+      layout: 'table',
+      title: '常用写法一览',
+      table: {
+        head: ['写法', '作用', '键不存在时'],
+        rows: [
+          ['`d[k]`', '取值', '报 KeyError'],
+          ['`d.get(k, 默认值)`', '取值', '返回默认值'],
+          ['`d[k] = v`', '添加或修改', '新加一对'],
+          ['`d.pop(k)`', '删除并返回值', '报 KeyError'],
+          ['`k in d`', '判断键在不在', '返回 False'],
+          ['`d.items()`', '取出所有键值对', '—'],
+        ],
+      },
+      notes: '这张表不用背，重点是最后一列：哪些写法遇到不存在的键会报错。后面的练习就考这个。',
+    },
+    {
+      id: 's07',
+      layout: 'section',
+      title: '增删改查',
+      subtitle: '一个通讯录的例子',
+      notes: '第二部分，用通讯录把增删改查走一遍。',
+    },
+    {
+      id: 's08',
+      layout: 'code',
+      title: '增、删、改、查',
+      code: {
+        lang: 'python',
+        text: 'phone = {"张三": "138-0000-1111"}\n\nphone["李四"] = "139-2222-3333"    # 增：键不存在就新加\nphone["张三"] = "137-4444-5555"    # 改：键已存在就覆盖\ndel phone["李四"]                  # 删：键不存在会报错\nnum = phone.pop("张三", None)       # 删：给了默认值就不报错\n\nprint(phone.get("王五", "查无此人"))  # 查',
+        caption: '增和改是同一种写法，区别只在键原来有没有',
+        mark: [3, 4],
+      },
+      notes: '第 3、4 行写法一模一样，结果一个是新加、一个是覆盖。问学生：怎么知道是哪一种？答：看键原来在不在。',
+    },
+    {
+      id: 's09',
+      layout: 'steps',
+      title: '用字典统计词频',
+      steps: [
+        { head: '准备空字典', text: '`counts = {}`' },
+        { head: '逐个读单词', text: '`for w in words:`' },
+        { head: '有就加一，没有记 1', text: '`counts[w] = counts.get(w, 0) + 1`' },
+        { head: '按次数排序', text: '`sorted(counts.items(), ...)`' },
+      ],
+      notes: '第三步是关键：get 给默认值 0，就不用先判断键在不在。\n先让学生口头说每一步，再上机。',
+    },
+    {
+      id: 's10',
+      layout: 'code',
+      title: '遍历字典',
+      code: {
+        lang: 'python',
+        text: 'scores = {"小林": 92, "小王": 85, "小陈": 78}\n\nfor name in scores:                   # 默认遍历的是键\n    print(name)\n\nfor name, score in scores.items():    # 同时拿到键和值\n    print(f"{name}：{score} 分")\n\ntotal = sum(scores.values())           # 只要值\nprint("平均分", total / len(scores))',
+        caption: '要同时用键和值，用 items() 最方便',
+      },
+      notes: '三种遍历方式对应 keys、items、values。运行一遍给学生看输出。',
+    },
+    {
+      id: 's11',
+      layout: 'quiz',
+      title: '随堂练习 1',
+      quiz: {
+        question: "`d = {'a': 1}`，下面哪种写法在键不存在时不会报错？",
+        options: ["`d['b']`", "`d.get('b')`", "`d.pop('b')`", "`del d['b']`"],
+        answer: [1],
+        explain: '`get` 找不到键时返回 `None`（或给定的默认值）；另外三种都会报 KeyError。',
+      },
+      notes: '给半分钟，举手表决，再揭晓。选 C 的同学提醒一下：pop 只有给了默认值才不报错。',
+    },
+    {
+      id: 's12',
+      layout: 'quiz',
+      title: '随堂练习 2',
+      quiz: {
+        question: '下面哪些可以作为字典的键？',
+        options: ["`'name'`", '`3.14`', '`[1, 2]`', '`(1, 2)`'],
+        answer: [0, 1, 3],
+        explain: '键必须是不可变的类型。列表能改，不能做键；元组不能改，可以做键。',
+      },
+      notes: '多选题。容易错的是元组，很多同学以为括号的也不行。',
+    },
+    {
+      id: 's13',
+      layout: 'points',
+      title: '常见错误',
+      points: [
+        '直接用 `d[k]` 取不存在的键，程序报 **KeyError**',
+        "拿列表做键：`{[1, 2]: 'x'}` 会报 TypeError",
+        '一边遍历一边增删键会报错，先用 `list(d)` 复制一份再改',
+        '以为能按位置取：`d[0]` 找的是键 0，不是第一个元素',
+      ],
+      notes: '这四条都是作业里出现最多的错误，尤其第一条。',
+    },
+    {
+      id: 's14',
+      layout: 'quote',
+      title: '想一想',
+      quote: { text: '算法 + 数据结构 = 程序', by: '尼克劳斯·维尔特，Pascal 语言的设计者' },
+      notes: '字典就是一种数据结构。选对了数据结构，算法往往就简单了：统计词频用字典，读一遍就数完。',
+    },
+    {
+      id: 's15',
+      layout: 'summary',
+      title: '本课小结',
+      points: ['字典存的是「键 → 值」，按键查找很快', '取值优先用 `get`，不怕键不存在', '`d[k] = v` 既能新加也能修改', '遍历用 `items()` 同时拿到键和值', '键必须是不可变的类型', '课后：统计一段英文里每个单词出现几次'],
+      notes: '对照开头的五个目标，问问还有哪条没把握。作业在班级里，周五交。',
+    },
+  ],
+};
