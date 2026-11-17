@@ -18,6 +18,7 @@ import { adminRoutes } from './routes/admin.js';
 import { setInternalApp } from './assistant/api.js';
 import { cotRoutes } from './assistant/routes.js';
 import { prepRoutes } from './prep/routes.js';
+import { classroomRoutes } from './classroom/routes.js';
 
 export function createApp() {
   const app = new Hono<AppEnv>();
@@ -60,6 +61,7 @@ export function createApp() {
   app.route('/api/homework', homeworkRoutes);
   app.route('/api/homework', gradingRoutes);
   app.route('/api/prep', prepRoutes);
+  app.route('/api/classroom', classroomRoutes);
   app.route('/api/admin', adminRoutes);
   app.route('/api/cot', cotRoutes);
 

@@ -745,3 +745,76 @@ INSERT INTO lessons (id, teacher_id, class_id, title, request, status, plan, lan
 INSERT INTO lesson_versions (lesson_id, part, data, by, created_at)
   SELECT id, 'plan', data, 'ta', updated_at FROM lesson_plans WHERE status='ready' AND data IS NOT NULL;
 `);
+
+// 第 22 次：课堂（2026-11-17）。照雨课堂的授课、课堂派的课堂互动：老师给一个班开一堂课（可以带一节备好的课，也可以不带），
+// 放课件、推题、学生手机上作答、看实时统计、公布答案、随机点名、学生提问，下课程序算一份小结。全是程序，不经过模型。
+// lectures：一堂课一行。哪个班、哪节课（lesson_id，没挑是空）、课题（开课时记下，课删了也还在）、在上（live）还是下课了（ended）、
+//   老师放到第几页（page，0 起）、大屏上放的是哪道题的作答（screen，空是放课件）、开始和结束时间、下课小结（summary，JSON）。
+//   updated_at 是老师最后一次动这堂课（开着页面也算），很久没动的自己下课。同一个班同一时间只能有一堂在上（下面的唯一索引）。
+// lecture_attendance：谁进了课堂（学生打开上课的页面就算到课，只记第一次）。
+// lecture_questions：推了哪些题，题目照 Question 原样存一份（data）；source 是从哪推的：课堂练习的题号、'slide:课件页的 id'，当堂出的为空。
+//   open 收着作答，revealed 公布了答案（不再收）。
+// lecture_answers：学生的作答，一人一题一份，交了不能改。answer 是 {choice:[序号]} 或 {text:'...'}；
+//   correct 程序判：选择、判断照答案判，填空照答案比对（去空格、不分大小写）；简答、编程不判对错，是 NULL。
+// lecture_asks：学生上课时提的问题。lecture_calls：随机点名点到的人，round 是第几轮（一轮里不重复，人点完了开新一轮）。
+migrations.push(`
+CREATE TABLE lectures (
+  id INTEGER PRIMARY KEY,
+  class_id INTEGER NOT NULL REFERENCES classes(id),
+  teacher_id INTEGER NOT NULL REFERENCES users(id),
+  lesson_id INTEGER REFERENCES lessons(id),
+  title TEXT NOT NULL,
+  status TEXT NOT NULL CHECK(status IN ('live','ended')),
+  page INTEGER NOT NULL DEFAULT 0,
+  screen INTEGER,
+  started_at INTEGER NOT NULL,
+  ended_at INTEGER,
+  summary TEXT,
+  updated_at INTEGER NOT NULL,
+  deleted_at INTEGER
+);
+CREATE UNIQUE INDEX idx_lectures_live ON lectures(class_id) WHERE status='live';
+CREATE INDEX idx_lectures_teacher ON lectures(teacher_id, id);
+CREATE INDEX idx_lectures_class ON lectures(class_id, status);
+CREATE TABLE lecture_attendance (
+  lecture_id INTEGER NOT NULL REFERENCES lectures(id),
+  user_id INTEGER NOT NULL REFERENCES users(id),
+  joined_at INTEGER NOT NULL,
+  PRIMARY KEY(lecture_id, user_id)
+);
+CREATE TABLE lecture_questions (
+  id INTEGER PRIMARY KEY,
+  lecture_id INTEGER NOT NULL REFERENCES lectures(id),
+  source TEXT,
+  data TEXT NOT NULL,
+  status TEXT NOT NULL CHECK(status IN ('open','revealed')),
+  pushed_at INTEGER NOT NULL,
+  revealed_at INTEGER
+);
+CREATE INDEX idx_lecture_questions ON lecture_questions(lecture_id, id);
+CREATE TABLE lecture_answers (
+  id INTEGER PRIMARY KEY,
+  question_id INTEGER NOT NULL REFERENCES lecture_questions(id),
+  user_id INTEGER NOT NULL REFERENCES users(id),
+  answer TEXT NOT NULL,
+  correct INTEGER,
+  created_at INTEGER NOT NULL,
+  UNIQUE(question_id, user_id)
+);
+CREATE TABLE lecture_asks (
+  id INTEGER PRIMARY KEY,
+  lecture_id INTEGER NOT NULL REFERENCES lectures(id),
+  user_id INTEGER NOT NULL REFERENCES users(id),
+  text TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX idx_lecture_asks ON lecture_asks(lecture_id, id);
+CREATE TABLE lecture_calls (
+  id INTEGER PRIMARY KEY,
+  lecture_id INTEGER NOT NULL REFERENCES lectures(id),
+  user_id INTEGER NOT NULL REFERENCES users(id),
+  round INTEGER NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX idx_lecture_calls ON lecture_calls(lecture_id, id);
+`);

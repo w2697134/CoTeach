@@ -10,6 +10,7 @@ import { BUDDY } from '../kb/data';
 import { when } from '../kb/presentation';
 import { useStuRuns, useStuSession, useStuSessions, useStuStream } from './data';
 import { BuddyRunBlock } from './Thread';
+import { LiveBanner } from '../classroom/LiveBanner';
 
 /** 开启新会话、翻以前的会话（跟老师那边的助教一样，照 DeepSeek、豆包） */
 function SessionButtons({ compact, disabled }: { compact: boolean; disabled: boolean }) {
@@ -159,6 +160,8 @@ export function BuddyPage() {
         <SessionButtons compact={false} disabled={busy} />
       </div>
       {slot && createPortal(<SessionButtons compact disabled={busy} />, slot)}
+      {/* 自己班正在上课：顶上一张卡片，点了进课堂 */}
+      <LiveBanner className="shrink-0 px-3 pt-3 lg:px-6" />
       <div ref={scroller} className="min-h-0 flex-1 overflow-y-auto px-3 py-5 lg:px-6">
         <div ref={content} className="space-y-6">
           {q.data && !runs.length && (
