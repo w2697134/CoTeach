@@ -438,7 +438,8 @@ export function AiBar({ h, onReview }: { h: HomeworkDetail; onReview: () => void
       : drafts || flagged
         ? `助教批好 ${drafts + flagged} 份，还没发给学生`
         : `交上来 ${waiting} 份，还没批`;
-  const sub = [flagged && `${flagged} 份拿不准，等你看`, drafts && `${drafts} 份等你看过再发`, failed && `${failed} 份没批成`].filter(Boolean).join('，');
+  // 拿不准的下面单独有一栏「这几份助教拿不准，等你看一眼」，这里不再说一遍
+  const sub = [drafts && `${drafts} 份等你看过再发`, failed && `${failed} 份没批成`].filter(Boolean).join('，');
   return (
     <div className="flex flex-wrap items-center gap-x-5 gap-y-3 border-b border-line bg-brand-soft/40 px-5 py-4 sm:px-6">
       <AgentAvatar agent={TA} size={44} status={running ? 'running' : null} />
@@ -449,7 +450,7 @@ export function AiBar({ h, onReview }: { h: HomeworkDetail; onReview: () => void
             <div className="h-full rounded-full bg-brand transition-[width] duration-700" style={{ width: `${Math.round((done / Math.max(1, done + running)) * 100)}%` }} />
           </div>
         ) : (
-          sub && <p className={cn('mt-0.5 text-[14px]', flagged ? INK.warn : 'text-ink-2')}>{sub}</p>
+          sub && <p className={cn('mt-0.5 text-[14px]', failed ? INK.warn : 'text-ink-2')}>{sub}</p>
         )}
       </div>
       {graded >= 3 && <Spread scores={gradedList.map((s) => s.score!)} points={h.points} className="max-sm:w-full max-sm:justify-center" />}

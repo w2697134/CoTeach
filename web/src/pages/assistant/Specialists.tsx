@@ -101,7 +101,6 @@ export function SpecialistsButton({ compact }: { compact: boolean }) {
     >
       {() => (
         <div className="max-h-[70vh] overflow-y-auto py-1.5">
-          <p className="px-4 pb-1 pt-1 text-[13px] text-ink-3">助教分出来的专门助手</p>
           <div className={cn('divide-y divide-line')}>
             {list.map((s) => (
               <Row key={s.id} s={s} onRetire={() => retire(s)} />

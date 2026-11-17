@@ -17,8 +17,10 @@ import { CHIP, INK, scoreInk } from './tone';
 /** 一份作业的抬头：标题、满分、截止、截止后收不收、什么时候发，下面要求（一行四十几个字）和附件 */
 function Brief({ h, menu, mark, note }: { h: HomeworkDetail; menu?: React.ReactNode; mark?: React.ReactNode; note?: React.ReactNode }) {
   const theme = themeOf(h.classId);
-  const facts = [`满分 ${num(h.points)}`, h.dueAt ? `${when(h.dueAt)} 截止` : '不设截止', h.dueAt && (h.allowLate ? '截止后还能交' : '截止后不收')].filter(Boolean);
+  const due = h.dueAt ? `${when(h.dueAt)} 截止` : '不设截止';
   const left = h.dueAt && h.dueAt > Date.now() ? dueWords(h.dueAt) : null;
+  // 快到期时右边的紫色小签就是截止时间，前面不再写一遍
+  const facts = [`满分 ${num(h.points)}`, left !== due && due, h.dueAt && (h.allowLate ? '截止后还能交' : '截止后不收')].filter(Boolean);
   return (
     <Card className="space-y-4">
       <div className="flex items-start gap-3">

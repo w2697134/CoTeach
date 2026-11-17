@@ -228,10 +228,7 @@ export function LoginPage() {
           </Button>
         </form>
       ) : pwOff ? (
-        <div className="mt-5 rounded-xl bg-surface-2 px-5 py-7 text-center">
-          <p className="text-[16px] font-medium text-ink">账号密码登录暂未开放</p>
-          <p className="mt-1.5 text-[14px] text-ink-3">用拿到的登录密钥登录就行</p>
-        </div>
+        <p className="mt-5 rounded-xl bg-surface-2 px-5 py-8 text-center text-[16px] text-ink-2">账号密码登录暂未开放</p>
       ) : (
       <form onSubmit={submit} className={cn(tabs ? 'mt-5' : 'mt-7', 'space-y-3.5')}>
         <Input sizeVariant="lg" icon={<UserIcon />} placeholder="手机号、学号或账号" value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" />
@@ -254,22 +251,18 @@ export function LoginPage() {
         </Button>
       </form>
       )}
-      <div className="mt-4 flex min-h-5 items-center justify-between text-[14px]">
-        {view === 'key' ? (
-          <span className="text-ink-3">密钥丢了，找给你密钥的人换一把</span>
-        ) : pwOff ? (
-          <span />
-        ) : (
+      {view === 'password' && !pwOff && (
+        <div className="mt-4 flex items-center justify-between text-[14px]">
           <button type="button" onClick={() => setForgot(true)} className="text-ink-3 hover:text-ink">
             忘记密码
           </button>
-        )}
-        {!cfg?.loginOnly && !pwOff && (
-          <Link to="/register" className="text-brand hover:underline">
-            注册账号
-          </Link>
-        )}
-      </div>
+          {!cfg?.loginOnly && (
+            <Link to="/register" className="text-brand hover:underline">
+              注册账号
+            </Link>
+          )}
+        </div>
+      )}
 
       {demos.length > 0 && (
         <div className="mt-9">

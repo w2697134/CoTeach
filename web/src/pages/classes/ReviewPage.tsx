@@ -199,9 +199,8 @@ export function ReviewPage() {
       <div className="flex flex-wrap items-center gap-3">
         <div className="min-w-0">
           <h1 className="text-balance text-[24px] font-semibold tracking-tight text-ink">「{d.title}」讲评</h1>
-          <p className="mt-1 text-[14px] text-ink-2">
-            {d.className}
-            {r?.sharedAt ? <span className={cn('ml-2 rounded-full px-2 py-0.5 text-[13px]', CHIP.ok)}>学生看得到了</span> : null}
+          <p className="mt-1 text-[14px] text-ink-2 empty:hidden">
+            {r?.sharedAt ? <span className={cn('rounded-full px-2 py-0.5 text-[13px]', CHIP.ok)}>学生看得到了</span> : null}
           </p>
         </div>
         {ready && (

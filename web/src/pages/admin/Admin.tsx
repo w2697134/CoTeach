@@ -224,13 +224,7 @@ export function AdminPage() {
             <Copy className="size-4" />
           </IconButton>
         </div>
-        {secret?.kind === 'key' && (
-          <p className="text-center text-[14px] leading-relaxed text-ink-3">
-            只显示这一次，复制好发过去
-            <br />
-            登录页点「登录密钥」，贴上就能进
-          </p>
-        )}
+        {secret?.kind === 'key' && <p className="text-center text-[14px] text-ink-3">只显示这一次</p>}
       </Modal>
     </div>
   );
