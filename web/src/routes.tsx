@@ -50,6 +50,9 @@ const Mistakes = page(() => import('./pages/cot/MistakesPage'), 'MistakesPage');
 const Prep = page(() => import('./pages/prep/PrepPage'), 'PrepPage');
 const Lesson = page(() => import('./pages/prep/LessonPage'), 'LessonPage');
 const StudentChat = page(() => import('./pages/classes/StudentChat'), 'StudentChatPage');
+const Classroom = page(() => import('./pages/classroom/ClassroomPage'), 'ClassroomPage');
+const Lecture = page(() => import('./pages/classroom/LecturePage'), 'LecturePage');
+const StudentLive = page(() => import('./pages/classroom/StudentLive'), 'StudentLivePage');
 
 function S({ children }: { children: ReactNode }) {
   return <Suspense fallback={<PageLoading />}>{children}</Suspense>;
@@ -168,6 +171,31 @@ export const router = createBrowserRouter([
         element: (
           <S>
             <TeacherOnly><Lesson /></TeacherOnly>
+          </S>
+        ),
+      },
+      // 课堂（2026-11-17）：老师开课、上课、看小结；学生在 /live/:id 进课堂作答、提问
+      {
+        path: 'classroom',
+        element: (
+          <S>
+            <TeacherOnly><Classroom /></TeacherOnly>
+          </S>
+        ),
+      },
+      {
+        path: 'classroom/:id',
+        element: (
+          <S>
+            <TeacherOnly><Lecture /></TeacherOnly>
+          </S>
+        ),
+      },
+      {
+        path: 'live/:id',
+        element: (
+          <S>
+            <StudentOnly><StudentLive /></StudentOnly>
           </S>
         ),
       },
