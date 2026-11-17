@@ -6,6 +6,7 @@ import rehypeKatex from 'rehype-katex';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 import { useTheme } from '../lib/store';
+import { listifyMarkdown } from '../lib/listLines';
 import { cn } from './ui';
 
 const LANG_LABEL: Record<string, string> = {
@@ -198,7 +199,8 @@ export const Markdown = memo(function Markdown({ children, className, final = tr
         ]}
         components={components as any}
       >
-        {children}
+        {/* 句子里挤着的「1）… 2）…」分条，每条另起一行 */}
+        {listifyMarkdown(children)}
       </ReactMarkdown>
     </div>
   );
