@@ -135,6 +135,13 @@ async function req(path: string, body?: unknown, who = 'teacher', method?: strin
   return { status: res.status, json: type.includes('json') ? ((await res.json()) as any) : null };
 }
 
+/** 边做边显示：模型写到一半时，页面上取这节课拿得到写出来的那部分（每一手记一次当时取到的） */
+const liveSeen: Record<string, any> = {};
+async function peek(what: string) {
+  const id = db.value<number>('SELECT max(id) FROM lessons')!;
+  liveSeen[what] = (await req(`/prep/${id}`)).json.lesson.live;
+}
+
 /** 模型回答按用途给（课件和题目两手一起做，先后不定） */
 const seen: string[] = [];
 let askReply: { calls?: { name: string; args: any }[]; text?: string }[] = [];
@@ -145,6 +152,10 @@ model.setModelStep(async (o) => {
   const afterTool = last.role === 'tool';
   switch (o.purpose) {
     case 'prep:plan':
+      if (!afterTool) {
+        o.onPartial?.({ name: 'save_plan', args: { title: '字典的常用操作', steps: [{ name: '导入', content: '词频' }] } });
+        await peek('plan');
+      }
       return afterTool
         ? { text: '好了', toolCalls: [] }
         : call('save_plan', {
@@ -157,6 +168,10 @@ model.setModelStep(async (o) => {
             board: 'dict → get / items',
           });
     case 'prep:deck':
+      if (!afterTool) {
+        o.onPartial?.({ name: 'save_deck', args: { slides: [{ layout: 'cover', title: '字典的常用操作' }, { layout: 'points', title: '写到一半' }, {}] } });
+        await peek('deck');
+      }
       return afterTool
         ? { text: '好了', toolCalls: [] }
         : call('save_deck', {
@@ -167,6 +182,13 @@ model.setModelStep(async (o) => {
             ],
           });
     case 'prep:questions':
+      if (!afterTool) {
+        o.onPartial?.({
+          name: 'save_questions',
+          args: { practice: [{ type: 'single', stem: 'get 的默认值', options: ['None', '0'], answer: 'A' }, { type: 'single', stem: '选项还没写完', options: ['a'] }] },
+        });
+        await peek('questions');
+      }
       return afterTool
         ? { text: '好了', toolCalls: [] }
         : call('save_questions', {
@@ -183,6 +205,9 @@ model.setModelStep(async (o) => {
       // 这一批是哪几页：看给它的话里的「第N页：」
       const ask = String(last.content);
       const pages = [...ask.matchAll(/第(\d+)页：/g)].map((m) => Number(m[1]));
+      // 写完第一页、第二页写到一半时：页面上看得到第一页
+      o.onPartial?.({ name: 'save_pages', args: { pages: [{ page: pages[0], html: '<div class="slide"><h1 class="title">先做好的</h1></div>' }, { page: pages[1], html: '<div' }] } });
+      await peek('design');
       // 第 2 页做得太满（十二条），精修那一手会收到它
       const full = `<div class="slide"><h1 class="title">第2页</h1><ul class="list">${'<li>一条很长很长的要点说明</li>'.repeat(12)}</ul></div>`;
       return call('save_pages', {
@@ -246,6 +271,20 @@ test('备课：一句话备一节，几手都做完；页面上改、撤回、�
   assert.ok(seen.includes('prep:refine'));
   assert.doesNotMatch(got.deck.slides[0].html, /script|onclick|evil\.example/);
   assert.equal(got.cover.slide.layout, 'cover');
+  // 边做边显示：写到一半的教案、课件、做好的幻灯片页、题目都拿得到；备完就没有了
+  assert.equal(liveSeen.plan.plan.title, '字典的常用操作');
+  assert.equal(liveSeen.plan.plan.steps.length, 1);
+  assert.deepEqual(
+    liveSeen.deck.slides.map((s: any) => [s.id, s.title]),
+    [
+      ['live0', '字典的常用操作'],
+      ['live1', '写到一半'],
+    ],
+  );
+  assert.match(liveSeen.design.pages['0'], /先做好的/);
+  assert.equal(Object.keys(liveSeen.design.pages).length, 1);
+  assert.deepEqual(liveSeen.questions.practice.map((q: any) => q.stem), ['get 的默认值']);
+  assert.equal(got.live, null);
   // 别的老师看不到
   assert.equal((await req(`/prep/${id}`, undefined, 'other')).status, 404);
   assert.equal((await req('/prep', undefined, 'other')).json.lessons.length, 0);

@@ -1,5 +1,6 @@
 import { extractJson, parseToolArgs } from '../../lib/json.js';
 import { joinUrl, normalizeOpenAiBase, readSse, request } from '../net.js';
+import { throttle } from '../partial.js';
 import { LlmError, textOf, type Adapter, type ChatParams, type Msg, type ProviderConn, type RemoteModel, type ToolCall, type ToolSpec } from '../types.js';
 
 /**
@@ -112,6 +113,7 @@ export const agyAdapter: Adapter = {
     let content = '';
     let finish = 'stop';
     let ended = false;
+    const due = throttle();
     const ctype = res.headers.get('content-type') || '';
     if (ctype.includes('application/json')) {
       const j: any = await res.json();
@@ -136,8 +138,9 @@ export const agyAdapter: Adapter = {
         const piece = choice.delta?.content;
         if (typeof piece === 'string' && piece) {
           content += piece;
-          // 不用工具的：一边出一边给
+          // 不用工具的：一边出一边给；用工具的：写到一半的整步 JSON 隔一会儿报一次（备课页边写边显示）
           if (!tools) yield { type: 'text', text: piece };
+          else if (due(content.length)) yield { type: 'partial', name: '', text: content, wrapped: true };
         }
         if (choice.finish_reason) {
           finish = choice.finish_reason;

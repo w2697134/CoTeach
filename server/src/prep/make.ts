@@ -29,6 +29,9 @@ import {
   cleanQuestions,
   cleanSlide,
   lessonRow,
+  partialPlan,
+  partialQuestions,
+  partialSlides,
   savePart,
   setLane,
   type Brief,
@@ -39,6 +42,7 @@ import {
   type Plan,
   type Question,
 } from './lessons.js';
+import { dropLive, dropLivePages, setLive, setLivePages } from './live.js';
 
 /* ---------------- 工具 ---------------- */
 
@@ -219,6 +223,8 @@ async function loop(o: {
   run: (call: ToolCall) => Promise<string> | string;
   done?: () => boolean;
   nudge?: string;
+  /** 工具写到一半时隔一会儿报一次（边做边显示）；换备用模型重来时报 null */
+  onPartial?: (call: { name: string; args: Record<string, unknown> } | null) => void;
 }): Promise<string> {
   append(o.teacherId, o.key, null, { role: 'user', content: o.first });
   let nudged = false;
@@ -226,7 +232,7 @@ async function loop(o: {
   for (let n = 0; n < o.maxSteps; n++) {
     o.signal.throwIfAborted();
     const msgs = requestMessages(o.teacherId, o.key, o.system);
-    const r = await modelStep({ agent: 'prep', purpose: o.purpose, messages: msgs, tools: o.tools, userId: o.teacherId, signal: o.signal, onText: () => {} });
+    const r = await modelStep({ agent: 'prep', purpose: o.purpose, messages: msgs, tools: o.tools, userId: o.teacherId, signal: o.signal, onText: () => {}, onPartial: o.onPartial });
     append(o.teacherId, o.key, null, {
       role: 'assistant',
       content: r.text,
@@ -304,7 +310,10 @@ export function redoLesson(teacherId: number, id: number, lanes: LaneKey[]) {
 function run(id: number, lanes: LaneKey[]) {
   const ctrl = new AbortController();
   making.set(id, ctrl);
-  void make(id, lanes, ctrl.signal).finally(() => making.delete(id));
+  void make(id, lanes, ctrl.signal).finally(() => {
+    making.delete(id);
+    dropLive(id);
+  });
 }
 
 /** 删掉一节课：还在备的停下 */
@@ -404,6 +413,8 @@ function lanePlan(id: number, teacher: string, signal: AbortSignal) {
         signal,
         nudge: '用 save_plan 把教案存下来。',
         done: () => !!saved,
+        // 教案一段段写出来就先摆到页面上
+        onPartial: (c) => (c?.name === 'save_plan' ? setLive(id, { plan: partialPlan(c.args) ?? undefined }) : !c && dropLive(id, 'plan')),
         run: (call) => {
           const kb = kbTool(r.teacher_id, call);
           if (kb !== null) return kb;
@@ -419,6 +430,7 @@ function lanePlan(id: number, teacher: string, signal: AbortSignal) {
       if (!p) throw new Error(said.replace(/\s+/g, ' ').trim().slice(0, 160) || '助教没写出教案');
       const minutes = r.minutes ?? (p.steps.reduce((n, s) => n + (s.minutes || 0), 0) || null);
       savePart(id, 'plan', p, 'ta');
+      dropLive(id, 'plan');
       db.update('lessons', id, { minutes });
       return p.title;
     },
@@ -446,6 +458,8 @@ function laneDeck(id: number, teacher: string, signal: AbortSignal) {
       signal,
       nudge: '用 save_deck 把课件存下来。',
       done: () => !!saved,
+      // 课件一页页写出来就先摆到页面上（还没做成幻灯片，按版式显示）
+      onPartial: (c) => (c?.name === 'save_deck' ? setLive(id, { slides: partialSlides(c.args) }) : !c && dropLive(id, 'slides')),
       run: (call) => {
         const kb = kbTool(r.teacher_id, call);
         if (kb !== null) return kb;
@@ -461,6 +475,7 @@ function laneDeck(id: number, teacher: string, signal: AbortSignal) {
     const old = j<Deck | null>(lessonRow(id)?.deck ?? null, null);
     if (old?.theme) d.theme = old.theme;
     savePart(id, 'deck', d, 'ta');
+    dropLive(id, 'slides');
     const n = d.slides.length;
     if (!SLIDE_KIT_READY) return `${n} 页`;
     setLane(id, 'deck', { status: 'doing', note: `${n} 页，在做成幻灯片` });
@@ -519,9 +534,24 @@ export async function designPages(
   const plan = j<Plan | null>(r.plan, null);
   const titles = d.slides.map((s, i) => `${i + 1}. ${s.title}`).join('\n');
   const html = new Map<number, string>();
+  const notes = new Map<number, string>();
   const batches: number[][] = [];
   const sorted = [...new Set(pages)].filter((i) => i >= 0 && i < d.slides.length).sort((a, b) => a - b);
   for (let i = 0; i < sorted.length; i += 5) batches.push(sorted.slice(i, i + 5));
+  // 做好一批就存进课件，老师马上看得到（边做边显示）；第一回存成新的一版（不是并进上一版时），后面都并进这一版，撤回一次就都回去
+  let versioned = amend;
+  const persist = (idx: number[]) => {
+    const ready = idx.filter((i) => html.has(i));
+    if (!ready.length) return;
+    // 存进最新的课件（这一手做的时候课件没别人改：备课时不让改，说着改的那一句做完才做这一步）
+    const latest = j<Deck | null>(lessonRow(id)?.deck ?? null, null);
+    if (!latest) return;
+    latest.slides = latest.slides.map((s, i) => (ready.includes(i) ? { ...s, html: html.get(i), ...(notes.has(i) ? { notes: notes.get(i) } : {}) } : s));
+    if (versioned) amendPart(id, 'deck', latest);
+    else savePart(id, 'deck', latest, 'ta', '做成幻灯片');
+    versioned = true;
+    dropLivePages(id, ready);
+  };
   await pool(batches, 2, async (batch) => {
     try {
       await loop({
@@ -541,6 +571,8 @@ export async function designPages(
         signal,
         nudge: '用 save_pages 把这几页存下来。',
         done: () => batch.every((i) => html.has(i)),
+        // 写完一页摆一页
+        onPartial: (c) => c?.name === 'save_pages' && setLivePages(id, partialPages(c.args, (i) => batch.includes(i))),
         run: (call) => {
           if (call.name !== 'save_pages') return `没有「${call.name}」这个工具`;
           const got: number[] = [];
@@ -560,17 +592,25 @@ export async function designPages(
       if (signal.aborted) throw err;
       console.error('[prep] design', id, batch, (err as Error).message);
     }
+    persist(batch);
     onDone?.(html.size);
   });
   if (!html.size) return 0;
-  const notes = await refinePages(id, teacher, html, signal, onRefine);
-  // 存进最新的课件（这一手做的时候课件没别人改：备课时不让改，说着改的那一句做完才做这一步）
-  const latest = j<Deck | null>(lessonRow(id)?.deck ?? null, null);
-  if (!latest) return 0;
-  latest.slides = latest.slides.map((s, i) => (html.has(i) ? { ...s, html: html.get(i), ...(notes.has(i) ? { notes: notes.get(i) } : {}) } : s));
-  if (amend) amendPart(id, 'deck', latest);
-  else savePart(id, 'deck', latest, 'ta', '做成幻灯片');
+  const refined = await refinePages(id, teacher, html, signal, onRefine);
+  for (const [i, n] of refined) notes.set(i, n);
+  persist([...html.keys()]);
   return html.size;
+}
+
+/** save_pages 写到一半：已经写完的几页（最后一页可能还在写，先不摆） */
+function partialPages(args: Record<string, unknown>, allowed: (i: number) => boolean): Record<number, string> {
+  const out: Record<number, string> = {};
+  for (const x of (Array.isArray(args.pages) ? args.pages : []).slice(0, -1)) {
+    const i = Math.round(toNum((x as { page?: unknown })?.page)) - 1;
+    const h = cleanSlideHtml((x as { html?: unknown })?.html);
+    if (allowed(i) && h) out[i] = h;
+  }
+  return out;
 }
 
 /**
@@ -607,6 +647,8 @@ export async function refinePages(id: number, teacher: string, html: Map<number,
           signal,
           nudge: '用 save_pages 把这几页存下来。',
           done: () => batch.every((x) => fixed.has(x.i)),
+          // 精修好一页就换上去
+          onPartial: (c) => c?.name === 'save_pages' && setLivePages(id, partialPages(c.args, (i) => batch.some((x) => x.i === i))),
           run: (call) => {
             if (call.name !== 'save_pages') return `没有「${call.name}」这个工具`;
             for (const p of Array.isArray(call.args?.pages) ? call.args.pages : []) {
@@ -658,6 +700,11 @@ function laneQuestions(id: number, teacher: string, signal: AbortSignal) {
       signal,
       nudge: '用 save_questions 把题存下来。',
       done: () => !!saved,
+      // 出好一道摆一道
+      onPartial: (c) =>
+        c?.name === 'save_questions'
+          ? setLive(id, { practice: partialQuestions(c.args.practice, false), homework: partialQuestions(c.args.homework, true) })
+          : !c && dropLive(id, 'practice', 'homework'),
       run: (call) => {
         if (call.name !== 'save_questions') return `没有「${call.name}」这个工具`;
         const a = call.args || {};
@@ -673,6 +720,7 @@ function laneQuestions(id: number, teacher: string, signal: AbortSignal) {
     if (!s) throw new Error('助教没出题');
     savePart(id, 'practice', s.practice, 'ta');
     savePart(id, 'homework', s.homework, 'ta');
+    dropLive(id, 'practice', 'homework');
     return `练习 ${s.practice.length} 道，作业 ${s.homework.length} 道`;
   });
 }

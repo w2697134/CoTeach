@@ -3,6 +3,7 @@
  */
 import { getSetting } from '../db/index.js';
 import { streamChat } from '../llm/index.js';
+import { partialCall } from '../llm/partial.js';
 import type { Effort, Msg, ToolCall, ToolSpec } from '../llm/types.js';
 
 export interface StepResult {
@@ -24,6 +25,8 @@ export type ModelStep = (o: {
   purpose?: string;
   /** 主模型等多久没动静就换备用模型，不传按 WAIT_MS（同一个智能体在后台办的事可以等久一点，比如助教看一眼要不要分专门助手） */
   waitMs?: number;
+  /** 工具写到一半时隔一会儿报一次：哪个工具、读得出来的参数（备课页边写边显示；换了备用模型重来时报 null） */
+  onPartial?: (call: { name: string; args: Record<string, unknown> } | null) => void;
 }) => Promise<StepResult>;
 
 /**
@@ -61,11 +64,17 @@ const deepseekStep: ModelStep = async (o) => {
       o.onText(d.text);
     } else if (d.type === 'reasoning') reasoning += d.text;
     else if (d.type === 'tool') toolCalls.push(d.call);
-    else if (d.type === 'model') {
+    else if (d.type === 'partial') {
+      if (o.onPartial) {
+        const c = partialCall(d);
+        if (c) o.onPartial(c);
+      }
+    } else if (d.type === 'model') {
       // 换了备用模型重来：前面的不算
       text = '';
       reasoning = '';
       toolCalls.length = 0;
+      if (d.switched) o.onPartial?.(null);
     }
   }
   return { text, toolCalls, ...(reasoning ? { reasoning } : {}) };

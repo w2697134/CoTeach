@@ -56,6 +56,12 @@ export type Delta =
   | { type: 'text'; text: string }
   | { type: 'reasoning'; text: string }
   | { type: 'tool'; call: ToolCall }
+  /**
+   * 工具调用写到一半：text 是到现在为止写出来的参数 JSON（没写完）。
+   * wrapped 为 true 时 text 是 Gemini 接口那种整步的 JSON（{say, calls:[{tool, args}]}），name 不知道。
+   * 只是预览：不算模型已经出了内容（出错照样能重试、换备用模型），最后照样会有完整的 tool。
+   */
+  | { type: 'partial'; name: string; text: string; wrapped?: boolean }
   | { type: 'usage'; input: number; output: number }
   | { type: 'finish'; reason: string };
 

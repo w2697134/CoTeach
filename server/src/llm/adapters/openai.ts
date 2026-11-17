@@ -1,5 +1,6 @@
 import { parseToolArgs } from '../../lib/json.js';
 import { joinUrl, normalizeOpenAiBase, readSse, request } from '../net.js';
+import { throttle } from '../partial.js';
 import { LlmError, type Adapter, type ChatParams, type Delta, type Msg, type ProviderConn, type RemoteModel, type ToolCall } from '../types.js';
 
 /**
@@ -119,6 +120,7 @@ export const openaiAdapter: Adapter = {
     }
 
     const calls = new Map<string, { id: string; name: string; args: string }>();
+    const due = throttle();
     let lastKey = '';
     let finish = 'stop';
     let ended = false;
@@ -154,6 +156,8 @@ export const openaiAdapter: Adapter = {
           if (tc.function?.arguments) cur.args += typeof tc.function.arguments === 'string' ? tc.function.arguments : JSON.stringify(tc.function.arguments);
           calls.set(key, cur);
           lastKey = key;
+          // 写到一半的参数隔一会儿报一次（备课页边写边显示）
+          if (cur.name && due(cur.args.length)) yield { type: 'partial', name: cur.name, text: cur.args };
         }
       }
       if (choice.finish_reason) {

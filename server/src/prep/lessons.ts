@@ -8,6 +8,7 @@ import { bad, notFound } from '../lib/http.js';
 import { classRow, toNum, type RubricItem } from '../grading/common.js';
 import { insightsOf, type InsightPoint } from '../grading/insights.js';
 import { cleanSlideHtml } from './kit.js';
+import { liveOf } from './live.js';
 
 /* ---------------- 教案 ---------------- */
 
@@ -196,6 +197,55 @@ export function cleanQuestions(raw: unknown, withPoints: boolean): Question[] {
   return (Array.isArray(raw) ? raw : []).slice(0, 20).map((x) => cleanQuestion(x, withPoints));
 }
 
+/* ---------------- 写到一半的（边做边显示，见 live.ts） ---------------- */
+
+/** 教案写到一半：写出来什么摆什么，教学过程只要有名字或内容的步骤 */
+export function partialPlan(raw: any): Partial<Plan> | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const p: Partial<Plan> = {};
+  const title = text(raw.title, 80);
+  if (title) p.title = title;
+  const goals = list(raw.goals, 8, 300);
+  if (goals.length) p.goals = goals;
+  for (const k of ['focus', 'hard', 'review', 'board'] as const) {
+    const v = text(raw[k], 1500);
+    if (v) p[k] = v;
+  }
+  const steps = (Array.isArray(raw.steps) ? raw.steps : []).slice(0, 14).flatMap((s: any) => {
+    const m = Math.round(toNum(s?.minutes));
+    const st = { name: text(s?.name, 40), minutes: Number.isFinite(m) && m > 0 && m <= 240 ? m : null, content: text(s?.content, 2500) };
+    return st.name || st.content ? [st] : [];
+  });
+  if (steps.length) p.steps = steps;
+  return Object.keys(p).length ? p : null;
+}
+
+/** 课件内容写到一半：写出来的几页（最后一页可能还在写）；编号按第几页给，页面上不会每次都当成新的一页 */
+export function partialSlides(raw: any): Slide[] {
+  const out: Slide[] = [];
+  for (const [i, x] of (Array.isArray(raw?.slides) ? raw.slides : []).slice(0, 40).entries()) {
+    try {
+      out.push({ ...cleanSlide(x), id: `live${i}` });
+    } catch {
+      // 这一页还什么都没写
+    }
+  }
+  return out;
+}
+
+/** 题目出到一半：写全了的（选择题选项还没写够的先不摆） */
+export function partialQuestions(raw: unknown, withPoints: boolean): Question[] {
+  const out: Question[] = [];
+  for (const [i, x] of (Array.isArray(raw) ? raw : []).slice(0, 20).entries()) {
+    try {
+      out.push({ ...cleanQuestion(x, withPoints), id: `live${i}` });
+    } catch {
+      // 还没写全
+    }
+  }
+  return out;
+}
+
 /* ---------------- 学情 ---------------- */
 
 export interface Brief {
@@ -330,6 +380,8 @@ export function lessonView(r: LessonRow, full: boolean) {
     practice,
     homework,
     versions: versionsOf(r.id),
+    // 还在备的时候：写到一半的教案、课件、题目（边做边显示）
+    live: r.status === 'making' ? liveOf(r.id) : null,
   };
 }
 

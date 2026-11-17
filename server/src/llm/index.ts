@@ -216,13 +216,14 @@ export async function* streamChat(
             output = Math.max(output, d.output);
             continue;
           }
-          if ((d.type === 'text' || d.type === 'reasoning' || d.type === 'tool') && firstToken === null) {
+          if ((d.type === 'text' || d.type === 'reasoning' || d.type === 'tool' || d.type === 'partial') && firstToken === null) {
             firstToken = Date.now() - started;
             clearTimeout(watchdog);
           }
           if (d.type === 'text') text += d.text;
           // 空的一段不算出了内容（Gemini 接口头一到先报一段空的，只为让看门狗知道它在动；后面出错照样能换备用模型）
-          if (d.type !== 'finish' && !((d.type === 'text' || d.type === 'reasoning') && !d.text)) emitted = true;
+          // 写到一半的工具参数只是预览，也不算（出错了照样重试、换备用模型，页面上的预览跟着换）
+          if (d.type !== 'finish' && d.type !== 'partial' && !((d.type === 'text' || d.type === 'reasoning') && !d.text)) emitted = true;
           yield d;
         }
         if (!input) input = o.messages.reduce((s, m) => s + estimateTokens(textOf(m.content)), 0);
