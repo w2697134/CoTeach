@@ -76,7 +76,7 @@ const ASK_TEACHER: ToolSpec = {
   description: '要老师拍板时问老师：老师那边弹一张卡片，学伴会先告诉学生已经问了老师。问完这一次就结束。',
   parameters: obj(
     {
-      question: str('要老师定什么（学生的原话卡片上有）'),
+      question: str('要老师定什么，一句话（学生的原话卡片上有）'),
       options: { type: 'array', items: { type: 'string' }, description: '选项，最可能的放第一个' },
     },
     ['question', 'options'],

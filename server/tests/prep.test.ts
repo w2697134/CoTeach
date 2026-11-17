@@ -58,6 +58,34 @@ test('备课：课件版式不认识的当要点页；选择题答案字母换�
   assert.deepEqual(L.cleanQuestion({ type: 'single', stem: '选', options: ['A. [1, 2]', '(B) "2501"', 'C、{1}', '-1'], answer: 'B' }, false).options, ['[1, 2]', '"2501"', '{1}', '-1']);
 });
 
+test('备课：幻灯片太满程序量得出来（字、条目、代码行、表格、卡片），封面章节页不量', async () => {
+  const { tooFull } = await import('../src/prep/kit.js');
+  assert.deepEqual(tooFull(`<div class="slide"><h1 class="title">短</h1><ul class="list"><li>一</li><li>二</li></ul></div>`), []);
+  assert.deepEqual(tooFull(`<div class="slide"><ul class="list">${'<li>x</li>'.repeat(8)}</ul></div>`), ['条目太多']);
+  assert.ok(tooFull(`<div class="slide"><pre class="code"><code>${'print(1)\n'.repeat(14)}</code></pre></div>`).includes('代码太长'));
+  assert.ok(tooFull(`<div class="slide"><p>${'字'.repeat(200)}</p></div>`).includes('字太多'));
+  assert.deepEqual(tooFull(`<div class="slide section"><p>${'字'.repeat(200)}</p></div>`), []);
+});
+
+test('备课：代码行在它那一栏放不下算太满（两栏比整页窄，中文注释算宽），代码里转义的字照原样量', async () => {
+  const { codeBlocks, codeTooWide, tooFull } = await import('../src/prep/kit.js');
+  const line = 'score = input("请输入成绩：")  # 多余提示且未转 int';
+  const pre = (s: string, cls = 'code') => `<pre class="${cls}" data-lang="python"><code>${s}</code></pre>`;
+  // 整页宽放得下，两栏放不下
+  assert.equal(codeTooWide(`<div class="slide">${pre(line)}</div>`), false);
+  const two = `<div class="slide"><div class="grid-2"><div>${pre(line)}</div><div>${pre('x = 1')}</div></div></div>`;
+  assert.equal(codeTooWide(two), true);
+  assert.ok(tooFull(two).includes('代码行太长，这一栏放不下'));
+  // 注释挪走、行短了就放得下
+  assert.equal(codeTooWide(`<div class="slide"><div class="grid-2"><div>${pre('score = input("请输入成绩：")')}</div></div></div>`), false);
+  // 栏数按外面套的块算；闭合的块不算；转义还原再量
+  const b = codeBlocks(`<div class="slide"><div class="split"><p>说明<br></p></div>${pre('if a &lt; b:\n    print(a &amp; b)', 'code sm')}<div class="grid-3"><div>${pre('y')}</div></div></div>`);
+  assert.deepEqual(b.map((x) => [x.parts, x.small, x.lines]), [
+    [1, true, ['if a < b:', '    print(a & b)']],
+    [3, false, ['y']],
+  ]);
+});
+
 test('备课：题目选择题要两个以上选项，判断题答案只认对错，作业每题有分', () => {
   const [q1, q2, q3] = L.cleanQuestions(
     [
@@ -155,9 +183,20 @@ model.setModelStep(async (o) => {
       // 这一批是哪几页：看给它的话里的「第N页：」
       const ask = String(last.content);
       const pages = [...ask.matchAll(/第(\d+)页：/g)].map((m) => Number(m[1]));
+      // 第 2 页做得太满（十二条），精修那一手会收到它
+      const full = `<div class="slide"><h1 class="title">第2页</h1><ul class="list">${'<li>一条很长很长的要点说明</li>'.repeat(12)}</ul></div>`;
       return call('save_pages', {
-        pages: pages.map((n) => ({ page: n, html: `<h1 class="title">第${n}页</h1><script>alert(1)</script><p onclick="x()">内容</p><img src="https://evil.example/x.png">` })),
+        pages: pages.map((n) => ({
+          page: n,
+          html: n === 2 ? full : `<h1 class="title">第${n}页</h1><script>alert(1)</script><p onclick="x()">内容</p><img src="https://evil.example/x.png">`,
+        })),
       });
+    }
+    case 'prep:refine': {
+      if (afterTool) return { text: '好了', toolCalls: [] };
+      const ask = String(last.content);
+      const pages = [...ask.matchAll(/第(\d+)页（/g)].map((m) => Number(m[1]));
+      return call('save_pages', { pages: pages.map((n) => ({ page: n, html: `<div class="slide"><h1 class="title">第${n}页</h1><ul class="list"><li>要点</li></ul></div>`, notes: '精修后的讲稿' })) });
     }
     case 'prep:ask': {
       const s = askReply.shift();
@@ -201,6 +240,10 @@ test('备课：一句话备一节，几手都做完；页面上改、撤回、�
   assert.deepEqual(got.deck.slides[2].quiz.answer, [1]);
   // 做成了幻灯片：每页都有 html，脚本、事件、外部图片去掉了
   assert.ok(got.deck.slides.every((s: any) => s.html?.includes('class="title"')));
+  // 太满的第 2 页精修过：只剩一条，讲稿换成精修后的
+  assert.equal((got.deck.slides[1].html.match(/<li\b/g) || []).length, 1);
+  assert.equal(got.deck.slides[1].notes, '精修后的讲稿');
+  assert.ok(seen.includes('prep:refine'));
   assert.doesNotMatch(got.deck.slides[0].html, /script|onclick|evil\.example/);
   assert.equal(got.cover.slide.layout, 'cover');
   // 别的老师看不到

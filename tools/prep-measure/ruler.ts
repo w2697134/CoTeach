@@ -16,7 +16,7 @@ const [label = 'run', ...only] = process.argv.slice(2);
 const out = join(ROOT, 'output', 'prep-measure', label);
 rmSync(out, { recursive: true, force: true });
 mkdirSync(join(out, 'data'), { recursive: true });
-const dev = join(ROOT, 'server', 'data');
+const dev = resolve(process.env.CT_DEV_DATA || join(ROOT, 'server', 'data'));
 new DatabaseSync(join(dev, 'coteach.db'), { readOnly: true }).exec(`VACUUM INTO '${join(out, 'data', 'coteach.db').replace(/'/g, "''")}'`);
 copyFileSync(join(dev, '.secret'), join(out, 'data', '.secret'));
 // 知识库（git）、整理出来的、原件、作业附件也要：不复制的话助教翻不了资料，备出来的课不算数（prep-v1 就是这样）
