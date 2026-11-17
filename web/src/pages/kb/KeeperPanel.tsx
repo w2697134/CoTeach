@@ -12,6 +12,7 @@ import { FileCard, FileTypeIcon, formatSize, typeLabel } from './FileCard';
 import { fileTitle, readableError, stepLines, type StepLine, when } from './presentation';
 import { STATUS_TEXT, STATUS_TONE, TA, plainText, useChanges, useKeeperRuns, useKeeperStream, useKnowledgeBases, useTaSession, useTaSessions, type Run } from './data';
 import { ActionCard, AskCard, type ActionData, type AskData } from '../assistant/cards';
+import { listifyMarkdown } from '../../lib/listLines';
 import { SpecialistsButton } from '../assistant/Specialists';
 
 const SHOWN = /\.(png|jpe?g|gif|webp)$/i;
@@ -428,7 +429,7 @@ function TaRunBlock({
           {/* 助教说的话不套气泡，跟 ChatGPT、Claude 一样直接是字；只有要老师处理的卡片带框 */}
           {!running && run.reply && (
             <div className="max-w-full text-[15px] leading-relaxed text-ink">
-              <Markdown compact className="md-chat">{plainText(run.reply)}</Markdown>
+              <Markdown compact className="md-chat">{listifyMarkdown(plainText(run.reply))}</Markdown>
             </div>
           )}
           {cards.map((e) => {

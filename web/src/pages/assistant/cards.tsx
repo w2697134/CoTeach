@@ -12,6 +12,7 @@ import { post } from '../../lib/api';
 import { toast } from '../../lib/store';
 import { Avatar, Badge, Button, IconButton, Input, Modal, cn } from '../../components/ui';
 import { joinLink } from '../classes/data';
+import { splitInlineList } from '../../lib/listLines';
 import { Qr, copyText, downloadQr } from '../classes/Invite';
 
 export interface ActionData {
@@ -158,13 +159,31 @@ function CardLine({ text }: { text: string }) {
   );
 }
 
-/** 卡片上问老师的话：长的先摆三行，点「展开」看全；学生来问的字大一号 */
+/**
+ * 卡片上问老师的话：长的先摆三行，点「展开」看全；学生来问的字大一号。
+ * 一句里挤着「1）… 2）…」几条的，每条另起一行
+ */
 function Question({ text, big }: { text: string; big: boolean }) {
   const [open, setOpen] = useState(false);
-  const long = text.length > 80;
+  const list = splitInlineList(text);
+  const long = !list && text.length > 80;
   return (
     <div className={cn('break-words text-ink', big ? 'max-w-[44em] text-[15px] leading-[1.75]' : 'max-w-[44em] text-[15px] font-medium leading-snug')}>
-      <p className={cn('whitespace-pre-wrap', long && !open && 'line-clamp-3')}>{text}</p>
+      {list ? (
+        <>
+          {list.head && <p className="whitespace-pre-wrap">{list.head}</p>}
+          <ol className="mt-0.5 space-y-0.5">
+            {list.items.map((t, i) => (
+              <li key={i} className="flex gap-1.5">
+                <span className="shrink-0 tabular-nums text-ink-3">{i + 1}.</span>
+                <span className="min-w-0">{t}</span>
+              </li>
+            ))}
+          </ol>
+        </>
+      ) : (
+        <p className={cn('whitespace-pre-wrap', long && !open && 'line-clamp-3')}>{text}</p>
+      )}
       {long && (
         <button type="button" className="text-[13px] font-normal text-brand-ink hover:underline" onClick={() => setOpen(!open)}>
           {open ? '收起' : '展开'}
