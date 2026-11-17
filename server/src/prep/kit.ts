@@ -31,7 +31,7 @@ export let SLIDE_KIT_GUIDE = `你写的是一页课件的 HTML 片段，画布�
 - <ol class="steps"><li><b>第一步</b>说明</li>…</ol> 横排带编号和连线，2 到 4 步；超过 4 步用 <ol class="steps vertical">。
 
 代码
-- <pre class="code" data-lang="python"><code>代码原样写，&lt; &gt; &amp; 要转义</code></pre> 深色代码框，自动上色、带行号。
+- <pre class="code" data-lang="python"><code>代码原样写，&lt; &gt; &amp; 要转义</code></pre> 代码框，自动上色、带行号。
 - data-mark="2,4-5" 突出这几行；.plain 不要行号；.sm 字小一号。
 
 提示框
@@ -54,6 +54,99 @@ export let SLIDE_KIT_GUIDE = `你写的是一页课件的 HTML 片段，画布�
 练习（放映时可以揭晓答案）
 - <p class="question">题目</p><ol class="options"><li>选项</li><li class="answer">正确的选项</li>…</ol><div class="explain"><b>解析</b>为什么</div>
 - 正确选项加 class="answer"（多选就加在几个上）；选项长就用 <ol class="options one-col">；.explain 只在揭晓后显示。`;
+
+/**
+ * 一页屏幕上有多少东西：
+ * 字（代码块外看得见的字）、列表条目、代码行、表格行、卡片。封面、章节、居中的页不量。
+ */
+export function slideLoad(html: string) {
+  const pres = html.match(/<pre[\s\S]*?<\/pre>/gi) || [];
+  const code = pres.reduce((n, p) => n + p.replace(/<[^>]+>/g, '').trim().split('\n').length, 0);
+  const text = html
+    .replace(/<pre[\s\S]*?<\/pre>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&[a-z]+;/g, ' ')
+    .replace(/\s+/g, '');
+  return {
+    chars: text.length,
+    items: (html.match(/<li\b/gi) || []).length,
+    code,
+    rows: (html.match(/<tr\b/gi) || []).length,
+    cards: (html.match(/class="[^"]*\bcard\b/gi) || []).length,
+    plain: /class="[^"]*\bslide\b[^"]*\b(cover|section|center)\b/.test(html),
+  };
+}
+
+const VOID_TAGS = new Set(['br', 'hr', 'img', 'wbr', 'col', 'input', 'meta', 'link', 'source', 'area', 'base', 'embed', 'param', 'track']);
+const ENTITIES: Record<string, string> = { lt: '<', gt: '>', amp: '&', quot: '"', apos: "'", nbsp: ' ', '#39': "'" };
+
+/**
+ * 每个代码块放在几分之一宽的地方（外面有 grid-2 / split / cols 是两栏，grid-3 三栏，grid-4 四栏），和它的每一行。
+ * 正则走一遍标签，记着外面套了哪些块；够估宽度用，不求严格。
+ */
+export function codeBlocks(html: string): { lines: string[]; parts: number; small: boolean }[] {
+  const out: { lines: string[]; parts: number; small: boolean }[] = [];
+  const stack: { tag: string; cls: string }[] = [];
+  const re = /<(\/?)([a-zA-Z][\w-]*)((?:"[^"]*"|'[^']*'|[^'">])*)>/g;
+  let pre: { start: number; parts: number; small: boolean } | null = null;
+  for (let m = re.exec(html); m; m = re.exec(html)) {
+    const [, close, name, attrs] = m;
+    const tag = name.toLowerCase();
+    if (pre) {
+      if (close && tag === 'pre') {
+        const text = html
+          .slice(pre.start, m.index)
+          .replace(/<[^>]+>/g, '')
+          .replace(/&(#?\w+);/g, (x, e: string) => ENTITIES[e.toLowerCase()] ?? (/^#\d+$/.test(e) ? String.fromCodePoint(Number(e.slice(1))) : x));
+        out.push({ lines: text.replace(/\r/g, '').replace(/^\n+|\s+$/g, '').split('\n'), parts: pre.parts, small: pre.small });
+        pre = null;
+      }
+      continue;
+    }
+    const cls = (attrs.match(/class\s*=\s*["']([^"']*)["']/i)?.[1] || '').toLowerCase();
+    if (close) {
+      const at = stack.map((s) => s.tag).lastIndexOf(tag);
+      if (at >= 0) stack.length = at;
+      continue;
+    }
+    if (tag === 'pre') {
+      const parts = stack.reduce((n, s) => n * (/\bgrid-4\b/.test(s.cls) ? 4 : /\bgrid-3\b/.test(s.cls) ? 3 : /\b(grid-2|split|cols)\b/.test(s.cls) ? 2 : 1), 1);
+      pre = { start: m.index + m[0].length, parts, small: /\bsm\b/.test(cls) };
+      continue;
+    }
+    if (!VOID_TAGS.has(tag) && !/\/\s*$/.test(attrs)) stack.push({ tag, cls });
+  }
+  return out;
+}
+
+/** 一行代码有多宽（等宽字算 1，中文、全角算 1.8） */
+const codeWidth = (line: string) => [...line.replace(/\t/g, '    ')].reduce((n, ch) => n + (/[⺀-￯]/.test(ch) ? 1.8 : 1), 0);
+
+/**
+ * 有没有代码行在它那一栏里放不下（页面会把字缩小，缩得多了后排看不清）：
+ * 画布正文宽 1104px，栏间 30px，代码框左右占 107px，等宽字约 0.58 个字号宽；要缩小超过一成半才算放不下。
+ */
+export function codeTooWide(html: string): boolean {
+  return codeBlocks(html).some((b) => {
+    const room = (1104 - (b.parts - 1) * 30) / b.parts - 107;
+    const fits = room / ((b.small ? 19 : 22) * 0.58);
+    return b.lines.some((l) => codeWidth(l) > fits / 0.85);
+  });
+}
+
+/** 太满的一页，说出满在哪（给精修那一手看；数目只在程序里比，不写给它） */
+export function tooFull(html: string): string[] {
+  const l = slideLoad(html);
+  if (l.plain) return [];
+  const why: string[] = [];
+  if (l.chars > 150) why.push('字太多');
+  if (l.items > 6) why.push('条目太多');
+  if (l.code > 10) why.push('代码太长');
+  if (codeTooWide(html)) why.push('代码行太长，这一栏放不下');
+  if (l.rows > 6) why.push('表格太长');
+  if (l.cards > 3) why.push('卡片太多');
+  return why;
+}
 
 /** 课件样式定好了：备课时把课件做成幻灯片 */
 export let SLIDE_KIT_READY = true;

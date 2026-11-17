@@ -17,7 +17,7 @@ import { nowLine } from '../assistant/time.js';
 import { append, compact, requestMessages, stored, threadRow, toMsg } from '../assistant/thread.js';
 import { classRow, finishRun, numArg, obj, startRun, str, toNum, userName } from '../grading/common.js';
 import { insightsOf, writeInsights } from '../grading/insights.js';
-import { SLIDE_KIT_GUIDE, SLIDE_KIT_READY, cleanSlideHtml } from './kit.js';
+import { SLIDE_KIT_GUIDE, SLIDE_KIT_READY, cleanSlideHtml, tooFull } from './kit.js';
 import {
   LAYOUTS,
   QTYPES,
@@ -75,7 +75,7 @@ const SLIDE = obj(
     },
     title: str('标题'),
     subtitle: str('副标题'),
-    points: strs('要点'),
+    points: strs('屏幕上的要点，一条一句短话；展开的讲解写进讲稿'),
     code: obj({ lang: str('语言'), text: str('代码'), caption: str('代码下面的一句说明') }),
     compare: obj({ left: obj({ head: str('左边的标题'), points: strs('左边的要点') }), right: obj({ head: str('右边的标题'), points: strs('右边的要点') }) }),
     steps: { type: 'array', items: obj({ head: str('这一步'), text: str('说明') }, ['head']), description: '步骤' },
@@ -120,7 +120,10 @@ const SAVE_QUESTIONS: ToolSpec = {
 const SAVE_PAGES: ToolSpec = {
   name: 'save_pages',
   description: '存做好的几页，同一页再存就换成新的。',
-  parameters: obj({ pages: { type: 'array', items: obj({ page: numArg('第几页'), html: str('这一页的 HTML') }, ['page', 'html']) } }, ['pages']),
+  parameters: obj(
+    { pages: { type: 'array', items: obj({ page: numArg('第几页'), html: str('这一页的 HTML'), notes: str('这一页完整的讲稿；不改讲稿就不写') }, ['page', 'html']) } },
+    ['pages'],
+  ),
 };
 
 const KIND = { type: 'string', enum: ['practice', 'homework'], description: 'practice 课堂练习，homework 课后作业' };
@@ -469,6 +472,7 @@ function laneDeck(id: number, teacher: string, signal: AbortSignal) {
       signal,
       (k) => setLane(id, 'deck', { status: 'doing', note: `${n} 页，做好 ${k} 页` }),
       true,
+      (k) => setLane(id, 'deck', { status: 'doing', note: `${n} 页，精修 ${k} 页太满的` }),
     );
     return made < n ? `${n} 页（${n - made} 页没做成幻灯片）` : `${n} 页`;
   });
@@ -505,6 +509,8 @@ export async function designPages(
   onDone?: (k: number) => void,
   /** true：并进刚才那一版（说着改、核对改了内容以后补做样子，撤回一次就都回去） */
   amend = false,
+  /** 做完有几页太满、在精修 */
+  onRefine?: (k: number) => void,
 ): Promise<number> {
   const r = lessonRow(id);
   if (!r) return 0;
@@ -557,13 +563,72 @@ export async function designPages(
     onDone?.(html.size);
   });
   if (!html.size) return 0;
+  const notes = await refinePages(id, teacher, html, signal, onRefine);
   // 存进最新的课件（这一手做的时候课件没别人改：备课时不让改，说着改的那一句做完才做这一步）
   const latest = j<Deck | null>(lessonRow(id)?.deck ?? null, null);
   if (!latest) return 0;
-  latest.slides = latest.slides.map((s, i) => (html.has(i) ? { ...s, html: html.get(i) } : s));
+  latest.slides = latest.slides.map((s, i) => (html.has(i) ? { ...s, html: html.get(i), ...(notes.has(i) ? { notes: notes.get(i) } : {}) } : s));
   if (amend) amendPart(id, 'deck', latest);
   else savePart(id, 'deck', latest, 'ta', '做成幻灯片');
   return html.size;
+}
+
+/**
+ * 精修：做出来太满的页（程序量），交回去删到只留要紧的，细节挪进讲稿，再做一遍这几页（只来一轮）。
+ * 直接改 html 里的那几页；挪进讲稿以后的整份讲稿放在返回的 notes 里。
+ */
+export async function refinePages(id: number, teacher: string, html: Map<number, string>, signal: AbortSignal, onRefine?: (k: number) => void) {
+  const notes = new Map<number, string>();
+  const r = lessonRow(id);
+  const d = j<Deck | null>(r?.deck ?? null, null);
+  if (!r || !d) return notes;
+  const plan = j<Plan | null>(r.plan, null);
+  const full = [...html].map(([i, h]) => ({ i, why: tooFull(h) })).filter((x) => x.why.length);
+  if (full.length) {
+    onRefine?.(full.length);
+    const fix: { i: number; why: string[] }[][] = [];
+    for (let k = 0; k < full.length; k += 4) fix.push(full.slice(k, k + 4));
+    await pool(fix, 2, async (batch) => {
+      const fixed = new Set<number>();
+      try {
+        await loop({
+          teacherId: r.teacher_id,
+          key: `prep:${id}:refine:${batch[0].i}:${now()}`,
+          system: designPrompt(teacher),
+          first: [
+            `「${classRow(r.class_id)?.name}」${plan?.title ? `《${plan.title}》` : ''}的课件，下面几页做出来太满了，教室后排看不清。`,
+            '每页只留学生要看的几句，其余的挪进讲稿；重做这几页，notes 写这一页完整的讲稿（原来的加上挪过去的）。',
+            ...batch.map((x) => `第${x.i + 1}页（${x.why.join('、')}）：\n${html.get(x.i)}\n原来的讲稿：${d.slides[x.i].notes || '（没有）'}`),
+            '做好用 save_pages 存。',
+          ].join('\n\n'),
+          tools: [SAVE_PAGES],
+          purpose: 'prep:refine',
+          maxSteps: 3,
+          signal,
+          nudge: '用 save_pages 把这几页存下来。',
+          done: () => batch.every((x) => fixed.has(x.i)),
+          run: (call) => {
+            if (call.name !== 'save_pages') return `没有「${call.name}」这个工具`;
+            for (const p of Array.isArray(call.args?.pages) ? call.args.pages : []) {
+              const i = Math.round(toNum((p as any)?.page)) - 1;
+              const h = cleanSlideHtml((p as any)?.html);
+              if (!batch.some((x) => x.i === i) || !h) continue;
+              html.set(i, h);
+              fixed.add(i);
+              const n = String((p as any)?.notes ?? '').trim();
+              if (n) notes.set(i, n.slice(0, 3000));
+            }
+            const left = batch.filter((x) => !fixed.has(x.i)).map((x) => x.i + 1);
+            return left.length ? `还差第 ${left.join('、')} 页` : '都存好了';
+          },
+        });
+      } catch (err) {
+        if (signal.aborted) throw err;
+        console.error('[prep] refine', id, batch.map((x) => x.i), (err as Error).message);
+      }
+    });
+  }
+  return notes;
 }
 
 /** 课件里已经做成幻灯片、又被改了内容的几页（改内容时样子就去掉了）：补做样子 */
