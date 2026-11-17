@@ -54,6 +54,34 @@ test('助教这种带工具的调用：Gemini 接口出错（头已经到了，�
   }
 });
 
+test('当面等回话的（助教、学伴）先用 DeepSeek，Gemini 接口当备用；备课这种后台的照旧先用 Gemini 接口', async () => {
+  const { modelStep } = await import('../src/assistant/model.js');
+  const ok = [JSON.stringify({ choices: [{ delta: { content: '好' } }] }), JSON.stringify({ choices: [{ delta: {}, finish_reason: 'stop' }] }), '[DONE]'];
+  const agy = await fake(ok);
+  const ds = await fake(ok);
+  try {
+    const main = model('agy', agy.url, 'gemini-4-hydrogen', 'Gemini 4 Hydrogen');
+    const back = model('deepseek', ds.url, 'deepseek-chat', 'DeepSeek');
+    setSetting('default_model_id', main);
+    setSetting('fallback_model_id', back);
+    const uid = db.insert('users', { username: 'u2', name: '李老师', role: 'teacher', password_hash: 'x', created_at: Date.now() });
+    const run = (agent: 'ta' | 'stu' | 'prep') =>
+      modelStep({ agent, messages: [{ role: 'user', content: '随便点一个人' }], tools: [], userId: uid, signal: new AbortController().signal, onText: () => {} });
+    assert.equal((await run('ta')).text, '好');
+    assert.equal(ds.hits(), 1);
+    assert.equal(agy.hits(), 0);
+    await run('stu');
+    assert.equal(ds.hits(), 2);
+    assert.equal(agy.hits(), 0);
+    await run('prep');
+    assert.equal(agy.hits(), 1, '备课照旧先用 Gemini 接口');
+    assert.equal(ds.hits(), 2);
+  } finally {
+    agy.server.close();
+    ds.server.close();
+  }
+});
+
 test('换成 DeepSeek 接着办：前面别的模型办的带工具那几步补上思考占位，开着思考它才不报 400', async () => {
   const { wireMessages } = await import('../src/llm/adapters/openai.js');
   const msgs = [

@@ -15,6 +15,7 @@ import { gradeOnSubmit, gradingCount } from '../grading/jobs.js';
 import { latestGrades } from '../grading/grader.js';
 import { rescaleRubric, rubricOf, rubricOnHomework } from '../grading/rubric.js';
 import { studentReview } from '../grading/review.js';
+import { fileShared } from '../messages/core.js';
 
 /**
  * 作业：照 Google Classroom、课堂派。老师布置（标题、要求、附件、截止、满分、允不允许迟交、定时发布，一次发几个班），
@@ -185,6 +186,8 @@ homeworkRoutes.get('/files/:id', (c) => {
       } catch {}
     }
   }
+  // 群里、私聊里发的文件，通知带的附件
+  if (!ok) ok = fileShared(u, f.id);
   if (!ok) throw notFound('文件不存在');
   const abs = resolve(DIR, f.path);
   if (!abs.startsWith(DIR) || !existsSync(abs)) throw notFound('文件不在了');

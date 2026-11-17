@@ -336,3 +336,54 @@ test('开着思考：每一步的思考记下来，往后原样传回去（DeepS
   assert.equal(thinkingFor(flash, 'off'), false);
   assert.equal(thinkingFor({ model: 'gpt-5', caps: { reasoning: true } }, 'high'), undefined);
 });
+
+test('助教发的通知能撤回：老师说「把刚才那条通知撤回」、点卡片上的「撤回」走的是同一套；撤过的再撤说一句', async () => {
+  const sun = db.value<number>("SELECT user_id FROM class_students WHERE name='孙思雨'")!;
+  const inbox = (nid: number) => db.get<any>("SELECT id FROM inbox WHERE user_id=? AND kind='notice' AND ref_id=?", sun, nid);
+  const pack = (text: string) => db.get<any>("SELECT id FROM class_pack WHERE kind='notice' AND body=? AND deleted_at IS NULL", text);
+
+  // 发通知：孙思雨收件箱一条，也写进资料包；卡片记着能撤回
+  script({ calls: [{ name: 'notify_students', args: { classes: ['计科2505 Python'], message: '明天的课停一次' } }] }, { text: '发好了。' });
+  const sent = await say('给计科2505 Python 发个通知，明天的课停一次');
+  assert.equal(sent.status, 'done');
+  const [card] = events(sent.runId, 'action');
+  assert.deepEqual([card.kind, card.undoable, card.live.type], ['students.notify', true, 'notice']);
+  const nid = card.live.id as number;
+  assert.ok(inbox(nid));
+  assert.ok(pack('明天的课停一次'));
+
+  // 老师说「把刚才那条通知撤回」：助教调 undo，撤回走页面上「撤回」那一套
+  script({ calls: [{ name: 'undo', args: { what: '发了通知' } }] }, { text: '撤回了。' });
+  assert.equal((await say('把刚才那条通知撤回')).status, 'done');
+  assert.match(String(seen.at(-1)!.at(-1).content), /已撤回「发了通知」/);
+  assert.ok(db.value('SELECT recalled_at FROM notices WHERE id=?', nid));
+  assert.equal(inbox(nid), undefined, '孙思雨收件箱里那条没了');
+  assert.equal(pack('明天的课停一次'), undefined, '资料包里那条也收起来，学伴不再照它答');
+  const runs = (await req('/keeper/runs')).json.runs;
+  assert.deepEqual(
+    runs.find((r: any) => r.id === sent.runId).actions.map((a: any) => a.status),
+    ['undone'],
+  );
+  // 撤过的再撤：卡片上点、直接调撤回通知的接口，都是一句大白话；别的老师撤不了
+  assert.match((await req(`/keeper/actions/${card.actionId}/undo`, {})).json.message, /已经撤回过了/);
+  const again = await req(`/messages/notices/${nid}/recall`, {});
+  assert.deepEqual([again.status, again.json.error], [409, '这条通知已经撤回了']);
+  assert.equal((await req(`/keeper/actions/${card.actionId}/undo`, {}, 'other')).status, 404);
+  assert.equal((await req(`/messages/notices/${nid}/recall`, {}, 'other')).status, 404);
+
+  // 再发一条，老师在卡片上点「撤回」：助教记的那一笔也标成撤回了，老师再跟它说「撤回」不会又找到这条
+  script({ calls: [{ name: 'notify_students', args: { classes: ['计科2505 Python'], message: '实验二周日截止' } }] }, { text: '发好了。' });
+  const sent2 = await say('通知计科2505 Python，实验二周日截止');
+  const [card2] = events(sent2.runId, 'action');
+  assert.equal((await req(`/messages/notices/${card2.live.id}/recall`, {})).status, 200);
+  assert.equal(inbox(card2.live.id), undefined);
+  assert.equal(db.get<any>('SELECT status FROM ta_actions WHERE id=?', card2.actionId).status, 'undone');
+  assert.match((await req(`/keeper/actions/${card2.actionId}/undo`, {})).json.message, /已经撤回过了/);
+  script({ calls: [{ name: 'undo', args: { what: '发了通知' } }] }, { text: '都撤回了。' });
+  await say('把通知撤回');
+  assert.match(String(seen.at(-1)!.at(-1).content), /没找到「发了通知」/);
+  // 撤回了的通知不再算读没读：问谁没看，助教那边找不到还在的通知
+  script({ calls: [{ name: 'notice_status', args: {} }] }, { text: '发过的通知都撤回了。' });
+  await say('刚才那个通知谁没看');
+  assert.match(String(seen.at(-1)!.at(-1).content), /没办成：发过的通知都撤回了/);
+});

@@ -866,3 +866,119 @@ CREATE TABLE login_keys (
 );
 CREATE UNIQUE INDEX idx_login_keys_user ON login_keys(user_id) WHERE revoked_at IS NULL;
 `);
+
+// 第 25 次：消息（2026-11-18）。
+// 「例如签到选人那种基础有用的东西还是要做的」。课堂（第 23 次）的表留着不删，界面上拿掉了。
+// chats：一门课一个群（kind=class，学生和老师都在，成员照 class_students 现算），老师和学生之间的私聊（kind=dm）；last_at 排列表用。
+// chat_messages：群里、私聊里的一条：文字、文件（homework_files 里的一份，图片也是）、通知卡、签到卡、选人卡（ref_id 指那一条）。
+// chat_reads：每个人每个会话读到哪一条，算没读几条。
+// notices：老师发的通知（发给一门或几门课，notice_classes），notice_reads：学生点开就算读了。
+// checkins：签到，token 是签到链接（二维码）里的那串，只在 started_at 到 ends_at 之间有效；checkin_marks：谁签了，by 是自己签的还是老师补签的。
+// picks：选人，round 是第几轮（一轮里不重复，人点完了开新一轮）。
+// inbox：收件箱（每人一份）。自动的提醒都进这里：学生来问要老师拍板的卡片、作业批完、快截止了还有人没交、学生收到的通知和签到。
+// 同一件事（kind + ref_id）只留一条，再来就顶到最上面、重新算没读。read_at 是点开过，done_at 是办完了（划掉）。
+// 原来挂在助教主对话里的学生来问、提议分专门助手的卡片，搬进老师的收件箱（还在等的算没读）。
+migrations.push(`
+CREATE TABLE chats (
+  id INTEGER PRIMARY KEY,
+  kind TEXT NOT NULL CHECK(kind IN ('class','dm')),
+  class_id INTEGER REFERENCES classes(id),
+  teacher_id INTEGER REFERENCES users(id),
+  student_id INTEGER REFERENCES users(id),
+  last_at INTEGER NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE UNIQUE INDEX idx_chats_class ON chats(class_id) WHERE kind='class';
+CREATE UNIQUE INDEX idx_chats_dm ON chats(teacher_id, student_id) WHERE kind='dm';
+CREATE TABLE chat_messages (
+  id INTEGER PRIMARY KEY,
+  chat_id INTEGER NOT NULL REFERENCES chats(id),
+  user_id INTEGER NOT NULL REFERENCES users(id),
+  kind TEXT NOT NULL CHECK(kind IN ('text','file','notice','checkin','pick')),
+  text TEXT NOT NULL DEFAULT '',
+  file_id INTEGER REFERENCES homework_files(id),
+  ref_id INTEGER,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX idx_chat_messages ON chat_messages(chat_id, id);
+CREATE INDEX idx_chat_messages_file ON chat_messages(file_id) WHERE file_id IS NOT NULL;
+CREATE TABLE chat_reads (
+  chat_id INTEGER NOT NULL REFERENCES chats(id),
+  user_id INTEGER NOT NULL REFERENCES users(id),
+  last_id INTEGER NOT NULL,
+  PRIMARY KEY(chat_id, user_id)
+);
+CREATE TABLE notices (
+  id INTEGER PRIMARY KEY,
+  teacher_id INTEGER NOT NULL REFERENCES users(id),
+  text TEXT NOT NULL,
+  file_ids TEXT,
+  created_at INTEGER NOT NULL
+);
+CREATE TABLE notice_classes (
+  notice_id INTEGER NOT NULL REFERENCES notices(id),
+  class_id INTEGER NOT NULL REFERENCES classes(id),
+  PRIMARY KEY(notice_id, class_id)
+);
+CREATE TABLE notice_reads (
+  notice_id INTEGER NOT NULL REFERENCES notices(id),
+  user_id INTEGER NOT NULL REFERENCES users(id),
+  read_at INTEGER NOT NULL,
+  PRIMARY KEY(notice_id, user_id)
+);
+CREATE TABLE checkins (
+  id INTEGER PRIMARY KEY,
+  class_id INTEGER NOT NULL REFERENCES classes(id),
+  teacher_id INTEGER NOT NULL REFERENCES users(id),
+  token TEXT NOT NULL UNIQUE,
+  started_at INTEGER NOT NULL,
+  ends_at INTEGER NOT NULL
+);
+CREATE INDEX idx_checkins_class ON checkins(class_id, id);
+CREATE TABLE checkin_marks (
+  checkin_id INTEGER NOT NULL REFERENCES checkins(id),
+  user_id INTEGER NOT NULL REFERENCES users(id),
+  at INTEGER NOT NULL,
+  by TEXT NOT NULL CHECK(by IN ('self','teacher')),
+  PRIMARY KEY(checkin_id, user_id)
+);
+CREATE TABLE picks (
+  id INTEGER PRIMARY KEY,
+  class_id INTEGER NOT NULL REFERENCES classes(id),
+  user_id INTEGER NOT NULL REFERENCES users(id),
+  round INTEGER NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX idx_picks_class ON picks(class_id, id);
+CREATE TABLE inbox (
+  id INTEGER PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id),
+  kind TEXT NOT NULL,
+  ref_id INTEGER NOT NULL,
+  title TEXT NOT NULL,
+  body TEXT NOT NULL DEFAULT '',
+  link TEXT,
+  created_at INTEGER NOT NULL,
+  read_at INTEGER,
+  done_at INTEGER,
+  UNIQUE(user_id, kind, ref_id)
+);
+CREATE INDEX idx_inbox_user ON inbox(user_id, created_at);
+UPDATE kb_runs SET place='inbox' WHERE agent='ta' AND kind IN ('student_ask','suggest');
+INSERT OR IGNORE INTO inbox (user_id, kind, ref_id, title, body, created_at, read_at, done_at)
+  SELECT r.teacher_id, 'ask', r.id,
+    CASE r.kind WHEN 'suggest' THEN '要不要分出「' || coalesce(json_extract(e.data, '$.suggest.name'), '专门助手') || '」'
+      ELSE coalesce(json_extract(e.data, '$.from.student'), '学生') || '来问' END,
+    coalesce(json_extract(e.data, '$.questions[0].question'), ''),
+    r.created_at,
+    CASE WHEN r.status='waiting' THEN NULL ELSE r.created_at END,
+    CASE WHEN r.status='waiting' THEN NULL ELSE coalesce(r.finished_at, r.created_at) END
+  FROM kb_runs r JOIN kb_events e ON e.id=(SELECT max(id) FROM kb_events WHERE run_id=r.id AND type='ask')
+  WHERE r.agent='ta' AND r.kind IN ('student_ask','suggest');
+`);
+
+// 第 26 次：通知能撤回（2026-11-18）。recalled_at 不空是发的老师撤回了：群里那张卡换成一行灰字「老师撤回了一条通知」，
+// 学生收件箱里那一条去掉，不再算读没读。通知本身留着（老师自己看得到撤回的是哪一条）。
+migrations.push(`
+ALTER TABLE notices ADD COLUMN recalled_at INTEGER;
+`);

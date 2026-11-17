@@ -47,6 +47,8 @@ const HomeworkEdit = page(() => import('./pages/classes/HomeworkEdit'), 'Homewor
 const Assistant = page(() => import('./pages/assistant/AssistantPage'), 'AssistantPage');
 const Buddy = page(() => import('./pages/cot/BuddyPage'), 'BuddyPage');
 const Mistakes = page(() => import('./pages/cot/MistakesPage'), 'MistakesPage');
+const Messages = page(() => import('./pages/messages/MessagesPage'), 'MessagesPage');
+const CheckinLink = page(() => import('./pages/messages/CheckinLink'), 'CheckinLinkPage');
 const Prep = page(() => import('./pages/prep/PrepPage'), 'PrepPage');
 const Lesson = page(() => import('./pages/prep/LessonPage'), 'LessonPage');
 const StudentChat = page(() => import('./pages/classes/StudentChat'), 'StudentChatPage');
@@ -189,6 +191,32 @@ export const router = createBrowserRouter([
       // 课堂（2026-11-17 做的）11-18 拿掉了，旧地址都回首页；后台和数据还留着
       { path: 'classroom/*', element: <Navigate replace to="/" /> },
       { path: 'live/*', element: <Navigate replace to="/" /> },
+      // 消息（2026-11-18）：收件箱、课程群、私聊；/messages/inbox 是收件箱，/messages/数字 是一个会话
+      {
+        path: 'messages',
+        element: (
+          <S>
+            <Messages />
+          </S>
+        ),
+      },
+      {
+        path: 'messages/:chat',
+        element: (
+          <S>
+            <Messages />
+          </S>
+        ),
+      },
+      // 扫签到二维码、开签到链接：没登录的先登录，回来就签上
+      {
+        path: 'checkin/:token',
+        element: (
+          <S>
+            <CheckinLink />
+          </S>
+        ),
+      },
       {
         path: 'mistakes',
         element: (

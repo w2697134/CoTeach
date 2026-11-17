@@ -1,5 +1,6 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { useNavigate } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { ArrowUp, BookOpen, Check, Users, ChevronDown, ChevronRight, FilePenLine, FilePlus, FolderInput, FolderOpen, FolderSearch, History, MoveRight, Paperclip, PenLine, Search, Send, Square, SquarePen, Trash2, Undo2, Upload, X } from 'lucide-react';
 import { post } from '../../lib/api';
@@ -13,6 +14,10 @@ import { fileTitle, readableError, stepLines, type StepLine, when } from './pres
 import { STATUS_TEXT, STATUS_TONE, TA, plainText, useChanges, useKeeperRuns, useKeeperStream, useKnowledgeBases, useTaSession, useTaSessions, type Run } from './data';
 import { ActionCard, AskCard, type ActionData, type AskData } from '../assistant/cards';
 import { SpecialistsButton } from '../assistant/Specialists';
+import { LiveCard } from '../messages/Cards';
+import { useChatList } from '../messages/data';
+import { motion } from 'motion/react';
+import { HomeStage, greeting } from '../../components/HomeStage';
 import { useClasses } from '../classes/data';
 
 const SHOWN = /\.(png|jpe?g|gif|webp)$/i;
@@ -433,6 +438,15 @@ function TaRunBlock({
             </div>
           )}
           {cards.map((e) => {
+            // 通知、签到、选人：把办成的那样东西摆在对话里，数字跟着变（2026-11-18）
+            if (e.type === 'action' && e.data.live) {
+              const live = e.data.live as { type: 'notice' | 'checkin' | 'pick'; id: number };
+              return (
+                <div key={e.id}>
+                  <LiveCard type={live.type} id={live.id} />
+                </div>
+              );
+            }
             if (e.type === 'action') return <ActionCard key={e.id} data={e.data as unknown as ActionData} status={status.get(Number(e.data.actionId))} />;
             if (e.type === 'ask') return <AskCard key={e.id} runId={run.id} data={e.data as unknown as AskData} live={run.status === 'waiting'} />;
             const job = jobs.get(Number(e.data.jobRunId));
@@ -638,6 +652,7 @@ export const KeeperPanel = forwardRef<
   }
 >(function KeeperPanel({ kbId, file, onOpenChange, onOpenChanges, variant = 'panel', suggestions }, ref) {
   const page = variant === 'page';
+  const navigate = useNavigate();
   // 知识库页右边那一栏只摆在知识库页说的事（学生来问、布置作业这些只在助教页）
   const place = page ? undefined : ('kb' as const);
   const me = useAuth((s) => s.user);
@@ -664,6 +679,17 @@ export const KeeperPanel = forwardRef<
     (students ? `${students} 个学生在等你回` : '') ||
     (runs.some((r) => r.status === 'waiting') ? '在等你回答' : '') ||
     jobsLine(runs);
+  // 首页：
+  // 助教页进来先看到问候和大输入框，发出去就是接着这段会话聊；正在回的、开了新会话还没说话的照这个来
+  const [home, setHome] = useState(page);
+  // 正在回、上一句它问了老师还在等回答：直接看对话
+  const asked = runs[runs.length - 1]?.status === 'waiting';
+  useEffect(() => {
+    if (busy || asked) setHome(false);
+  }, [busy, asked]);
+  useEffect(() => {
+    if (page && q.data && !q.data.runs.length) setHome(true);
+  }, [page, q.data?.session]); // eslint-disable-line react-hooks/exhaustive-deps
   // 手机上顶栏只有菜单和「CoT 助教」，开新会话、翻以前的放到顶栏右边（照 ChatGPT 手机版）
   const [slot, setSlot] = useState<HTMLElement | null>(null);
   useEffect(() => setSlot(page ? document.getElementById('top-actions') : null), [page]);
@@ -719,10 +745,15 @@ export const KeeperPanel = forwardRef<
     });
   };
   const classes = useClasses().data?.classes.filter((c) => !c.archived) || [];
-  const cls = classes[0]?.name;
-  const starters = cls
-    ? [`给「${cls}」布置一份作业，下周五交`, `给「${cls}」备下一节课`, `「${cls}」最近那份作业交了几个人`, '学生这两天都问了学伴什么']
-    : ['帮我建一门课，名字叫计科2501 Python 程序设计', '学生这两天都问了学伴什么'];
+  // 首页那几句：照老师自己的课程（群里最近有动静的那门）、在等他回的学生出，点了填进输入框
+  const active = useChatList(false).data?.chats.find((c) => c.kind === 'class' && c.last);
+  const cls = active?.title || classes[0]?.name;
+  const starters = [
+    students > 0 && `${students} 个学生在等我回，帮我理一理`,
+    ...(cls ? [`给「${cls}」发个通知`, `「${cls}」签到，5 分钟`, `给「${cls}」备下一节课`, `「${cls}」最近那份作业交了几个人`] : ['帮我建一门课，叫计科2501 Python 程序设计']),
+  ]
+    .filter((x): x is string => !!x)
+    .slice(0, 3);
   const detach = (key: string) =>
     setAttached((prev) => {
       const a = prev.find((x) => x.key === key);
@@ -747,6 +778,7 @@ export const KeeperPanel = forwardRef<
     const files = [...attached.map((a) => a.picked), ...extra];
     if ((!msg && !files.length) || archived || busy || sending) return;
     setSending(true);
+    setHome(false);
     // 发了话就回到最新的一条，看得到自己说的和它的回答
     stick.current = true;
     try {
@@ -768,21 +800,137 @@ export const KeeperPanel = forwardRef<
     await post(`/keeper/runs/${activeId}/cancel`, {}).catch((err) => toast.fromError(err));
   };
 
+  // 输入框：首页摆在中间，聊着的时候在底下
+  const composerArea = (
+    <div
+      className={page ? (home ? 'w-full' : 'w-full shrink-0 px-3 pb-1 pt-3 lg:px-6') : 'shrink-0 p-3'}
+      onDragOver={(e) => {
+        if (archived || !e.dataTransfer.types.includes('Files')) return;
+        e.preventDefault();
+      }}
+      onDrop={(e) => {
+        if (archived || !e.dataTransfer.types.includes('Files')) return;
+        e.preventDefault();
+        e.stopPropagation();
+        void pickedFromDrop(e.dataTransfer).then(attach);
+      }}
+    >
+      <motion.div
+        layoutId={page ? 'ta-composer' : undefined}
+        transition={{ type: 'spring', stiffness: 260, damping: 32 }}
+        ref={composer}
+        className={cn('border border-line bg-surface transition-colors focus-within:border-brand/50', home ? 'rounded-[28px] shadow-lg' : 'rounded-2xl shadow-xs')}
+      >
+        {attached.length > 0 && (
+          // 照 ChatGPT：带的文件在输入框上方横着排一行，多了左右滑，输入框不会被顶高
+          <div className="flex items-center gap-2 overflow-x-auto px-3 pb-1 pt-3 [&>*]:shrink-0">
+            {/* 拖进来、选进来的整个文件夹只占一格，叉掉就是整个文件夹不发了 */}
+            {pickedFolders(attached).map((f) => (
+              <FileCard key={f.name} compact folder name={f.name} meta={`${f.keys.length} 份`} onRemove={() => f.keys.forEach(detach)} />
+            ))}
+            {attached
+              .filter((a) => !a.picked.path.includes('/'))
+              .slice(0, 12)
+              .map((a) => {
+                const name = a.picked.path.split('/').pop() || a.picked.path;
+                return a.url ? (
+                  <div key={a.key} className="relative">
+                    <img src={a.url} alt="" className="size-[50px] rounded-xl border border-line object-cover shadow-xs" />
+                    <button
+                      type="button"
+                      aria-label="去掉"
+                      onClick={() => detach(a.key)}
+                      className="absolute -right-1.5 -top-1.5 flex size-5 items-center justify-center rounded-full bg-ink/70 text-white shadow-sm hover:bg-ink"
+                    >
+                      <X className="size-3" />
+                    </button>
+                  </div>
+                ) : (
+                  <FileCard
+                    key={a.key}
+                    compact
+                    name={name}
+                    meta={[typeLabel(name), formatSize(a.picked.file.size)].filter(Boolean).join(' · ')}
+                    onRemove={() => detach(a.key)}
+                  />
+                );
+              })}
+            {attached.filter((a) => !a.picked.path.includes('/')).length > 12 && (
+              <span className="self-center text-[12px] text-ink-3">还有 {attached.filter((a) => !a.picked.path.includes('/')).length - 12} 份</span>
+            )}
+          </div>
+        )}
+        <Textarea
+          autoGrow
+          maxRows={8}
+          rows={home ? 3 : 2}
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          onPaste={(e) => {
+            // 截图、复制的文件直接粘贴进来，摆在输入框上方，跟这句话一起发
+            if (archived || !e.clipboardData.files.length) return;
+            e.preventDefault();
+            attach(pastedFiles(e.clipboardData.files));
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+              e.preventDefault();
+              send();
+            }
+          }}
+          placeholder={archived ? '学期已封存，只能查阅' : busy ? 'CoT 助教正在回复…' : home ? '想让我办点什么？' : '跟 CoT 助教说'}
+          disabled={busy || archived}
+          className={cn('min-h-0 resize-none border-0 bg-transparent shadow-none! focus:ring-0', home ? 'px-5 pb-1 pt-4 text-[16px]' : 'px-3.5 pb-1 pt-3')}
+        />
+        <div className="flex items-center justify-between gap-2 px-2 pb-2">
+          {archived ? <span /> : <HandInButton clip onPick={attach} disabled={busy} />}
+          {/* 照 ChatGPT：助教在回的时候发送键变成停下键（手机上也按得到） */}
+          {busy && activeId ? (
+            <button
+              type="button"
+              onClick={stop}
+              aria-label="让它停下"
+              title="让它停下"
+              className="inline-flex size-9 shrink-0 items-center justify-center rounded-xl bg-ink text-surface transition-colors hover:bg-ink/85"
+            >
+              <Square className="size-3.5 fill-current" />
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => send()}
+              disabled={(!text.trim() && !attached.length) || busy || sending || archived}
+              aria-label="发送"
+              className="inline-flex size-9 shrink-0 items-center justify-center rounded-xl bg-brand text-white transition-colors hover:bg-brand-hover disabled:opacity-40"
+            >
+              <ArrowUp className="size-4" />
+            </button>
+          )}
+        </div>
+      </motion.div>
+    </div>
+  );
+
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div
         className={
           page
-            ? // 手机上顶栏已经写着「CoT 助教」，这里不再摆一遍
-              'hidden w-full shrink-0 items-center gap-3 border-b border-line px-3 pb-3 pt-1 lg:flex'
+            ? // 手机上顶栏已经写着「CoT 助教」，这里不再摆一遍；首页只留右边那几个按钮
+              cn('hidden w-full shrink-0 items-center gap-3 px-3 pb-3 pt-1 lg:flex', !home && 'border-b border-line')
             : 'flex h-[60px] shrink-0 items-center gap-3 border-b border-line bg-gradient-to-r from-brand-soft/80 via-brand-soft/30 to-transparent px-4'
         }
       >
-        <AgentAvatar agent={TA} size={38} status={busy ? 'running' : null} />
-        <div className="min-w-0 flex-1 leading-tight">
+        <AgentAvatar agent={TA} size={38} status={busy ? 'running' : null} className={cn(home && 'invisible')} />
+        <div className={cn('min-w-0 flex-1 leading-tight', home && 'invisible')}>
           <p className="truncate text-[15px] font-semibold text-ink">{TA.name}</p>
-          {status && (
-            <p className={cn('mt-0.5 truncate text-[13px]', !busy && (pending || students) && !archived ? 'text-brand-ink' : 'text-ink-3')}>{status}</p>
+          {/* 学生在等老师回的卡片在收件箱里（2026-11-18）：这一行点了去收件箱 */}
+          {status && students > 0 && status.startsWith(`${students} 个学生`) ? (
+            <button type="button" onClick={() => navigate('/messages/inbox')} className="mt-0.5 block max-w-full truncate text-[13px] text-brand-ink hover:underline">
+              {status}，去收件箱回
+            </button>
+          ) : (
+            status && <p className={cn('mt-0.5 truncate text-[13px]', !busy && (pending || students) && !archived ? 'text-brand-ink' : 'text-ink-3')}>{status}</p>
           )}
         </div>
         {onOpenChanges && (
@@ -806,32 +954,19 @@ export const KeeperPanel = forwardRef<
           </div>,
           slot,
         )}
-      <div ref={scroller} className={cn('min-h-0 flex-1 overflow-y-auto py-5', page ? 'px-3 lg:px-6' : 'px-4')}>
+      {/* 首页：中间一行问候、大输入框、几句话；发出去就接着这段会话聊（输入框落到底下） */}
+      {page && home && (
+        <HomeStage
+          agent={TA}
+          hello={greeting(me?.name ? `${me.name}老师` : '')}
+          composer={composerArea}
+          chips={archived ? [] : starters}
+          onPick={fill}
+          onHistory={runs.length ? () => setHome(false) : undefined}
+        />
+      )}
+      <div ref={scroller} className={cn('min-h-0 flex-1 overflow-y-auto py-5', page ? 'px-3 lg:px-6' : 'px-4', page && home && 'hidden')}>
         <div ref={content} className="space-y-6">
-          {/* 助教页还没说过话：打个招呼，给几句能直接说的（用老师自己的班名），点一下放进输入框，改改再发 */}
-          {page && q.data && !runs.length && (
-            <div className="mx-auto flex max-w-[560px] flex-col items-center gap-3 pt-[10vh] text-center">
-              <AgentAvatar agent={TA} size={72} />
-              <p className="text-[18px] font-semibold text-ink">{me?.name ? `${me.name}老师好，我是你的 CoT 助教` : '我是你的 CoT 助教'}</p>
-              {!archived && (
-                <>
-                  <p className="text-[15px] text-ink-2">教学上的事跟我说一声就行，比如：</p>
-                  <div className="mt-1 flex w-full flex-col gap-2">
-                    {starters.map((s) => (
-                      <button
-                        key={s}
-                        type="button"
-                        onClick={() => fill(s)}
-                        className="w-full rounded-xl border border-line bg-surface px-4 py-2.5 text-left text-[15px] leading-6 text-ink shadow-xs transition-colors hover:border-brand/40 hover:bg-brand-soft/40"
-                      >
-                        {s}
-                      </button>
-                    ))}
-                  </div>
-                </>
-              )}
-            </div>
-          )}
           {/* 知识库页右边还没说过话：几句老师会说的话（从这个库现在的样子算出来的），点一下放进输入框，改改再发 */}
           {!page && q.data && !runs.length && (
             <div className="flex flex-col items-center gap-3 pt-[6vh] text-center">
@@ -876,108 +1011,7 @@ export const KeeperPanel = forwardRef<
           ))}
         </div>
       </div>
-      <div
-        className={page ? 'w-full shrink-0 px-3 pb-1 pt-3 lg:px-6' : 'shrink-0 p-3'}
-        onDragOver={(e) => {
-          if (archived || !e.dataTransfer.types.includes('Files')) return;
-          e.preventDefault();
-        }}
-        onDrop={(e) => {
-          if (archived || !e.dataTransfer.types.includes('Files')) return;
-          e.preventDefault();
-          e.stopPropagation();
-          void pickedFromDrop(e.dataTransfer).then(attach);
-        }}
-      >
-        <div ref={composer} className="rounded-2xl border border-line bg-surface shadow-xs transition-colors focus-within:border-brand/50">
-          {attached.length > 0 && (
-            // 照 ChatGPT：带的文件在输入框上方横着排一行，多了左右滑，输入框不会被顶高
-            <div className="flex items-center gap-2 overflow-x-auto px-3 pb-1 pt-3 [&>*]:shrink-0">
-              {/* 拖进来、选进来的整个文件夹只占一格，叉掉就是整个文件夹不发了 */}
-              {pickedFolders(attached).map((f) => (
-                <FileCard key={f.name} compact folder name={f.name} meta={`${f.keys.length} 份`} onRemove={() => f.keys.forEach(detach)} />
-              ))}
-              {attached
-                .filter((a) => !a.picked.path.includes('/'))
-                .slice(0, 12)
-                .map((a) => {
-                  const name = a.picked.path.split('/').pop() || a.picked.path;
-                  return a.url ? (
-                    <div key={a.key} className="relative">
-                      <img src={a.url} alt="" className="size-[50px] rounded-xl border border-line object-cover shadow-xs" />
-                      <button
-                        type="button"
-                        aria-label="去掉"
-                        onClick={() => detach(a.key)}
-                        className="absolute -right-1.5 -top-1.5 flex size-5 items-center justify-center rounded-full bg-ink/70 text-white shadow-sm hover:bg-ink"
-                      >
-                        <X className="size-3" />
-                      </button>
-                    </div>
-                  ) : (
-                    <FileCard
-                      key={a.key}
-                      compact
-                      name={name}
-                      meta={[typeLabel(name), formatSize(a.picked.file.size)].filter(Boolean).join(' · ')}
-                      onRemove={() => detach(a.key)}
-                    />
-                  );
-                })}
-              {attached.filter((a) => !a.picked.path.includes('/')).length > 12 && (
-                <span className="self-center text-[12px] text-ink-3">还有 {attached.filter((a) => !a.picked.path.includes('/')).length - 12} 份</span>
-              )}
-            </div>
-          )}
-          <Textarea
-            autoGrow
-            maxRows={8}
-            rows={2}
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            onPaste={(e) => {
-              // 截图、复制的文件直接粘贴进来，摆在输入框上方，跟这句话一起发
-              if (archived || !e.clipboardData.files.length) return;
-              e.preventDefault();
-              attach(pastedFiles(e.clipboardData.files));
-            }}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
-                e.preventDefault();
-                send();
-              }
-            }}
-            placeholder={archived ? '学期已封存，只能查阅' : busy ? 'CoT 助教正在回复…' : '跟 CoT 助教说'}
-            disabled={busy || archived}
-            className="min-h-0 resize-none border-0 bg-transparent px-3.5 pb-1 pt-3 shadow-none! focus:ring-0"
-          />
-          <div className="flex items-center justify-between gap-2 px-2 pb-2">
-            {archived ? <span /> : <HandInButton clip onPick={attach} disabled={busy} />}
-            {/* 照 ChatGPT：助教在回的时候发送键变成停下键（手机上也按得到） */}
-            {busy && activeId ? (
-              <button
-                type="button"
-                onClick={stop}
-                aria-label="让它停下"
-                title="让它停下"
-                className="inline-flex size-9 shrink-0 items-center justify-center rounded-xl bg-ink text-surface transition-colors hover:bg-ink/85"
-              >
-                <Square className="size-3.5 fill-current" />
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={() => send()}
-                disabled={(!text.trim() && !attached.length) || busy || sending || archived}
-                aria-label="发送"
-                className="inline-flex size-9 shrink-0 items-center justify-center rounded-xl bg-brand text-white transition-colors hover:bg-brand-hover disabled:opacity-40"
-              >
-                <ArrowUp className="size-4" />
-              </button>
-            )}
-          </div>
-        </div>
-      </div>
+      {!(page && home) && composerArea}
     </div>
   );
 });

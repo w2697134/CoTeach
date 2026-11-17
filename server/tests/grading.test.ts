@@ -200,6 +200,11 @@ test('助教判不了的留给老师看，不直接发；模型漏了项要它�
   const t = await req(`/homework/${hw1}/students/${ls}`);
   assert.equal(t.json.ai.flag, '交的内容跟题目无关');
   assert.equal(t.json.ai.released, false);
+  // 老师的收件箱来一条：批完了几份、几份拿不准，点了去作业页（2026-11-18）
+  const item = (await req('/messages/inbox')).json.items.find((x: any) => x.kind === 'graded' && x.ref === hw1);
+  assert.match(item.title, /批完了 \d+ 份/);
+  assert.match(item.body, /1 份拿不准，要你看/);
+  assert.match(item.link, new RegExp(`/homework/${hw1}$`));
 });
 
 test('批完先给老师看：老师点发布才发；学生重交了旧的作废', async () => {

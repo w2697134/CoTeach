@@ -70,6 +70,11 @@ export const config = {
    * 没有密钥的号已经登着的也算退出。
    */
   passwordLogin: env.CT_PASSWORD_LOGIN !== 'off',
+  /** 当面等回话的智能体先用备用模型（快），主模型当备用；逗号分开，设成空就都照默认顺序。见 assistant/model.ts 的 orderFor */
+  fastAgents: (env.CT_FAST_AGENTS ?? 'ta,stu')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean),
   /** 交资料：单个文件、一次交的总量、单份资料、压缩包里的文件数和解开后的总量 */
   intake: {
     maxFileBytes: Number(env.CT_INTAKE_MAX_FILE_MB || 500) * 1024 * 1024,

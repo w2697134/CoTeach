@@ -4,6 +4,7 @@
  */
 import { db, getSetting, now } from '../db/index.js';
 import { addNote } from '../assistant/notes.js';
+import { inboxPut } from '../messages/core.js';
 import { assignmentRow, classRow, submissionRow, type AiGradeRow } from './common.js';
 import { runGrade } from './grader.js';
 
@@ -132,10 +133,10 @@ function afterBatch(assignmentId: number) {
   const failed = done.filter((x) => x.status === 'error').length;
   if (done.length < 3 && !flagged && !failed) return;
   told.set(assignmentId, now());
-  addNote(
-    a.teacher_id,
-    `「${k.name}」的「${a.title}」助教批完了 ${done.length} 份${flagged ? `，${flagged} 份要老师看` : ''}${failed ? `，${failed} 份没批成` : ''}`,
-  );
+  const line = `「${k.name}」的「${a.title}」助教批完了 ${done.length} 份${flagged ? `，${flagged} 份要老师看` : ''}${failed ? `，${failed} 份没批成` : ''}`;
+  addNote(a.teacher_id, line);
+  // 老师的收件箱也来一条，点开去看（同一份作业只留一条，再批完一批就顶上来）
+  inboxPut(a.teacher_id, 'graded', assignmentId, `「${a.title}」批完了 ${done.length} 份`, [k.name, flagged && `${flagged} 份拿不准，要你看`, failed && `${failed} 份没批成`].filter(Boolean).join('，'), `/classes/${k.id}/homework/${assignmentId}`);
 }
 
 /** 测试用：把排着的一份一份批完 */

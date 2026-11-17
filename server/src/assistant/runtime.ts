@@ -21,6 +21,7 @@ import { ASK_TOOL, runTaTool, TOOL_SPECS, type TaContext } from './tools.js';
 import { afterTeacherAnswer, pendingAsksLine, type StudentAskCard } from './bridge.js';
 import { rosterLine } from './specialists.js';
 import { answerSuggestion, pendingSuggestionLine, suggestSoon } from './suggest.js';
+import { messageFacts } from '../messages/core.js';
 
 export { setModelStep, type ModelStep, type StepResult } from './model.js';
 
@@ -336,6 +337,7 @@ async function execute(user: { id: number; name: string }, ref: RunRef, turn: Tu
     asks: pendingAsksLine(user.id),
     specialists: rosterLine(user.id),
     suggestion: pendingSuggestionLine(user.id),
+    messages: messageFacts(user.id),
   });
   const said = (turn.modelMessage ?? turn.message).trim();
   append(user.id, key, ref.runId, { role: 'user', content: `${block}\n${said || '（老师只发了文件，没写话）'}` });

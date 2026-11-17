@@ -174,9 +174,11 @@ test('改分到数了才看一眼：看一眼单独调一次模型，弹出提�
   assert.equal(row.status, 'waiting');
   assert.equal(row.homework_id, hw);
   assert.equal(row.guide, SUGGEST_1.guide);
-  // 页面上看得到
+  // 卡片在收件箱里（2026-11-18），不进跟助教的主对话
   const runs = (await req(w.teacher, '/keeper/runs')).json.runs;
-  assert.ok(runs.some((r: any) => r.id === card.id && r.kind === 'suggest' && r.status === 'waiting'));
+  assert.equal(runs.some((r: any) => r.id === card.id), false);
+  const item = (await req(w.teacher, '/messages/inbox')).json.items.find((x: any) => x.kind === 'ask' && x.ref === card.id);
+  assert.deepEqual([item.live, item.card.suggest.name], [true, SUGGEST_1.name]);
 
   // 老师接着说别的：卡片不收起来；助教这一轮看得到还没答的提议
   script({ text: '计科5班有 8 个学生' });

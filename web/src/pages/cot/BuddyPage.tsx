@@ -10,7 +10,10 @@ import { BUDDY } from '../kb/data';
 import { when } from '../kb/presentation';
 import { useStuRuns, useStuSession, useStuSessions, useStuStream } from './data';
 import { BuddyRunBlock } from './Thread';
-import { Welcome } from './Welcome';
+import { given, useBuddyStarters } from './Welcome';
+import { motion } from 'motion/react';
+import { HomeStage, greeting } from '../../components/HomeStage';
+import { useAuth } from '../../lib/store';
 
 /** 开启新会话、翻以前的会话（跟老师那边的助教一样，照 DeepSeek、豆包） */
 function SessionButtons({ compact, disabled }: { compact: boolean; disabled: boolean }) {
@@ -106,6 +109,16 @@ export function BuddyPage() {
   const asking = running?.events.some((e) => e.type === 'tool' && e.data?.name === 'stu_ask');
   const [slot, setSlot] = useState<HTMLElement | null>(null);
   useEffect(() => setSlot(document.getElementById('top-actions')), []);
+  // 首页（2026-11-18，跟老师的助教一样）：进来先看到问候和大输入框，发出去就接着这段会话聊
+  const me = useAuth((s) => s.user);
+  const starters = useBuddyStarters();
+  const [home, setHome] = useState(true);
+  useEffect(() => {
+    if (busy) setHome(false);
+  }, [busy]);
+  useEffect(() => {
+    if (q.data && !q.data.runs.length) setHome(true);
+  }, [q.data?.session]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const scroller = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
@@ -134,6 +147,7 @@ export function BuddyPage() {
     const msg = text.trim();
     if (!msg || busy || sending) return;
     setSending(true);
+    setHome(false);
     stick.current = true;
     try {
       await post('/cot/messages', { message: msg, session: q.data?.session });
@@ -149,28 +163,85 @@ export function BuddyPage() {
     if (activeId) await post(`/cot/runs/${activeId}/cancel`, {}).catch((err) => toast.fromError(err));
   };
 
+  // 输入框：首页摆在中间，聊着的时候在底下
+  const composerArea = (
+    <div className={home ? 'w-full' : 'w-full shrink-0 px-3 pb-1 pt-3 lg:px-6'}>
+      <motion.div
+        layoutId="buddy-composer"
+        transition={{ type: 'spring', stiffness: 260, damping: 32 }}
+        className={cn('border border-line bg-surface transition-colors focus-within:border-brand/50', home ? 'rounded-[28px] shadow-lg' : 'rounded-2xl shadow-xs')}
+      >
+        <Textarea
+          ref={input}
+          autoGrow
+          maxRows={8}
+          rows={home ? 3 : 2}
+          value={text}
+          maxLength={4000}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+              e.preventDefault();
+              send();
+            }
+          }}
+          placeholder={busy ? 'CoT 学伴正在回复…' : home ? '想问点什么？' : '问 CoT 学伴'}
+          disabled={busy}
+          className={cn('min-h-0 resize-none border-0 bg-transparent px-4 pb-1 pt-3 text-[15px] shadow-none! focus:ring-0', home && 'px-5 pt-4 text-[16px]')}
+        />
+        <div className="flex items-center justify-end gap-2 px-2 pb-2">
+          {busy && activeId ? (
+            <button
+              type="button"
+              onClick={stop}
+              aria-label="让它停下"
+              title="让它停下"
+              className="inline-flex size-9 shrink-0 items-center justify-center rounded-xl bg-ink text-surface transition-colors hover:bg-ink/85"
+            >
+              <Square className="size-3.5 fill-current" />
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={send}
+              disabled={!text.trim() || busy || sending}
+              aria-label="发送"
+              className="inline-flex size-9 shrink-0 items-center justify-center rounded-xl bg-brand text-white transition-colors hover:bg-brand-hover disabled:opacity-40"
+            >
+              <ArrowUp className="size-4" />
+            </button>
+          )}
+        </div>
+      </motion.div>
+    </div>
+  );
+
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="hidden w-full shrink-0 items-center gap-3 border-b border-line px-3 pb-3 pt-1 lg:flex">
-        <AgentAvatar agent={BUDDY} size={38} status={busy ? 'running' : null} />
-        <div className="min-w-0 flex-1 leading-tight">
+      <div className={cn('hidden w-full shrink-0 items-center gap-3 px-3 pb-3 pt-1 lg:flex', !home && 'border-b border-line')}>
+        <AgentAvatar agent={BUDDY} size={38} status={busy ? 'running' : null} className={cn(home && 'invisible')} />
+        <div className={cn('min-w-0 flex-1 leading-tight', home && 'invisible')}>
           <p className="truncate text-[15px] font-semibold text-ink">{BUDDY.name}</p>
           {busy && <p className="mt-0.5 truncate text-[13px] text-ink-2">{asking ? '在问老师的助教' : '在写回复'}</p>}
         </div>
         <SessionButtons compact={false} disabled={busy} />
       </div>
       {slot && createPortal(<SessionButtons compact disabled={busy} />, slot)}
-      {/* 自己班正在上课：顶上一张卡片，点了进课堂 */}
-      <div ref={scroller} className="min-h-0 flex-1 overflow-y-auto px-3 py-5 lg:px-6">
+      {home && (
+        <HomeStage
+          agent={BUDDY}
+          hello={greeting(me?.name ? given(me.name) : '')}
+          composer={composerArea}
+          chips={starters}
+          onPick={(t) => {
+            setText(t);
+            requestAnimationFrame(() => input.current?.focus());
+          }}
+          onHistory={runs.length ? () => setHome(false) : undefined}
+        />
+      )}
+      <div ref={scroller} className={cn('min-h-0 flex-1 overflow-y-auto px-3 py-5 lg:px-6', home && 'hidden')}>
         <div ref={content} className="space-y-6">
-          {q.data && !runs.length && (
-            <Welcome
-              onPick={(t) => {
-                setText(t);
-                requestAnimationFrame(() => input.current?.focus());
-              }}
-            />
-          )}
           {q.error && (
             <Alert tone="bad">
               对话加载失败。
@@ -185,51 +256,7 @@ export function BuddyPage() {
           ))}
         </div>
       </div>
-      <div className="w-full shrink-0 px-3 pb-1 pt-3 lg:px-6">
-        <div className="rounded-2xl border border-line bg-surface shadow-xs transition-colors focus-within:border-brand/50">
-          <Textarea
-            ref={input}
-            autoGrow
-            maxRows={8}
-            rows={2}
-            value={text}
-            maxLength={4000}
-            onChange={(e) => setText(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
-                e.preventDefault();
-                send();
-              }
-            }}
-            placeholder={busy ? 'CoT 学伴正在回复…' : '问 CoT 学伴'}
-            disabled={busy}
-            className="min-h-0 resize-none border-0 bg-transparent px-4 pb-1 pt-3 text-[15px] shadow-none! focus:ring-0"
-          />
-          <div className="flex items-center justify-end gap-2 px-2 pb-2">
-            {busy && activeId ? (
-              <button
-                type="button"
-                onClick={stop}
-                aria-label="让它停下"
-                title="让它停下"
-                className="inline-flex size-9 shrink-0 items-center justify-center rounded-xl bg-ink text-surface transition-colors hover:bg-ink/85"
-              >
-                <Square className="size-3.5 fill-current" />
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={send}
-                disabled={!text.trim() || busy || sending}
-                aria-label="发送"
-                className="inline-flex size-9 shrink-0 items-center justify-center rounded-xl bg-brand text-white transition-colors hover:bg-brand-hover disabled:opacity-40"
-              >
-                <ArrowUp className="size-4" />
-              </button>
-            )}
-          </div>
-        </div>
-      </div>
+      {!home && composerArea}
     </div>
   );
 }

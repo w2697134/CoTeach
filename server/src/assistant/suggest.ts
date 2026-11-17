@@ -17,6 +17,7 @@
  */
 import { db, j, now } from '../db/index.js';
 import { record } from '../kb/agent/events.js';
+import { inboxPut } from '../messages/core.js';
 import { publishRun } from '../kb/keeper.js';
 import type { Msg, ToolSpec } from '../llm/types.js';
 import { gradeItems } from '../grading/common.js';
@@ -353,6 +354,8 @@ function postCard(teacherId: number, id: number, p: Proposal) {
     status: 'waiting',
     request: '',
     session_id: sessionNow(teacherId),
+    // 卡片在收件箱里，不进跟助教的主对话（2026-11-18）
+    place: 'inbox',
     created_by: teacherId,
     created_at: now(),
   });
@@ -362,6 +365,7 @@ function postCard(teacherId: number, id: number, p: Proposal) {
     answered: null,
     suggest: { id, name: p.name, duty: p.duty },
   });
+  inboxPut(teacherId, 'ask', runId, `要不要分出「${p.name}」`, p.question, null);
   db.update('specialist_suggestions', id, {
     status: 'waiting',
     name: p.name,

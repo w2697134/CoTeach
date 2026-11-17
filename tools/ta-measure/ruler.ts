@@ -9,7 +9,6 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSyn
 import { DatabaseSync } from 'node:sqlite';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { CASES } from './cases.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(here, '..', '..');
@@ -18,7 +17,8 @@ if (!label) throw new Error('要给这次量起个标签');
 const out = join(ROOT, 'output', 'ta-measure', label);
 rmSync(out, { recursive: true, force: true });
 mkdirSync(join(out, 'base'), { recursive: true });
-const dev = join(ROOT, 'server', 'data');
+// 开发数据目录：CT_DEV_DATA 指（工作树里没有 server/data 时用），不写用 server/data
+const dev = resolve(process.env.CT_DEV_DATA || join(ROOT, 'server', 'data'));
 new DatabaseSync(join(dev, 'coteach.db'), { readOnly: true }).exec(`VACUUM INTO '${join(out, 'base', 'coteach.db').replace(/'/g, "''")}'`);
 copyFileSync(join(dev, '.secret'), join(out, 'base', '.secret'));
 // 思考开到哪一档：TA_THINK=off|low|high|max（不写按代码里的默认）
@@ -29,6 +29,16 @@ if (THINK) {
   b.close();
 }
 
+// 只用 DeepSeek：TA_MODEL=deepseek（把备用模型设成主模型）
+if (process.env.TA_MODEL === 'deepseek') {
+  const b = new DatabaseSync(join(out, 'base', 'coteach.db'));
+  const fb = b.prepare("SELECT value FROM settings WHERE key='fallback_model_id'").get() as { value: string } | undefined;
+  if (fb) b.prepare("UPDATE settings SET value=? WHERE key='default_model_id'").run(fb.value);
+  b.close();
+}
+// 句子那份文件会连库：这个进程自己用一个空目录（不跟开着的服务、别的尺子抢同一个目录）
+process.env.CT_DATA_DIR = join(out, 'ruler-data');
+const { CASES } = await import('./cases.js');
 const cases = CASES.filter((c) => !only.length || only.includes(c.id));
 const PARALLEL = Number(process.env.TA_PARALLEL || 4);
 

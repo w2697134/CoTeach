@@ -211,6 +211,38 @@
   0%, 100% { opacity: 1; }
   50% { opacity: 0; }
 }
+/* 首页大输入框外面一圈慢慢流动的光（紫到青，2026-11-18） */
+@property --glow-angle {
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: false;
+}
+@keyframes glow-turn {
+  to { --glow-angle: 360deg; }
+}
+.home-glow {
+  position: relative;
+  isolation: isolate;
+}
+.home-glow::before {
+  content: '';
+  position: absolute;
+  inset: -3px;
+  z-index: -1;
+  border-radius: 32px;
+  background: conic-gradient(from var(--glow-angle), #7c3aed, #4f46e5, #06b6d4, #22d3ee, #a855f7, #7c3aed);
+  filter: blur(20px);
+  opacity: 0.32;
+  animation: glow-turn 10s linear infinite;
+}
+[data-theme='dark'] .home-glow::before {
+  opacity: 0.45;
+}
+@media (prefers-reduced-motion: reduce) {
+  .home-glow::before {
+    animation: none;
+  }
+}
 @keyframes ring-pulse {
   0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--agent, var(--c-primary)) 45%, transparent); }
   70% { box-shadow: 0 0 0 10px color-mix(in srgb, var(--agent, var(--c-primary)) 0%, transparent); }

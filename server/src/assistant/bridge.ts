@@ -8,6 +8,7 @@ import { bad } from '../lib/http.js';
 import { record } from '../kb/agent/events.js';
 import { publishRun } from '../kb/keeper.js';
 import { addNote } from './notes.js';
+import { inboxPut } from '../messages/core.js';
 import { runHelper } from './helper.js';
 import { putPack, teacherTitle } from './pack.js';
 import { suggestSoon } from './suggest.js';
@@ -181,6 +182,8 @@ function escalate(askId: number, e: { question: string; options: string[]; draft
     status: 'waiting',
     request: '',
     session_id: session,
+    // 卡片在收件箱里，不进跟助教的主对话；老师在卡片上答了以后助教接着办的那一轮也跟着在收件箱
+    place: 'inbox',
     class_ids: JSON.stringify([k.id]),
     created_by: ask.student_id,
     created_at: t,
@@ -194,6 +197,7 @@ function escalate(askId: number, e: { question: string; options: string[]; draft
     from: card,
   });
   db.update('student_asks', askId, { status: 'teacher', card_run_id: runId, answered_at: t });
+  inboxPut(k.teacher_id, 'ask', runId, `${student}来问`, card.question, null);
   publishRun(null, runId);
 }
 

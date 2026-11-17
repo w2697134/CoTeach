@@ -198,8 +198,11 @@ test('要老师拍板：老师那边弹卡片（说别的也不收），老师�
   assert.doesNotMatch(out, /老师同意/);
   const card = db.get<any>("SELECT * FROM kb_runs WHERE teacher_id=? AND kind='student_ask' ORDER BY id DESC LIMIT 1", teacher);
   assert.equal(card.status, 'waiting');
-  const runs = (await req('/keeper/runs')).json.runs;
-  const ev = runs.find((x: any) => x.id === card.id).events.find((e: any) => e.type === 'ask');
+  // 卡片在老师的收件箱里（2026-11-18），不进跟助教的主对话
+  assert.equal((await req('/keeper/runs')).json.runs.some((x: any) => x.id === card.id), false);
+  const item = (await req('/messages/inbox')).json.items.find((x: any) => x.kind === 'ask' && x.ref === card.id);
+  assert.deepEqual([item.title, item.live, item.done], ['张浩然来问', true, false]);
+  const ev = { data: item.card };
   assert.equal(ev.data.from.student, '张浩然');
   assert.equal(ev.data.from.className, '计科5班');
   assert.deepEqual(ev.data.questions[0].options, ['可以，不扣分', '可以，按迟交算', '不行']);
@@ -255,14 +258,16 @@ test('老师在卡片上答了，助教没转告：照老师的原话转给学�
   assert.equal(last.reply, '老师的回复：分数不改，递归边界确实没写');
 });
 
-test('老师让助教通知：全班的写进资料包；只发某份作业没交的', async () => {
+test('老师让助教通知：全班的发成通知（群里一张卡、学生收件箱一条）也写进资料包；只发某份作业没交的', async () => {
+  const before = { zhang: (await req('/cot/runs', undefined, 'zhang')).json.runs.length, liu: (await req('/cot/runs', undefined, 'liu')).json.runs.length };
   script('ta', { calls: [{ name: 'notify_students', args: { classes: ['计科5班'], message: '明天停课一次' } }] }, { text: '通知了' });
   await teacherSays('告诉计科5班明天停课');
   assert.match(pack.renderPack(k5), /通知：\n- .*「明天停课一次」明天停课一次/);
-  const z = (await req('/cot/runs', undefined, 'zhang')).json.runs.pop();
-  const l = (await req('/cot/runs', undefined, 'liu')).json.runs.pop();
-  assert.equal(z.reply, '明天停课一次');
-  assert.equal(l.reply, '明天停课一次');
+  for (const who of ['zhang', 'liu']) {
+    const n = (await req('/messages/inbox', undefined, who)).json.items.find((x: any) => x.kind === 'notice');
+    assert.equal(n.body, '明天停课一次');
+  }
+  assert.equal((await req('/cot/runs', undefined, 'zhang')).json.runs.length, before.zhang, '不再送到学伴那里');
   // 刘欣怡、张浩然都交了第三章：再布置一份，只有刘欣怡交了
   const ch4 = hw(k5, '第四章练习');
   db.insert('submissions', { assignment_id: ch4, user_id: liu, text: '交了', submitted_at: Date.now(), late: 0, updated_at: Date.now() });
@@ -270,7 +275,7 @@ test('老师让助教通知：全班的写进资料包；只发某份作业没�
   await teacherSays('提醒没交第四章练习的');
   const tool = seen.filter((s) => s.agent === 'ta').pop()!.messages.filter((m) => m.role === 'tool').pop();
   assert.match(String(tool.content), /「计科5班」「第四章练习」没交的 1 人：张浩然/);
-  assert.equal((await req('/cot/runs', undefined, 'liu')).json.runs.pop().reply, '明天停课一次');
+  assert.equal((await req('/cot/runs', undefined, 'liu')).json.runs.length, before.liu);
   assert.equal((await req('/cot/runs', undefined, 'zhang')).json.runs.pop().reply, '第四章练习记得交');
 });
 

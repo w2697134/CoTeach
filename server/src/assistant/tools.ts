@@ -19,6 +19,7 @@ import { classesOf, findClass, findHomework, findStudent, type ClassRow, type Ho
 import { parseWhen, showTime, weekLater } from './time.js';
 import { createSpecialist, findSpecialist, runSpecialist, updateSpecialist } from './specialists.js';
 import { suggestionTaken } from './suggest.js';
+import { findNotice, latestCheckin } from '../messages/core.js';
 
 export interface TaContext {
   user: { id: number; name: string };
@@ -193,7 +194,7 @@ export const TOOL_SPECS: ToolSpec[] = [
   },
   {
     name: 'notify_students',
-    description: '给学生发通知，送到学生的 CoT 学伴那里。只发给某份作业还没交的学生时传 homework。',
+    description: '给学生发通知：发给一个或几个班，每个学生的收件箱都来一条，看得到谁读了。只提醒某份作业还没交的学生时传 homework，送到他们的 CoT 学伴那里。',
     parameters: obj(
       {
         classes: { type: 'array', items: { type: 'string' }, description: '发给哪些班（班名）' },
@@ -202,6 +203,41 @@ export const TOOL_SPECS: ToolSpec[] = [
       },
       ['classes', 'message'],
     ),
+  },
+  {
+    name: 'notice_status',
+    description: '看一条通知读了几个、谁没读，卡片摆给老师。',
+    parameters: obj({ notice: str('通知里的几个字；不传是最近发的那条') }),
+  },
+  {
+    name: 'remind_unread',
+    description: '提醒一条通知还没读的学生：他们收件箱里那一条顶上来。',
+    parameters: obj({ notice: str('通知里的几个字；不传是最近发的那条') }),
+  },
+  {
+    name: 'start_checkin',
+    description: '在一个班的群里发起签到：学生点一下、扫二维码或者打开链接就签上，二维码能投到大屏上。',
+    parameters: obj({ class: str('班名'), minutes: { type: 'number', description: '开多久（分钟）；老师没说不传，默认 5 分钟' } }, ['class']),
+  },
+  {
+    name: 'checkin_status',
+    description: '看最近一次签到签了几个、谁没签，卡片摆给老师。',
+    parameters: obj({ class: str('班名；不传是最近发起的那次') }),
+  },
+  {
+    name: 'mark_checkin',
+    description: '给学生补签（这个班最近一次签到）。',
+    parameters: obj({ student: str('学生姓名或学号'), class: str('哪个班的；学生只在一个班里时不用填') }, ['student']),
+  },
+  {
+    name: 'pick_student',
+    description: '在一个班里随机点一个学生，一轮里不重复，点完一轮再开新一轮；班里的群也出一张卡。',
+    parameters: obj({ class: str('班名') }, ['class']),
+  },
+  {
+    name: 'send_message',
+    description: '用老师的名义发一句话：传 class 是在这个班的群里说，传 student 是私聊这个学生。',
+    parameters: obj({ text: str('要发的话'), class: str('班名'), student: str('学生姓名或学号') }, ['text']),
   },
   {
     name: 'reply_student',
@@ -295,6 +331,27 @@ export const TOOL_SPECS: ToolSpec[] = [
 ];
 
 /* ---------------- 小工具 ---------------- */
+
+/** 照名字或学号找学生：说了哪个班就在那个班找，没说就在老师所有的班里找，对上不同的几个人要问 */
+function studentAnywhere(teacherId: number, who: string, cls?: string | null) {
+  type Hit = { k: ClassRow; s: ReturnType<typeof findStudent> };
+  if (cls) {
+    const k = findClass(teacherId, cls);
+    return { k, s: findStudent(k.id, k.name, who) };
+  }
+  const found: Hit[] = [];
+  for (const k of classesOf(teacherId))
+    try {
+      found.push({ k, s: findStudent(k.id, k.name, who) });
+    } catch {
+      /* 这个班里没有 */
+    }
+  if (!found.length) throw bad(`哪个班里都没有「${who}」`);
+  if (new Set(found.map((f) => f.s.user_id ?? `m${f.s.id}`)).size > 1)
+    throw bad(`「${who}」对得上好几个学生：${found.map((f) => `${f.s.name}（${f.s.student_no}，${f.k.name}）`).join('、')}。先问老师是哪一个`);
+  return found[0];
+}
+const brief = (s: string, n = 20) => (s.length > n ? `${s.slice(0, n)}…` : s);
 
 /** 比较说法时不管空格、引号、书名号、标点 */
 const norm = (s: string) => s.replace(/[\s「」『』《》"'“”‘’：:，,。]/g, '').toLowerCase();
@@ -900,6 +957,14 @@ const handlers: Record<string, Handler> = {
     if (!message) throw bad('通知的话没写');
     const ks = names.map((n) => findClass(ctx.user.id, n)).filter((k, i, all) => all.findIndex((x) => x.id === k.id) === i);
     const hwTitle = text(a.homework)?.trim();
+    // 发给全班的是通知（2026-11-18）：走页面上发通知的那个接口，群里出通知卡、学生收件箱来一条；也写进资料包，学伴答得上
+    if (!hwTitle) {
+      const r = await callApi<{ id: number }>(ctx.user.id, 'POST', '/messages/notices', { classIds: ks.map((k) => k.id), text: message });
+      for (const k of ks) putPack(k.id, 'notice', message.slice(0, 20), message);
+      const v = await callApi<{ total: number }>(ctx.user.id, 'GET', `/messages/notices/${r.id}`);
+      recordAction(ctx.ref, 'students.notify', { title: '发了通知', live: { type: 'notice', id: r.id } }, { kind: 'notice.recall', noticeId: r.id });
+      return `通知发到了${ks.map((k) => `「${k.name}」`).join('、')}的群里和 ${v.total} 个学生的收件箱，也写进了资料包`;
+    }
     const out: string[] = [];
     const lines: string[] = [];
     for (const k of ks) {
@@ -911,6 +976,82 @@ const handlers: Record<string, Handler> = {
     }
     recordAction(ctx.ref, 'students.notify', { title: '发了通知', lines: [message, ...lines] }, null);
     return `通知发出去了：${out.join('；')}${hwTitle ? '' : '。也写进了资料包，学生以后问学伴也知道'}`;
+  },
+
+  async notice_status(ctx, a) {
+    const id = findNotice(ctx.user.id, text(a.notice));
+    const v = await callApi<{ text: string; read: number; total: number; unread: string[] }>(ctx.user.id, 'GET', `/messages/notices/${id}`);
+    recordAction(ctx.ref, 'notice.status', { title: `「${brief(v.text)}」读了 ${v.read}/${v.total}`, live: { type: 'notice', id } }, null);
+    return `「${brief(v.text)}」读了 ${v.read}/${v.total}${v.unread.length ? `，没读：${v.unread.join('、')}` : '，都读了'}`;
+  },
+
+  async remind_unread(ctx, a) {
+    const id = findNotice(ctx.user.id, text(a.notice));
+    const r = await callApi<{ reminded: number; names: string[] }>(ctx.user.id, 'POST', `/messages/notices/${id}/remind`);
+    recordAction(ctx.ref, 'notice.remind', { title: r.reminded ? `提醒了没读的 ${r.reminded} 人` : '都读了，不用提醒', live: { type: 'notice', id } }, null);
+    return r.reminded ? `提醒了没读的 ${r.reminded} 人：${r.names.join('、')}` : '都读了，没有要提醒的';
+  },
+
+  async start_checkin(ctx, a) {
+    const k = findClass(ctx.user.id, String(a.class ?? ''));
+    const minutes = num(a.minutes);
+    const r = await callApi<{ id: number }>(ctx.user.id, 'POST', '/messages/checkins', { classId: k.id, ...(minutes ? { minutes: Math.round(minutes) } : {}) });
+    const v = await callApi<{ endsAt: number; total: number }>(ctx.user.id, 'GET', `/messages/checkins/${r.id}`);
+    recordAction(ctx.ref, 'checkin.start', { title: `「${k.name}」在签到`, live: { type: 'checkin', id: r.id } }, null);
+    return `「${k.name}」签到开始了，${showTime(v.endsAt).replace(/^.* /, '')} 结束，一共 ${v.total} 人；二维码和链接在卡片上`;
+  },
+
+  async checkin_status(ctx, a) {
+    const k = text(a.class) ? findClass(ctx.user.id, String(a.class)) : null;
+    const id = latestCheckin(ctx.user.id, k?.id);
+    if (!id) throw bad(k ? `「${k.name}」还没签过到` : '还没发起过签到');
+    const v = await callApi<{ className: string; open: boolean; signed: number; total: number; people: { name: string; at: number | null }[] }>(
+      ctx.user.id,
+      'GET',
+      `/messages/checkins/${id}`,
+    );
+    const left = v.people.filter((p) => !p.at).map((p) => p.name);
+    recordAction(ctx.ref, 'checkin.status', { title: `「${v.className}」签了 ${v.signed}/${v.total}`, live: { type: 'checkin', id } }, null);
+    return `「${v.className}」${v.open ? '还在签' : '签到结束了'}，签了 ${v.signed}/${v.total}${left.length ? `，没签：${left.join('、')}` : '，都签了'}`;
+  },
+
+  async mark_checkin(ctx, a) {
+    const { k, s } = studentAnywhere(ctx.user.id, String(a.student ?? ''), text(a.class));
+    if (!s.user_id) throw bad(`${s.name}还没加入「${k.name}」`);
+    const id = latestCheckin(ctx.user.id, k.id);
+    if (!id) throw bad(`「${k.name}」还没签过到`);
+    await callApi(ctx.user.id, 'POST', `/messages/checkins/${id}/mark`, { userId: s.user_id });
+    recordAction(ctx.ref, 'checkin.mark', { title: `给${s.name}补签了`, live: { type: 'checkin', id } }, null);
+    return `给「${k.name}」的${s.name}补签了`;
+  },
+
+  async pick_student(ctx, a) {
+    const k = findClass(ctx.user.id, String(a.class ?? ''));
+    const r = await callApi<{ id: number; name: string; left: number; total: number }>(ctx.user.id, 'POST', '/messages/picks', { classId: k.id });
+    recordAction(ctx.ref, 'pick', { title: `点到了${r.name}`, live: { type: 'pick', id: r.id } }, null);
+    return `点到了${r.name}（「${k.name}」这一轮还剩 ${r.left} 人没点过）`;
+  },
+
+  async send_message(ctx, a) {
+    const words = String(a.text ?? '').trim();
+    if (!words) throw bad('要发的话没写');
+    let chatId: number, to: string;
+    if (text(a.student)) {
+      const { k, s } = studentAnywhere(ctx.user.id, String(a.student), text(a.class));
+      if (!s.user_id) throw bad(`${s.name}还没加入「${k.name}」，没有账号`);
+      chatId = (await callApi<{ id: number }>(ctx.user.id, 'POST', '/messages/dm', { userId: s.user_id })).id;
+      to = s.name;
+    } else {
+      const k = findClass(ctx.user.id, String(a.class ?? ''));
+      const all = await callApi<{ chats: { id: number; classId: number | null }[] }>(ctx.user.id, 'GET', '/messages');
+      const g = all.chats.find((c) => c.classId === k.id);
+      if (!g) throw bad(`「${k.name}」已经归档了，群里不能说话`);
+      chatId = g.id;
+      to = `「${k.name}」的群`;
+    }
+    await callApi(ctx.user.id, 'POST', `/messages/chats/${chatId}`, { text: words });
+    recordAction(ctx.ref, 'message.send', { title: `发给${to}`, lines: [words], links: [{ label: '打开', to: `/messages/${chatId}` }] }, null);
+    return `发给${to}了`;
   },
 
   async reply_student(ctx, a) {

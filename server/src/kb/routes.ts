@@ -828,7 +828,11 @@ keeperRoutes.get('/runs', (c) => {
   const u = teacher(c);
   const session = sessionParam(c, u.id);
   // 知识库页右边（place=kb）：只摆在知识库页说的、挂在某个知识库上的；学生来问、布置作业这些只在助教页
-  const kbOnly = c.req.query('place') === 'kb' ? "AND (place='kb' OR kb_id IS NOT NULL) AND kind NOT IN ('student_ask','suggest')" : '';
+  // 助教页：学生来问、助教提议分专门助手的卡片在收件箱里（place=inbox），不摆在这里（2026-11-18）
+  const kbOnly =
+    c.req.query('place') === 'kb'
+      ? "AND (place='kb' OR kb_id IS NOT NULL) AND kind NOT IN ('student_ask','suggest')"
+      : "AND kind NOT IN ('student_ask','suggest') AND place IS NOT 'inbox'";
   return c.json({
     runs: db
       .all<any>(`SELECT * FROM kb_runs WHERE teacher_id=? AND agent='ta' AND parent_id IS NULL AND session_id IS ? ${kbOnly} ORDER BY id DESC LIMIT 100`, u.id, session)

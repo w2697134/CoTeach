@@ -1,6 +1,7 @@
 /**
  * 调模型的那一步。老师的 CoT 助教、学生的 CoT 学伴、替老师回学伴和写班级资料包的助教都走这里；测试里换成写好的回答。
  */
+import { config } from '../config.js';
 import { getSetting } from '../db/index.js';
 import { streamChat } from '../llm/index.js';
 import { partialCall } from '../llm/partial.js';
@@ -41,12 +42,25 @@ export const thinkOf = (agent: Agent) => getSetting<'off' | Effort>(THINK_KEY[ag
  */
 const WAIT_MS: Record<Agent, number> = { ta: 60_000, stu: 60_000, helper: 90_000, grader: 300_000, specialist: 90_000, prep: 120_000 };
 
+/**
+ * 老师、学生当面等回话的（config.fastAgents，默认 CoT 助教和学伴）先用备用模型（DeepSeek），Gemini 倒过来当备用。
+ * 11-18 线上一天的记录：助教用 Gemini 平均 108 秒一句（排队，首字要等），用 DeepSeek 3.4 秒；
+ * 消息尺子 24 句 DeepSeek 办对 22、Gemini 21。备课、批作业这些后台的活照旧先用 Gemini。
+ */
+function orderFor(agent: Agent): { modelRowId?: number; fallbackModelRowId?: number } {
+  if (!config.fastAgents.includes(agent)) return {};
+  const main = getSetting<number | null>('default_model_id', null),
+    back = getSetting<number | null>('fallback_model_id', null);
+  return main && back && main !== back ? { modelRowId: back, fallbackModelRowId: main } : {};
+}
+
 const deepseekStep: ModelStep = async (o) => {
   let text = '';
   let reasoning = '';
   const toolCalls: ToolCall[] = [];
   const think = thinkOf(o.agent);
   for await (const d of streamChat({
+    ...orderFor(o.agent),
     agentKey: o.agent,
     messages: o.messages,
     tools: o.tools,

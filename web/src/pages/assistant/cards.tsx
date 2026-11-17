@@ -243,6 +243,8 @@ export function AskCard({ runId, data, live }: { runId: number; data: AskData; l
     try {
       await post(`/keeper/runs/${runId}/answer`, { answers: qs.map((_, i) => ({ picks: p[i], text: t[i] })) });
       await qc.invalidateQueries({ queryKey: ['keeper-runs'] });
+      // 收件箱里答的：那一条跟着划掉
+      qc.invalidateQueries({ queryKey: ['inbox'] });
     } catch (e) {
       toast.fromError(e);
     } finally {

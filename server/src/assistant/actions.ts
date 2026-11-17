@@ -2,9 +2,11 @@
  * 助教办的每件事记一笔：办了什么（卡片上显示），连同办之前的样子（撤回时改回去）。
  * 撤回前先看后来有没有人又改过：改过就不动，免得把老师后来改的冲掉。
  */
+import { loadUserById } from '../auth.js';
 import { db, j, now } from '../db/index.js';
 import { conflict, notFound } from '../lib/http.js';
 import { publish, record, type RunRef } from '../kb/agent/events.js';
+import { recallNotice } from '../messages/core.js';
 
 export type ActionKind =
   | 'prep.start'
@@ -24,7 +26,14 @@ export type ActionKind =
   | 'homework.ai_grade'
   | 'homework.review'
   | 'specialist.create'
-  | 'specialist.update';
+  | 'specialist.update'
+  | 'notice.status'
+  | 'notice.remind'
+  | 'checkin.start'
+  | 'checkin.status'
+  | 'checkin.mark'
+  | 'pick'
+  | 'message.send';
 
 /** 卡片上显示的东西 */
 export interface ActionCard {
@@ -37,6 +46,8 @@ export interface ActionCard {
   /** 重置的新密码：只在老师看的卡片上，不发给模型 */
   secret?: string;
   classId?: number;
+  /** 通知、签到、选人：卡片上摆这一样东西，数字跟着变（页面按编号去取） */
+  live?: { type: 'notice' | 'checkin' | 'pick'; id: number };
 }
 
 type Snapshot = Record<string, unknown>;
@@ -56,7 +67,9 @@ export type Undo =
       after: Snapshot;
       homework: { id: number; specialist_id: number | null }[];
       homeworkAfter: { id: number; specialist_id: number | null }[];
-    };
+    }
+  /** 发的通知：撤回走页面上「撤回」那一套（messages/core.ts 的 recallNotice） */
+  | { kind: 'notice.recall'; noticeId: number };
 
 /** 记一笔，卡片发到这一轮里；返回编号（助教撤回时用） */
 export function recordAction(ref: RunRef, kind: ActionKind, card: ActionCard, undo: Undo | null): number {
@@ -154,6 +167,12 @@ export function undoAction(teacherId: number, id: number): string {
           const want = u.homeworkAfter.find((x) => x.id === h.id)?.specialist_id ?? null;
           db.run('UPDATE assignments SET specialist_id=? WHERE id=? AND specialist_id IS ?', h.specialist_id, h.id, want);
         }
+        break;
+      }
+      case 'notice.recall': {
+        const who = loadUserById(teacherId);
+        if (!who) throw notFound('这条通知不在了');
+        recallNotice(who, u.noticeId);
         break;
       }
     }
