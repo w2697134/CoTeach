@@ -982,3 +982,12 @@ INSERT OR IGNORE INTO inbox (user_id, kind, ref_id, title, body, created_at, rea
 migrations.push(`
 ALTER TABLE notices ADD COLUMN recalled_at INTEGER;
 `);
+
+// 第 27 次：备课带文件。
+// 备课框里带的文件照交资料的路子交进老师的知识库（一次交资料），这节课记下是哪一次（intake_id）：
+// 读出来的文字给教案、课件、题目当材料，原件在这节课的页面上能看、能下载。
+// 一节课的助教栏里跟着一句话带的文件像作业附件那样先传上来（homework_files），记在 lesson_asks.files：[{ id, name, size }]，只给这一句用。
+migrations.push(`
+ALTER TABLE lessons ADD COLUMN intake_id INTEGER REFERENCES kb_intakes(id);
+ALTER TABLE lesson_asks ADD COLUMN files TEXT;
+`);

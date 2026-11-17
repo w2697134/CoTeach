@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>第5章 字符串处理 讲义</title>
+<style>
+  body { font-family: "Microsoft YaHei", sans-serif; font-size: 14px; line-height: 1.7; margin: 36px 48px; color: #222; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  h2 { font-size: 17px; margin: 22px 0 6px; border-bottom: 1px solid #ccc; padding-bottom: 3px; }
+  p.meta { color: #666; margin: 0 0 12px; }
+  pre { font-family: Consolas, monospace; font-size: 13px; background: #f6f6f6; border: 1px solid #ddd; padding: 8px 10px; white-space: pre-wrap; }
+  .tip { border-left: 3px solid #e5a000; padding-left: 8px; color: #444; }
+</style>
+</head>
+<body>
+<h1>第5章 字符串处理（讲义）</h1>
+<p class="meta">Python 程序设计 · 第 4 周 · 2 学时</p>
+
+<h2>5.1 先认识字符串：一串不能改的字符</h2>
+<p>字符串用单引号、双引号或三引号写，三引号可以跨行。字符串是<b>不可变</b>的：写 s[0] = "x" 会报 TypeError，要“改”只能拼出一个新的字符串。</p>
+<p>下标和切片：s[0] 取第一个字符，s[-1] 取最后一个，s[2:5] 取第 3 到第 5 个，s[::-1] 整串倒过来。</p>
+<p><b>例 5-1 学号拆分</b>：班里的学号写成“年级-座号-姓名”。</p>
+<pre>stu_code = "2505-07-陈思远"
+grade, seat, name = stu_code.split("-")
+print(name, "坐第", int(seat), "号")   # 陈思远 坐第 7 号</pre>
+
+<h2>5.2 常用方法分三组：查、改、判</h2>
+<p><b>查</b>：find、index、count、startswith、endswith。find 找不到返回 -1，index 找不到直接报错。</p>
+<p><b>改</b>：upper、lower、title、replace，还有去空白的“strip 三兄弟”：strip、lstrip、rstrip。</p>
+<p><b>判</b>：isdigit、isalpha、isspace，返回 True 或 False。</p>
+<p><b>例 5-2 手机号打码</b>：</p>
+<pre>def mask_phone(phone):
+    phone = phone.strip()
+    return phone[:3] + "****" + phone[-4:]
+
+print(mask_phone(" 13812345678 "))   # 138****5678</pre>
+<p class="tip">易错点：replace 不会改原来的字符串，要把结果接住：s = s.replace("a", "b")。</p>
+
+<h2>5.3 拼接与拆分：join 和 split 是一对</h2>
+<p>"-".join(["2505", "07"]) 得到 "2505-07"；"2505-07".split("-") 又拆回列表。大量拼接用 join，不要在循环里写 +=，每次 += 都会新建一个字符串。</p>
+<p><b>例 5-3 课程表一行</b>：</p>
+<pre>week = ["周一", "周三", "周五"]
+print(" / ".join(week))   # 周一 / 周三 / 周五</pre>
+
+<h2>5.4 格式化输出：f-string 和对齐</h2>
+<p>f"{name}的成绩是{score}"。对齐写在冒号后面：{name:&lt;6} 左对齐占 6 格，{score:&gt;6.1f} 右对齐保留一位小数，{rank:^4} 居中占 4 格。</p>
+<p><b>例 5-4 成绩条对齐打印</b>：</p>
+<pre>rows = [("陈思远", 92.5, 1), ("李一诺", 88, 2)]
+for name, score, rank in rows:
+    print(f"{name:&lt;6}{score:&gt;6.1f}{rank:^4}")</pre>
+<p class="tip">易错点：一个中文字符在终端里占两个英文字符宽，名字有中文时对不齐，可以用全角空格补。</p>
+
+<h2>5.5 综合练习：回文判断和词频统计</h2>
+<p><b>例 5-5 回文判断</b>：先只留字母和数字、统一成小写，再和倒过来的比。</p>
+<pre>def is_palindrome(text):
+    clean = "".join(ch.lower() for ch in text if ch.isalnum())
+    return clean == clean[::-1]</pre>
+<p><b>例 5-6 英文句子词频（大小写归一）</b>：</p>
+<pre>sentence = "To be or not to be"
+words = sentence.lower().split()
+freq = {}
+for w in words:
+    freq[w] = freq.get(w, 0) + 1</pre>
+
+<h2>课堂小测（5 分钟）</h2>
+<p>1. "abc".upper() 的结果是什么？</p>
+<p>2. s = " hi "，len(s.strip()) 是多少？</p>
+<p>3. 写函数 initials(name)，返回英文名的首字母缩写，例如 initials("ada lovelace") 得到 "AL"。</p>
+
+<h2>课后作业</h2>
+<p>1. 写函数 mask_id(card)，给 18 位身份证号打码，只留前 6 位和后 4 位。</p>
+<p>2. 用 f-string 打印一张三列对齐的成绩条：姓名左对齐、成绩保留一位小数右对齐、名次居中。</p>
+</body>
+</html>

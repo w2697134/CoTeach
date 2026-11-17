@@ -8,6 +8,7 @@ import { toast } from '../../lib/store';
 import { Button, Checkbox, Drawer, ErrorState, IconButton, Input, MenuItem, Modal, PageLoading, Popover, Tabs, cn, useConfirm } from '../../components/ui';
 import { when } from '../classes/homework';
 import { AskRail, type Focus } from './AskRail';
+import { LessonFiles } from './Attach';
 import { DeckPane, Present } from './DeckPane';
 import { downloadPptx, printDeck, type Deck as KitDeck } from '../../components/deck';
 import { Lanes } from './Lanes';
@@ -217,6 +218,8 @@ function Workspace({ l }: { l: Lesson }) {
               </button>
             )}
           </p>
+          {/* 老师备课时带的文件：跟邮件的附件一样摆在课题下面，点开看或下载 */}
+          <LessonFiles lessonId={l.id} files={l.files} className="mt-3" />
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Button variant="primary" icon={<Play className="size-4" />} disabled={!l.deck} onClick={() => setPresenting(true)}>
@@ -373,7 +376,7 @@ function Workspace({ l }: { l: Lesson }) {
               ) : making && at('plan') ? (
                 <PlanComing brief={l.brief} />
               ) : (
-                <Waiting busy={making} text={!making ? '这节课还没有教案' : '我先看看大家卡在哪，接着就写教案'} />
+                <Waiting busy={making} text={!making ? '这节课还没有教案' : at('read') ? '你给的资料我看完就写教案' : '我先看看大家卡在哪，接着就写教案'} />
               ))}
             {(tab === 'practice' || tab === 'homework') &&
               (l[tab] || (making && live[tab]?.length) ? (
@@ -426,9 +429,9 @@ function Workspace({ l }: { l: Lesson }) {
   );
 }
 
-/** 重来没做成的几手：教案没写成，后面的都要跟着重做；别的只重做那一手，再核对一遍 */
+/** 重来没做成的几手：教案没写成（或者带的文件没看成），后面的都要跟着重做；别的只重做那一手，再核对一遍 */
 function retryLanes(failed: LaneKey[]): LaneKey[] {
-  if (failed.includes('plan')) return [...new Set<LaneKey>([...failed, 'plan', 'deck', 'questions', 'check'])];
+  if (failed.includes('plan') || failed.includes('read')) return [...new Set<LaneKey>([...failed, 'plan', 'deck', 'questions', 'check'])];
   return [...new Set<LaneKey>([...failed, 'check'])];
 }
 

@@ -172,7 +172,8 @@ export function FileCard({
       >
         <FileTypeIcon name={name} kind={kind} folder={folder} size={compact ? 30 : 36} />
         <span className="min-w-0 flex-1">
-          <span className={cn('break-all font-medium leading-[1.35] text-ink', compact ? 'line-clamp-1 text-[13px]' : 'line-clamp-2 text-[14px]')}>{name}</span>
+          {/* 名字先在空格、标点处换行，一段放不下才断开（原来 break-all 会把「课件.pptx」断成「ppt」「x」；跟课题一个换法） */}
+          <span className={cn('break-keep font-medium leading-[1.35] text-ink [overflow-wrap:anywhere]', compact ? 'line-clamp-1 text-[13px]' : 'line-clamp-2 text-[14px]')}>{name}</span>
           {meta && <span className={cn('mt-0.5 block truncate text-[12px] leading-4', bad ? 'text-bad' : 'text-ink-3')}>{meta}</span>}
         </span>
         {after}

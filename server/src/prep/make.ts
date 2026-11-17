@@ -1,7 +1,8 @@
 /**
  * 助教备一节课（2026-11-17）：几手分头做，页面上看得到每一手做到哪。
+ *   资料：老师带了文件，先等它传完、读完（跟学情一起做，学情不看文件）
  *   学情：这个班卡在哪（没看过或者旧了先看一遍）
- *   教案：照老师知识库里的教案、课件、授课计划写
+ *   教案：照老师知识库里的教案、课件、授课计划写；带了文件的，读出来的文字跟着给
  *   课件、练习和作业：照教案，两手一起做
  *   核对：对一遍答案、代码、跟教案对不对得上，错的改掉
  * 老师说着改（ask）：照老师的话改这节课，改了哪份就记一版，能撤回。
@@ -15,8 +16,10 @@ import { READ_KB, SEARCH_KB, kbCatalog, readKb, searchKb } from '../assistant/he
 import { modelStep } from '../assistant/model.js';
 import { nowLine } from '../assistant/time.js';
 import { append, compact, requestMessages, stored, threadRow, toMsg } from '../assistant/thread.js';
-import { classRow, finishRun, numArg, obj, startRun, str, toNum, userName } from '../grading/common.js';
+import { classRow, finishRun, homeworkFile, numArg, obj, startRun, str, toNum, userName } from '../grading/common.js';
 import { insightsOf, writeInsights } from '../grading/insights.js';
+import { documentText } from '../kb/intake/service.js';
+import { checkFiles, lessonMaterial, materialBlock, waitFiles } from './files.js';
 import { SLIDE_KIT_GUIDE, SLIDE_KIT_READY, cleanSlideHtml, tooFull } from './kit.js';
 import {
   LAYOUTS,
@@ -294,22 +297,24 @@ export const isMaking = (id: number) => making.has(id);
 
 const ALL: LaneKey[] = ['brief', 'plan', 'deck', 'questions', 'check'];
 
-/** 开始备一节（后台做），返回编号 */
-export function startLesson(teacherId: number, classId: number, request: string | null, minutes: number | null): number {
+/** 开始备一节（后台做），返回编号；intakeId：备课框里带的文件交进知识库的那一次 */
+export function startLesson(teacherId: number, classId: number, request: string | null, minutes: number | null, intakeId: number | null = null): number {
   const k = classRow(classId);
   if (!k || k.teacher_id !== teacherId) throw bad('这个班不在了');
   const t = now();
+  const lanes: LaneKey[] = intakeId ? ['read', ...ALL] : ALL;
   const id = db.insert('lessons', {
     teacher_id: teacherId,
     class_id: classId,
     request: request?.trim() || null,
     minutes,
     status: 'making',
-    lanes: JSON.stringify(Object.fromEntries(ALL.map((key) => [key, { status: 'wait' }]))),
+    lanes: JSON.stringify(Object.fromEntries(lanes.map((key) => [key, { status: 'wait' }]))),
+    intake_id: intakeId,
     created_at: t,
     updated_at: t,
   });
-  run(id, ALL);
+  run(id, lanes);
   return id;
 }
 
@@ -318,7 +323,7 @@ export function redoLesson(teacherId: number, id: number, lanes: LaneKey[]) {
   const r = lessonRow(id);
   if (!r || r.teacher_id !== teacherId) throw bad('这节课不在了');
   if (making.has(id)) throw conflict('这节课还在备');
-  const want = ALL.filter((k) => lanes.includes(k));
+  const want = (['read', ...ALL] as LaneKey[]).filter((k) => lanes.includes(k) && (k !== 'read' || r.intake_id));
   if (!want.length) throw bad('要重做哪一份没说');
   if (!want.includes('plan') && !r.plan) throw bad('先要有教案');
   const lanesNow = j<Record<string, unknown>>(r.lanes, {});
@@ -348,7 +353,10 @@ async function make(id: number, lanes: LaneKey[], signal: AbortSignal) {
   const runId = startRun(r0.teacher_id, 'prep', `给「${k.name}」备课${r0.request ? `：${r0.request}` : ''}`, r0.class_id);
   const want = (x: LaneKey) => lanes.includes(x);
   try {
+    // 带了文件：看学情的同时等文件传完、读完，教案等读完再写
+    const reading = want('read') && r0.intake_id ? lane(id, 'read', () => waitFiles(r0.intake_id!, signal)) : null;
     if (want('brief')) await laneBrief(id, r0.class_id, signal);
+    await reading;
     if (want('plan')) await lanePlan(id, teacher, signal);
     const after = lessonRow(id)!;
     if (!after.plan) throw new Error('教案没写成');
@@ -391,7 +399,10 @@ function laneBrief(id: number, classId: number, signal: AbortSignal) {
 export const planPrompt = (teacherName: string) =>
   `你是${teacherTitle(teacherName)}的 CoT 助教，替老师备这一节课。照老师知识库里自己的教案、课件、授课计划来；这个班学生卡住的地方，放进开头的补讲。`;
 
-/** 给写教案的：今天几号、这个班布置过哪些作业（看出进度）、学情、以前备过哪几节、老师说这节讲什么、知识库里有什么 */
+/**
+ * 给写教案的：今天几号、这个班布置过哪些作业（看出进度）、学情、以前备过哪几节、知识库里有什么、老师这次给的材料、老师说这节讲什么。
+ * 老师只带了文件没说话的，不再说「照授课计划备下一节」（材料就是这节要讲的）
+ */
 function material(r: LessonRow) {
   const k = classRow(r.class_id)!;
   const hw = db.all<{ title: string }>('SELECT title FROM assignments WHERE class_id=? AND deleted_at IS NULL ORDER BY publish_at, id', r.class_id);
@@ -404,11 +415,12 @@ function material(r: LessonRow) {
   const brief = briefText(j<Brief | null>(r.brief, null));
   if (brief) lines.push('', brief);
   if (before.length) lines.push('', `以前备过的课：${before.join('、')}`);
+  const given = lessonMaterial(r.intake_id);
   lines.push(
     '',
     kbCatalog(r.teacher_id),
-    '',
-    r.request ? `老师说这节课：${r.request}` : '老师没说这节讲什么：照授课计划和作业进度，备紧接着的下一节。',
+    given,
+    r.request ? `老师说这节课：${r.request}` : given ? '' : '老师没说这节讲什么：照授课计划和作业进度，备紧接着的下一节。',
     r.minutes ? `这节课 ${r.minutes} 分钟。` : '',
     '写好用 save_plan 存。',
   );
@@ -471,7 +483,14 @@ function laneDeck(id: number, teacher: string, signal: AbortSignal) {
       teacherId: r.teacher_id,
       key: `prep:${id}:deck:${now()}`,
       system: deckPrompt(teacher),
-      first: [`「${classRow(r.class_id)?.name}」的这节课：`, planText(p, r.minutes), briefText(j<Brief | null>(r.brief, null)), kbCatalog(r.teacher_id), '做好用 save_deck 存。']
+      first: [
+        `「${classRow(r.class_id)?.name}」的这节课：`,
+        planText(p, r.minutes),
+        briefText(j<Brief | null>(r.brief, null)),
+        kbCatalog(r.teacher_id),
+        lessonMaterial(r.intake_id),
+        '做好用 save_deck 存。',
+      ]
         .filter(Boolean)
         .join('\n\n'),
       tools: [SEARCH_KB, READ_KB, SAVE_DECK],
@@ -717,7 +736,9 @@ function laneQuestions(id: number, teacher: string, signal: AbortSignal) {
       teacherId: r.teacher_id,
       key: `prep:${id}:questions:${now()}`,
       system: questionsPrompt(teacher),
-      first: [`「${classRow(r.class_id)?.name}」的这节课：`, planText(p, r.minutes), briefText(j<Brief | null>(r.brief, null)), '出好用 save_questions 存。'].filter(Boolean).join('\n\n'),
+      first: [`「${classRow(r.class_id)?.name}」的这节课：`, planText(p, r.minutes), briefText(j<Brief | null>(r.brief, null)), lessonMaterial(r.intake_id), '出好用 save_questions 存。']
+        .filter(Boolean)
+        .join('\n\n'),
       tools: [SAVE_QUESTIONS],
       purpose: 'prep:questions',
       maxSteps: 4,
@@ -879,19 +900,31 @@ const askPrompt = (teacherName: string) =>
 
 const asking = new Set<number>();
 
-/** 老师说一句要怎么改：后台改，返回这一句的编号；同一节课一次改一句 */
-export function startAsk(teacherId: number, lessonId: number, message: string, focus: { part?: string; page?: number; number?: number } | null) {
+type AskFile = { id: number; name: string; size: number };
+
+/** 老师说一句要怎么改（可以带文件：先传上来的附件编号，只能是自己传的、还没挂到作业上的）：后台改，返回这一句的编号；同一节课一次改一句 */
+export function startAsk(teacherId: number, lessonId: number, message: string, focus: { part?: string; page?: number; number?: number } | null, fileIds: number[] = []) {
   const r = lessonRow(lessonId);
   if (!r || r.teacher_id !== teacherId) throw bad('这节课不在了');
   if (making.has(lessonId)) throw conflict('这节课还在备，备好了再改');
   if (asking.has(lessonId)) throw conflict('上一句还在改');
   const msg = message.trim().slice(0, 4000);
   if (!msg) throw bad('要怎么改没说');
+  const files = [...new Set(fileIds)].map((fid) => {
+    const f = db.get<AskFile & { owner_id: number; assignment_id: number | null; submission_id: number | null }>(
+      'SELECT id, name, size, owner_id, assignment_id, submission_id FROM homework_files WHERE id=?',
+      fid,
+    );
+    if (!f || f.owner_id !== teacherId || f.assignment_id || f.submission_id) throw bad('文件没传上，重新加一下');
+    return { id: f.id, name: f.name, size: f.size };
+  });
+  checkFiles(files);
   const askId = db.insert('lesson_asks', {
     lesson_id: lessonId,
     teacher_id: teacherId,
     message: msg,
     focus: focus ? JSON.stringify(focus) : null,
+    files: files.length ? JSON.stringify(files) : null,
     status: 'running',
     created_at: now(),
   });
@@ -903,8 +936,19 @@ export const isAsking = (lessonId: number) => asking.has(lessonId);
 
 const PART_NAME: Record<string, string> = { plan: '教案', deck: '课件', practice: '课堂练习', homework: '课后作业', brief: '学情' };
 
+/** 这一句带的文件读成文字（读法跟交资料、批作业一样，读过的不再读），拼成一段材料跟着老师的话 */
+async function askMaterial(teacherId: number, files: AskFile[], signal: AbortSignal) {
+  const docs: { name: string; text: string }[] = [];
+  for (const f of files) {
+    const path = db.value<string>('SELECT path FROM homework_files WHERE id=?', f.id);
+    const r = path ? await documentText(f.name, homeworkFile(path), teacherId, signal) : { reason: '文件不在了' };
+    docs.push({ name: f.name, text: 'text' in r ? r.text : `（没读出来：${r.reason}）` });
+  }
+  return materialBlock('老师这次给的材料：', docs);
+}
+
 async function runAsk(askId: number) {
-  const ask = db.get<{ lesson_id: number; teacher_id: number; message: string; focus: string | null }>('SELECT * FROM lesson_asks WHERE id=?', askId)!;
+  const ask = db.get<{ lesson_id: number; teacher_id: number; message: string; focus: string | null; files: string | null }>('SELECT * FROM lesson_asks WHERE id=?', askId)!;
   const id = ask.lesson_id;
   const key = `lesson:${id}`;
   const changed = new Set<Part>();
@@ -923,7 +967,8 @@ async function runAsk(askId: number) {
     }).catch((err) => console.error('[prep] compact', err));
     const f = j<{ part?: string; page?: number; number?: number } | null>(ask.focus, null);
     const where = f?.part ? `（老师正看着：${PART_NAME[f.part] || f.part}${f.page ? `第 ${f.page} 页` : ''}${f.number ? `第 ${f.number} 题` : ''}）\n` : '';
-    append(ask.teacher_id, key, null, { role: 'user', content: `${where}${ask.message}` });
+    const given = await askMaterial(ask.teacher_id, j<AskFile[]>(ask.files, []), signal);
+    append(ask.teacher_id, key, null, { role: 'user', content: `${where}${ask.message}${given ? `\n\n${given}` : ''}` });
     let reply = '';
     for (let n = 0; n < 10; n++) {
       const r = lessonRow(id);
@@ -979,14 +1024,15 @@ async function runAsk(askId: number) {
 
 export function asksOf(lessonId: number) {
   return db
-    .all<{ id: number; message: string; status: string; reply: string | null; changed: string | null; error: string | null; created_at: number }>(
-      'SELECT id, message, status, reply, changed, error, created_at FROM lesson_asks WHERE lesson_id=? ORDER BY id DESC LIMIT 30',
+    .all<{ id: number; message: string; files: string | null; status: string; reply: string | null; changed: string | null; error: string | null; created_at: number }>(
+      'SELECT id, message, files, status, reply, changed, error, created_at FROM lesson_asks WHERE lesson_id=? ORDER BY id DESC LIMIT 30',
       lessonId,
     )
     .reverse()
     .map((x) => ({
       id: x.id,
       message: x.message,
+      files: j<AskFile[]>(x.files, []),
       status: x.status === 'running' && !asking.has(lessonId) ? 'error' : x.status,
       reply: x.reply,
       changed: j<string[]>(x.changed, []),

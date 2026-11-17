@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { BookOpenCheck, Loader2, Sparkles } from 'lucide-react';
@@ -9,6 +9,8 @@ import { Button, ErrorState, Segmented, Select, Skeleton, Textarea, cn } from '.
 import { useClasses } from '../classes/data';
 import { EmptyArt } from '../classes/look';
 import { when } from '../classes/homework';
+import { pastedFiles, pickedFromDrop, uploadItems, type Intake, type Picked } from '../kb/intake';
+import { AttachedRow, ClipButton, keepUsable, keyOf, toAttached, type Attached } from './Attach';
 import { SlideThumb } from './Slides';
 import { doingNow, useLessons, type LessonCard } from './data';
 
@@ -72,21 +74,51 @@ export function PrepPage() {
   );
 }
 
-/** 顶上一块：插图在右边淡进底色，左边一个输入框，说这节讲什么、挑班、多长 */
+/**
+ * 顶上一块：插图在右边淡进底色，左边一个输入框，说这节讲什么、挑班、多长；能带文件（回形针、拖进来、粘贴），
+ * 点「备课」时文件跟着交上去（照交资料的路子进知识库），这一页接着分块传，助教先看文件再写教案。
+ */
 function Composer({ classes, defaultClass, onStarted }: { classes: { id: number; name: string }[]; defaultClass: number; onStarted: (id: number) => void }) {
   const qc = useQueryClient();
   const [text, setText] = useState('');
   const [classId, setClassId] = useState(defaultClass);
   const [minutes, setMinutes] = useState(90);
   const [busy, setBusy] = useState(false);
+  const [files, setFiles] = useState<(Attached & { picked: Picked })[]>([]);
+  const [over, setOver] = useState(false);
+  const filesRef = useRef(files);
+  filesRef.current = files;
+  useEffect(() => () => filesRef.current.forEach((f) => f.url && URL.revokeObjectURL(f.url)), []);
   useEffect(() => {
     if (!classId && defaultClass) setClassId(defaultClass);
   }, [classId, defaultClass]);
+  const attach = (list: Picked[]) => {
+    const have = new Set(files.map((f) => f.key));
+    const add = keepUsable(
+      list.filter((p) => !have.has(keyOf(p))),
+      files,
+    );
+    if (add.length) setFiles((prev) => [...prev, ...add.map((p) => ({ ...toAttached(p), picked: p }))]);
+  };
+  const remove = (key: string) =>
+    setFiles((prev) => {
+      const f = prev.find((x) => x.key === key);
+      if (f?.url) URL.revokeObjectURL(f.url);
+      return prev.filter((x) => x.key !== key);
+    });
   const start = async () => {
     if (!classId || busy) return;
     setBusy(true);
     try {
-      const r = await post<{ id: number }>('/prep', { classId, request: text.trim() || null, minutes });
+      const picked = files.map((f) => f.picked);
+      const r = await post<{ id: number; intake?: Intake; uploads?: { itemId: number; index: number; size: number; received: number }[]; chunkSize?: number }>('/prep', {
+        classId,
+        request: text.trim() || null,
+        minutes,
+        files: picked.map((p) => ({ name: p.path, size: p.file.size })),
+      });
+      // 文件在后台接着传（换到这节课的页面也接着传），传完助教就看
+      if (r.intake && r.uploads?.length) void uploadItems(r.intake.kbId, r.intake.id, r.uploads, picked, r.chunkSize || 0).catch((e) => toast.fromError(e));
       qc.invalidateQueries({ queryKey: ['lessons'] });
       onStarted(r.id);
     } catch (e) {
@@ -107,7 +139,22 @@ function Composer({ classes, defaultClass, onStarted }: { classes: { id: number;
         style={{ maskImage: 'linear-gradient(to right, transparent, #000 42%)', WebkitMaskImage: 'linear-gradient(to right, transparent, #000 42%)' }}
       />
       <div className="relative px-4 py-6 sm:px-8 sm:py-9">
-        <div className="w-full max-w-[560px] rounded-xl bg-surface p-3 shadow-md ring-1 ring-line">
+        <div
+          className={cn('w-full max-w-[560px] rounded-xl bg-surface p-3 shadow-md ring-1 ring-line transition-shadow', over && 'ring-2 ring-brand/60')}
+          onDragOver={(e) => {
+            if (!e.dataTransfer.types.includes('Files')) return;
+            e.preventDefault();
+            setOver(true);
+          }}
+          onDragLeave={(e) => !e.currentTarget.contains(e.relatedTarget as Node) && setOver(false)}
+          onDrop={(e) => {
+            if (!e.dataTransfer.types.includes('Files')) return;
+            e.preventDefault();
+            setOver(false);
+            void pickedFromDrop(e.dataTransfer).then(attach);
+          }}
+        >
+          <AttachedRow list={files} onRemove={remove} />
           <Textarea
             autoGrow
             maxRows={5}
@@ -115,10 +162,17 @@ function Composer({ classes, defaultClass, onStarted }: { classes: { id: number;
             maxLength={500}
             onChange={(e) => setText(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && (e.ctrlKey || e.metaKey) && start()}
-            placeholder="这节课讲什么？不写就按进度备下一节"
+            onPaste={(e) => {
+              // 截图、复制的文件直接粘贴进来
+              if (!e.clipboardData.files.length) return;
+              e.preventDefault();
+              attach(pastedFiles(e.clipboardData.files));
+            }}
+            placeholder={files.length ? '这节课讲什么？不写就照你给的资料备' : '这节课讲什么？不写就按进度备下一节'}
             className="min-h-[64px] resize-none border-0 bg-transparent px-1.5 text-[15px] shadow-none focus-visible:ring-0"
           />
           <div className="mt-2 flex flex-wrap items-center gap-2">
+            <ClipButton onPick={attach} disabled={busy} />
             <Select sizeVariant="sm" className="w-auto max-w-[14rem]" value={classId} onChange={(e) => setClassId(Number(e.target.value))} aria-label="给哪门课备">
               {!classes.length && <option value={0}>还没有课程</option>}
               {classes.map((k) => (

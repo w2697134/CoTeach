@@ -70,13 +70,15 @@ export interface Brief {
   updatedAt: number | null;
 }
 
-export type LaneKey = 'brief' | 'plan' | 'deck' | 'questions' | 'check';
+/** read：老师带了文件才有，先看文件 */
+export type LaneKey = 'read' | 'brief' | 'plan' | 'deck' | 'questions' | 'check';
 export interface Lane {
   status: 'wait' | 'doing' | 'done' | 'error' | 'skip';
   note?: string;
   at?: number;
 }
 export const LANES: { key: LaneKey; name: string }[] = [
+  { key: 'read', name: '资料' },
   { key: 'brief', name: '学情' },
   { key: 'plan', name: '教案' },
   { key: 'deck', name: '课件' },
@@ -104,9 +106,26 @@ export interface LessonCard {
   updatedAt: number;
   making: boolean;
 }
+/** 备课框里带的文件：在传、在读、读好了、没读出来（带原因） */
+export interface LessonFile {
+  id: number;
+  name: string;
+  kind: string;
+  size: number;
+  received: number;
+  status: 'uploading' | 'reading' | 'read' | 'unread';
+  reason: string | null;
+}
+/** 助教栏里跟着一句话带的文件（像作业附件那样先传上来的） */
+export interface AskFile {
+  id: number;
+  name: string;
+  size: number;
+}
 export interface Ask {
   id: number;
   message: string;
+  files: AskFile[];
   status: 'running' | 'done' | 'error';
   reply: string | null;
   changed: Part[];
@@ -119,6 +138,7 @@ export interface Lesson extends LessonCard {
   deck: Deck | null;
   practice: Question[] | null;
   homework: Question[] | null;
+  files: LessonFile[];
   versions: Partial<Record<Part, { count: number; lastBy: 'teacher' | 'ta'; at: number }>>;
   asking: boolean;
   asks: Ask[];
@@ -156,6 +176,7 @@ export const useLesson = (id: number) => useQuery(lessonQuery(id));
 /** 正在做哪一手（列表卡片上写一句） */
 export function doingNow(lanes: Partial<Record<LaneKey, Lane>>) {
   const at = (k: LaneKey) => lanes[k]?.status === 'doing';
+  if (at('read')) return '正在看你给的资料';
   if (at('brief')) return '正在看大家卡在哪';
   if (at('plan')) return '正在写教案';
   if (at('deck') && at('questions')) return '正在做课件、出题';
@@ -171,6 +192,13 @@ export function doingNow(lanes: Partial<Record<LaneKey, Lane>>) {
 export function doingLine(l: Lesson): string {
   const at = (k: LaneKey) => l.lanes[k]?.status === 'doing';
   const live = l.live || {};
+  // 带了文件：先说在收哪一份、在看哪一份（学情跟着一起看，不另说）
+  const f = at('read') ? l.files.find((x) => x.status === 'uploading' || x.status === 'reading') : undefined;
+  if (f) {
+    const name = f.name.replace(/\.[^.]+$/, '');
+    const got = f.size ? Math.floor((f.received / f.size) * 100) : 0;
+    return f.status === 'uploading' ? `我在收你给的《${name}》${got ? `，收到 ${got}%` : ''}` : `我先看看你给的《${name}》`;
+  }
   if (at('brief')) return '我先看看这门课最近的作业，大家卡在哪';
   if (at('plan')) {
     const steps = live.plan?.steps || [];

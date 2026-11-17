@@ -7,6 +7,7 @@ import { db, j, now } from '../db/index.js';
 import { bad, notFound } from '../lib/http.js';
 import { classRow, toNum, type RubricItem } from '../grading/common.js';
 import { insightsOf, type InsightPoint } from '../grading/insights.js';
+import { filesView } from './files.js';
 import { cleanSlideHtml } from './kit.js';
 import { liveOf } from './live.js';
 
@@ -33,8 +34,9 @@ const text = (v: unknown, n: number) =>
     .replace(/\r\n/g, '\n')
     .trim()
     .slice(0, n);
+/** 一列字：只认字和数（2026-11-18 本地走一遍时，Gemini 在教学目标里夹了两个 true，原样显示成「true」） */
 const list = (v: unknown, n: number, each: number) =>
-  (Array.isArray(v) ? v : typeof v === 'string' ? v.split('\n') : [])
+  (Array.isArray(v) ? v.filter((x) => typeof x === 'string' || typeof x === 'number') : typeof v === 'string' ? v.split('\n') : [])
     .map((x) => text(x, each))
     .filter(Boolean)
     .slice(0, n);
@@ -266,13 +268,14 @@ export function briefOf(classId: number): Brief {
 
 export type Part = 'plan' | 'deck' | 'practice' | 'homework';
 export const PARTS: Part[] = ['plan', 'deck', 'practice', 'homework'];
-export type LaneKey = 'brief' | 'plan' | 'deck' | 'questions' | 'check';
+/** read：老师带了文件才有，先看文件 */
+export type LaneKey = 'read' | 'brief' | 'plan' | 'deck' | 'questions' | 'check';
 export interface Lane {
   status: 'wait' | 'doing' | 'done' | 'error' | 'skip';
   note?: string;
   at?: number;
 }
-export const LANE_NAMES: Record<LaneKey, string> = { brief: '学情', plan: '教案', deck: '课件', questions: '练习和作业', check: '核对' };
+export const LANE_NAMES: Record<LaneKey, string> = { read: '资料', brief: '学情', plan: '教案', deck: '课件', questions: '练习和作业', check: '核对' };
 
 export interface LessonRow {
   id: number;
@@ -289,6 +292,8 @@ export interface LessonRow {
   homework: string | null;
   lanes: string | null;
   assignment_id: number | null;
+  /** 备课框里带的文件交进知识库的那一次 */
+  intake_id: number | null;
   error: string | null;
   created_at: number;
   updated_at: number;
@@ -379,6 +384,7 @@ export function lessonView(r: LessonRow, full: boolean) {
     deck,
     practice,
     homework,
+    files: filesView(r.intake_id),
     versions: versionsOf(r.id),
     // 还在备的时候：写到一半的教案、课件、题目（边做边显示）
     live: r.status === 'making' ? liveOf(r.id) : null,

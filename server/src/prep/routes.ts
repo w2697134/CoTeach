@@ -1,14 +1,20 @@
 /**
- * 备课的接口（老师）：备过的课、开始备一节、看一节、在页面上改、跟助教说着改、撤回、重做一份、发作业到班里、下载 Word、删掉。
+ * 备课的接口（老师）：备过的课、开始备一节（可以带文件）、看一节、看带的文件、在页面上改、跟助教说着改、撤回、重做一份、发作业到班里、下载 Word、删掉。
  */
+import { existsSync, readFileSync } from 'node:fs';
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { audit, requireRole, type AppEnv } from '../auth.js';
 import { db, j } from '../db/index.js';
-import { bad, body, conflict, intParam } from '../lib/http.js';
+import { bad, body, conflict, intParam, notFound } from '../lib/http.js';
 import { callApi } from '../assistant/api.js';
 import { weekLater } from '../assistant/time.js';
+import { classRow } from '../grading/common.js';
 import { setRubric } from '../grading/rubric.js';
+import { landingKb } from '../kb/keeper.js';
+import { createIntake } from '../kb/intake/service.js';
+import { blobPath } from '../kb/intake/store.js';
+import { MAX_FILES, checkFiles, intakeFiles } from './files.js';
 import {
   PARTS,
   cleanDeck,
@@ -41,6 +47,10 @@ prepRoutes.get('/', (c) => {
   return c.json({ lessons: rows.map((r) => ({ ...lessonView(r, false), making: isMaking(r.id) })) });
 });
 
+/**
+ * 开始备一节。带了文件的：先照交资料的路子登记进老师的知识库（整理助手后台整理成笔记，备课不等它），
+ * 页面接着分块上传（返回 intake、uploads），这节课传完、读完再写教案。
+ */
 prepRoutes.post('/', async (c) => {
   const u = requireRole(c, 'teacher', 'admin');
   const d = await body(
@@ -49,17 +59,47 @@ prepRoutes.post('/', async (c) => {
       classId: z.number().int().positive(),
       request: z.string().trim().max(500).nullable().optional(),
       minutes: z.number().int().min(10).max(300).nullable().optional(),
+      files: z
+        .array(z.object({ name: z.string().min(1).max(1000), size: z.number().int().min(0) }))
+        .max(MAX_FILES)
+        .optional(),
     }),
   );
-  const id = startLesson(u.id, d.classId, d.request ?? null, d.minutes ?? null);
+  const files = d.files ?? [];
+  let intake: ReturnType<typeof createIntake> | null = null;
+  if (files.length) {
+    checkFiles(files);
+    if (classRow(d.classId)?.teacher_id !== u.id) throw bad('这个班不在了');
+    intake = createIntake(await landingKb(u.id), u, { files, route: true });
+  }
+  const id = startLesson(u.id, d.classId, d.request ?? null, d.minutes ?? null, intake?.intake.id ?? null);
   audit(c, 'prep.start', `class:${d.classId}`);
-  return c.json({ id });
+  return c.json({ id, ...(intake ? { intake: intake.intake, uploads: intake.uploads, chunkSize: intake.chunkSize } : {}) });
 });
 
 prepRoutes.get('/:id', (c) => {
   const u = requireRole(c, 'teacher', 'admin');
   const r = ownLesson(u.id, intParam(c));
   return c.json({ lesson: { ...lessonView(r, true), making: isMaking(r.id), asking: isAsking(r.id), asks: asksOf(r.id) } });
+});
+
+const INLINE: Record<string, string> = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', pdf: 'application/pdf' };
+/** 这节课带的文件：原件，图片和 PDF 能直接打开看，别的下载 */
+prepRoutes.get('/:id/files/:item', (c) => {
+  const u = requireRole(c, 'teacher', 'admin');
+  const r = ownLesson(u.id, intParam(c));
+  const f = intakeFiles(r.intake_id).find((i) => i.id === intParam(c, 'item'));
+  if (!f?.hash || !existsSync(blobPath(f.hash))) throw notFound('这份文件不在了');
+  const name = f.name.split('/').pop() || f.name;
+  const type = INLINE[name.split('.').pop()?.toLowerCase() || ''];
+  const inline = !!type && c.req.query('inline') === '1';
+  return new Response(new Uint8Array(readFileSync(blobPath(f.hash))), {
+    headers: {
+      'Content-Type': inline ? type : 'application/octet-stream',
+      'Content-Disposition': `${inline ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(name)}`,
+      'Cache-Control': 'private, no-store',
+    },
+  });
 });
 
 /** 老师在页面上改了一份：整份存下（留一版，能撤回） */
@@ -94,7 +134,7 @@ prepRoutes.post('/:id/undo', async (c) => {
   return c.json({ ok: true });
 });
 
-/** 跟助教说要怎么改（后台改，页面上轮着看） */
+/** 跟助教说要怎么改（后台改，页面上轮着看）；可以带先传上来的文件 */
 prepRoutes.post('/:id/ask', async (c) => {
   const u = requireRole(c, 'teacher', 'admin');
   const r = ownLesson(u.id, intParam(c));
@@ -106,16 +146,17 @@ prepRoutes.post('/:id/ask', async (c) => {
         .object({ part: z.string().max(20).optional(), page: z.number().int().positive().optional(), number: z.number().int().positive().optional() })
         .nullable()
         .optional(),
+      fileIds: z.array(z.number().int().positive()).max(MAX_FILES).optional(),
     }),
   );
-  return c.json({ askId: startAsk(u.id, r.id, d.message, d.focus ?? null) });
+  return c.json({ askId: startAsk(u.id, r.id, d.message, d.focus ?? null, d.fileIds ?? []) });
 });
 
 /** 重做（或者补做）其中几份 */
 prepRoutes.post('/:id/redo', async (c) => {
   const u = requireRole(c, 'teacher', 'admin');
   const r = ownLesson(u.id, intParam(c));
-  const d = await body(c, z.object({ lanes: z.array(z.enum(['brief', 'plan', 'deck', 'questions', 'check'])).min(1) }));
+  const d = await body(c, z.object({ lanes: z.array(z.enum(['read', 'brief', 'plan', 'deck', 'questions', 'check'])).min(1) }));
   redoLesson(u.id, r.id, d.lanes);
   return c.json({ ok: true });
 });

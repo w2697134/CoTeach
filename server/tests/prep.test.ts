@@ -31,6 +31,8 @@ test('备课：教案要有课题和教学过程；分钟数不像样的不要�
     ],
   });
   assert.deepEqual(p.goals, ['会写递归']);
+  // 模型在一列字里夹了 true、null（Gemini 出过）：不当成一条
+  assert.deepEqual(L.cleanPlan({ title: '递归', goals: ['会写递归', true, null, 3, false], steps: [{ name: '导入', content: '讲' }] }).goals, ['会写递归', '3']);
   assert.deepEqual(
     p.steps.map((s) => [s.name, s.minutes]),
     [

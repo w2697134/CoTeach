@@ -1,9 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { ArrowUp, X } from 'lucide-react';
-import { post } from '../../lib/api';
+import { api, post } from '../../lib/api';
 import { toast } from '../../lib/store';
 import { Button, IconButton, Textarea, cn } from '../../components/ui';
+import { openFile } from '../classes/HwFiles';
+import { FileCard, formatSize, typeLabel } from '../kb/FileCard';
+import { pastedFiles, pickedFromDrop, type Picked } from '../kb/intake';
+import { AttachedRow, ClipButton, keepUsable, keyOf, toAttached, type Attached } from './Attach';
 import { PART_NAME, type Ask, type Lesson, type Part } from './data';
 
 export interface Focus {
@@ -24,25 +28,60 @@ export const focusLabel = (f: Focus | null) => (f ? `${FOCUS_NAME[f.part]}${f.pa
 
 /**
  * 跟助教说着改这节课：右边一栏（手机上是底下弹出来的），一句一句往下排；助教改了哪份写在回话下面，最近那次能撤回。
- * 老师正看着哪一份、哪一页，跟着这句话一起带过去。
+ * 老师正看着哪一份、哪一页，跟着这句话一起带过去。可以带文件（「照这个改第 3 页」）：选了就先传上来（跟作业附件一样，一份最大 50 MB），
+ * 跟着这句话交给助教，只给这一句用。
  */
 export function AskRail({ lesson, focus, onClearFocus, className }: { lesson: Lesson; focus: Focus | null; onClearFocus: () => void; className?: string }) {
   const qc = useQueryClient();
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
+  const [files, setFiles] = useState<(Attached & { fileId?: number })[]>([]);
+  const filesRef = useRef(files);
+  filesRef.current = files;
+  useEffect(() => () => filesRef.current.forEach((f) => f.url && URL.revokeObjectURL(f.url)), []);
   const list = useRef<HTMLDivElement>(null);
   const busy = lesson.asking || lesson.making;
   useEffect(() => {
     const el = list.current;
     if (el) el.scrollTop = el.scrollHeight;
   }, [lesson.asks.length, lesson.asks[lesson.asks.length - 1]?.status]);
+  const drop = (key: string) =>
+    setFiles((prev) => {
+      const f = prev.find((x) => x.key === key);
+      if (f?.url) URL.revokeObjectURL(f.url);
+      return prev.filter((x) => x.key !== key);
+    });
+  const attach = (picked: Picked[]) => {
+    const have = new Set(files.map((f) => f.key));
+    for (const p of keepUsable(
+      picked.filter((x) => !have.has(keyOf(x))),
+      files,
+      50 * 1024 * 1024,
+    )) {
+      const a = { ...toAttached(p), busy: true };
+      setFiles((prev) => [...prev, a]);
+      void api<{ id: number }>(`/homework/files?name=${encodeURIComponent(a.name)}`, { method: 'POST', body: p.file })
+        .then((r) => setFiles((prev) => prev.map((x) => (x.key === a.key ? { ...x, busy: false, fileId: r.id } : x))))
+        .catch((e) => {
+          toast.fromError(e);
+          drop(a.key);
+        });
+    }
+  };
+  const uploading = files.some((f) => f.busy);
   const send = async () => {
     const msg = text.trim();
-    if (!msg || busy || sending) return;
+    if (!msg || busy || sending || uploading) return;
     setSending(true);
     try {
-      await post(`/prep/${lesson.id}/ask`, { message: msg, focus: focus ? { part: focus.part, page: focus.page, number: focus.number } : null });
+      await post(`/prep/${lesson.id}/ask`, {
+        message: msg,
+        focus: focus ? { part: focus.part, page: focus.page, number: focus.number } : null,
+        fileIds: files.map((f) => f.fileId).filter(Boolean),
+      });
       setText('');
+      files.forEach((f) => f.url && URL.revokeObjectURL(f.url));
+      setFiles([]);
       await qc.invalidateQueries({ queryKey: ['lesson', lesson.id] });
     } catch (e) {
       toast.fromError(e);
@@ -86,6 +125,14 @@ export function AskRail({ lesson, focus, onClearFocus, className }: { lesson: Le
         )}
         {lesson.asks.map((a) => (
           <div key={a.id} className="space-y-2">
+            {/* 这句话带的文件摆在气泡上面（照微信、CoT 助教），点开看或下载 */}
+            {a.files.length > 0 && (
+              <div className="ml-auto flex w-fit max-w-[88%] flex-col items-end gap-1.5">
+                {a.files.map((f) => (
+                  <FileCard key={f.id} compact name={f.name} meta={[typeLabel(f.name), formatSize(f.size)].filter(Boolean).join(' · ')} onClick={() => openFile(f)} />
+                ))}
+              </div>
+            )}
             <div className="ml-auto w-fit max-w-[88%] whitespace-pre-wrap rounded-2xl rounded-tr-md bg-brand px-3.5 py-2 text-[14px] leading-relaxed text-white">{a.message}</div>
             {a.status === 'running' ? (
               <span className="flex gap-1 pl-1 pt-1">
@@ -113,7 +160,18 @@ export function AskRail({ lesson, focus, onClearFocus, className }: { lesson: Le
           </div>
         ))}
       </div>
-      <div className="border-t border-line p-3">
+      <div
+        className="border-t border-line p-3"
+        onDragOver={(e) => {
+          if (lesson.making || !e.dataTransfer.types.includes('Files')) return;
+          e.preventDefault();
+        }}
+        onDrop={(e) => {
+          if (lesson.making || !e.dataTransfer.types.includes('Files')) return;
+          e.preventDefault();
+          void pickedFromDrop(e.dataTransfer).then(attach);
+        }}
+      >
         {focus && (
           <div className="mb-2 flex items-center gap-1">
             <span className="rounded-md bg-brand-soft px-2 py-0.5 text-[13px] text-brand-ink">{focusLabel(focus)}</span>
@@ -122,7 +180,9 @@ export function AskRail({ lesson, focus, onClearFocus, className }: { lesson: Le
             </IconButton>
           </div>
         )}
-        <div className="flex items-end gap-2">
+        <AttachedRow list={files} onRemove={drop} />
+        <div className="flex items-end gap-1.5">
+          <ClipButton onPick={attach} disabled={lesson.making} />
           <Textarea
             autoGrow
             maxRows={6}
@@ -131,10 +191,23 @@ export function AskRail({ lesson, focus, onClearFocus, className }: { lesson: Le
             data-ask-input
             placeholder={lesson.making ? '备好了再改' : '要怎么改？'}
             onChange={(e) => setText(e.target.value)}
+            onPaste={(e) => {
+              if (lesson.making || !e.clipboardData.files.length) return;
+              e.preventDefault();
+              attach(pastedFiles(e.clipboardData.files));
+            }}
             onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && (e.preventDefault(), send())}
             className="min-h-[40px] flex-1 resize-none"
           />
-          <Button variant="primary" size="md" className="size-10 shrink-0 rounded-full p-0" loading={sending} disabled={!text.trim() || busy} onClick={send} aria-label="发给助教">
+          <Button
+            variant="primary"
+            size="md"
+            className="size-10 shrink-0 rounded-full p-0"
+            loading={sending}
+            disabled={!text.trim() || busy || uploading}
+            onClick={send}
+            aria-label="发给助教"
+          >
             {!sending && <ArrowUp className="size-4" />}
           </Button>
         </div>

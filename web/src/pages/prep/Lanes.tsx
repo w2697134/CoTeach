@@ -3,7 +3,7 @@ import { cn } from '../../components/ui';
 import { LANES, type Lane, type LaneKey } from './data';
 
 /**
- * 助教备这节课的几步：学情 → 教案 → 课件 / 练习和作业（一起做）→ 核对。排成一行，做完的打勾，在做的转圈。
+ * 助教备这节课的几步：（带了文件先看）资料 → 学情 → 教案 → 课件 / 练习和作业（一起做）→ 核对。排成一行，做完的打勾，在做的转圈。
  * detail：备完以后点「备课过程」看，每一步下面写着做出了什么。
  */
 export function Lanes({ lanes, detail, className }: { lanes: Partial<Record<LaneKey, Lane>>; detail?: boolean; className?: string }) {
@@ -43,7 +43,8 @@ export function Lanes({ lanes, detail, className }: { lanes: Partial<Record<Lane
     );
   return (
     <ol className={cn('flex flex-wrap items-center gap-y-2', className)}>
-      {LANES.map((l, i) => {
+      {/* 「资料」那一步只有带了文件才有 */}
+      {LANES.filter((l) => l.key !== 'read' || lanes.read).map((l, i) => {
         const status = lanes[l.key]?.status ?? 'wait';
         return (
           <li key={l.key} className="flex items-center" title={lanes[l.key]?.note}>
