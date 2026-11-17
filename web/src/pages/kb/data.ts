@@ -216,6 +216,44 @@ export const fileQuery = (cid: number, path: string | null) =>
     enabled: !!path,
   });
 export const useFile = (cid: number, path: string | null) => useQuery(fileQuery(cid, path));
+
+/**
+ * 卡片上笔记的开头几行：取的是同一份文件，但一次最多同时取两份。
+ * 服务器每取一份要起两次 git，几十张卡片一起取会把老师点开的那一页挤在后面；取到的顺手放进翻开那一页用的缓存。
+ */
+const PREVIEW_LANES = 2;
+let previewActive = 0;
+const previewWaiting: (() => void)[] = [];
+function inLane<T>(fn: () => Promise<T>): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const run = () => {
+      previewActive++;
+      fn()
+        .then(resolve, reject)
+        .finally(() => {
+          previewActive--;
+          previewWaiting.shift()?.();
+        });
+    };
+    if (previewActive < PREVIEW_LANES) run();
+    else previewWaiting.push(run);
+  });
+}
+export function usePreview(cid: number, path: string | null) {
+  const qc = useQueryClient();
+  return useQuery({
+    queryKey: ['kb-preview', cid, path],
+    queryFn: async () => {
+      const opened = qc.getQueryState<FileData>(['kb-file', cid, path]);
+      if (opened?.data && !opened.isInvalidated && Date.now() - opened.dataUpdatedAt < 60_000) return opened.data;
+      const data = await inLane(() => get<FileData>(`/knowledge/${cid}/kb/file?path=${encodeURIComponent(path!)}`));
+      if (!qc.getQueryData(['kb-file', cid, path])) qc.setQueryData(['kb-file', cid, path], data);
+      return data;
+    },
+    enabled: !!path,
+    staleTime: 5 * 60_000,
+  });
+}
 const runsQuery = (cid: number) =>
   queryOptions({
     queryKey: ['kb-runs', cid],
@@ -435,6 +473,11 @@ export function useKbStream(cid: number, onFilesChanged?: (operations: FileOpera
         qc.invalidateQueries({ queryKey: ['kb-tree', cid] });
         qc.invalidateQueries({
           queryKey: ['kb-file', cid],
+          predicate: (q) => !removed.has(String(q.queryKey[2])),
+        });
+        // 卡片上的开头几行也跟着换
+        qc.invalidateQueries({
+          queryKey: ['kb-preview', cid],
           predicate: (q) => !removed.has(String(q.queryKey[2])),
         });
         qc.invalidateQueries({ queryKey: ['kb-history', cid] });

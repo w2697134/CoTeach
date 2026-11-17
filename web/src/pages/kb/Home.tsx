@@ -154,7 +154,9 @@ export function KnowledgeHomePage() {
     if (seenChanged.current === changed) return;
     const first = seenChanged.current.split(',').some((t) => t === '0') || !seenChanged.current;
     seenChanged.current = changed;
-    if (!first) void qc.invalidateQueries({ queryKey: ['kb-file'] });
+    if (first) return;
+    void qc.invalidateQueries({ queryKey: ['kb-file'] });
+    void qc.invalidateQueries({ queryKey: ['kb-preview'] });
   }, [changed, qc]);
   const shelves = useMemo(
     () =>

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactNode, type RefObject } from 'rea
 import { Folder } from 'lucide-react';
 import { fmtTime } from '../../lib/format';
 import { Skeleton, cn } from '../../components/ui';
-import { useFile, type TreeFile } from './data';
+import { usePreview, type TreeFile } from './data';
 import { FileTypeIcon, typeLabel } from './FileCard';
 import { folderName, mentionedOriginals, nameOf, notePreview, pathName, type Origins } from './insight';
 
@@ -79,7 +79,7 @@ export function NoteCard({
 }) {
   const box = useRef<HTMLElement>(null);
   const seen = useSeen(box);
-  const q = useFile(cid, seen ? file.path : null);
+  const q = usePreview(cid, seen ? file.path : null);
   const name = pathName(file.path);
   const text = q.data?.text;
   const preview = typeof text === 'string' ? notePreview(text, name) : null;
