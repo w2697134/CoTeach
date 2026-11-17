@@ -64,39 +64,41 @@ export function useHandIn(kbId: number | null): HandIn & { touching: { kbId: num
     return () => clearInterval(t);
   }, []);
   const mine = (r: Run) => kbId === null || r.kbId === kbId || (r.jobs || []).some((j) => j.kbId === kbId || j.changes?.some((c) => c.kbId === kbId));
-  const running = runs.flatMap((r) => (mine(r) ? r.jobs || [] : [])).find((j) => j.status === 'running');
+  const own = runs.filter(mine);
+  const jobs = own.flatMap((r) => r.jobs || []);
+  const running = jobs.find((j) => j.status === 'running');
   const touching = touchingOf(running, bases).filter((t) => kbId === null || t.kbId === kbId || t.kbId === null);
-  const run = [...runs].reverse().find((r) => !!r.attachments?.length && mine(r));
-  if (!run) return running ? { state: 'busy', text: '在整理', touching } : { state: 'idle', touching };
-  const jobs = run.jobs || [];
-  if (run.receiving)
+  // 1. 文件还在传、在读
+  const receiving = own.find((r) => r.receiving)?.receiving;
+  if (receiving)
     return {
       state: 'busy',
-      text:
-        run.receiving.status === 'uploading'
-          ? `正在传 ${run.receiving.total} 份`
-          : `正在读第 ${Math.min(run.receiving.done + 1, run.receiving.total)} 份，一共 ${run.receiving.total} 份`,
+      text: receiving.status === 'uploading' ? `正在传 ${receiving.total} 份` : `正在读第 ${Math.min(receiving.done + 1, receiving.total)} 份，一共 ${receiving.total} 份`,
       touching,
     };
-  const job = jobs.find((j) => j.status === 'running');
-  if (job) {
-    const step = stepLines(job.events)
+  // 2. 后台在整理（交资料派的，或者老师在右边交代的）：这会儿在读哪份、写哪份
+  if (running) {
+    const step = stepLines(running.events)
       .filter((l) => l.kind === 'tool')
       .pop();
     const verb = step ? DOING[step.label] : null;
     return { state: 'busy', text: step && verb ? (step.text && verb !== '快好了' ? `${verb}：${step.text}` : verb) : '在整理', touching };
   }
   if (jobs.some((j) => j.status === 'queued')) return { state: 'busy', text: '排上了，一会儿就整理', touching };
-  if (run.status === 'running') return { state: 'busy', text: '在看你发来的资料', touching };
-  if (run.status === 'waiting') return { state: 'busy', text: '助教在右边问你一句', touching };
-  const last = jobs[jobs.length - 1];
-  const ended = last?.finishedAt ?? run.finishedAt ?? 0;
-  if (Date.now() - ended > RECENT) return { state: 'idle', touching };
-  if (last?.status === 'error' || (!last && run.status === 'error')) return { state: 'error', text: readableError(last?.error || run.error), touching };
-  if (last?.status === 'done') {
-    const change = (last.changes || []).filter((c) => kbId === null || c.kbId === kbId).pop();
-    return { state: 'done', kbId: change?.kbId ?? null, changeId: change?.id ?? null, touching };
+  // 3. 刚交的那句话，助教还在看、在问老师
+  const run = [...own].reverse().find((r) => !!r.attachments?.length);
+  if (run?.status === 'running') return { state: 'busy', text: '在看你发来的资料', touching };
+  if (run?.status === 'waiting') return { state: 'busy', text: '助教在右边问你一句', touching };
+  // 4. 最近三分钟里整理完的、没整理完的
+  const last = [...jobs].filter((j) => j.finishedAt).sort((a, b) => (a.finishedAt ?? 0) - (b.finishedAt ?? 0)).pop();
+  if (last && Date.now() - (last.finishedAt ?? 0) < RECENT) {
+    if (last.status === 'error') return { state: 'error', text: readableError(last.error), touching };
+    if (last.status === 'done') {
+      const change = (last.changes || []).filter((c) => kbId === null || c.kbId === kbId).pop();
+      if (change) return { state: 'done', kbId: change.kbId, changeId: change.id, touching };
+    }
   }
+  if (run?.status === 'error' && Date.now() - (run.finishedAt ?? 0) < RECENT) return { state: 'error', text: readableError(run.error), touching };
   return { state: 'idle', touching };
 }
 
