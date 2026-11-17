@@ -218,10 +218,10 @@ export const fileQuery = (cid: number, path: string | null) =>
 export const useFile = (cid: number, path: string | null) => useQuery(fileQuery(cid, path));
 
 /**
- * 卡片上笔记的开头几行：取的是同一份文件，但一次最多同时取两份。
+ * 卡片上笔记的开头几行：取的是同一份文件，但一次最多同时取四份（线上来回一趟要零点几秒，太少了慢；太多了老师点开的那一页要排队）。
  * 服务器每取一份要起两次 git，几十张卡片一起取会把老师点开的那一页挤在后面；取到的顺手放进翻开那一页用的缓存。
  */
-const PREVIEW_LANES = 2;
+const PREVIEW_LANES = 4;
 let previewActive = 0;
 const previewWaiting: (() => void)[] = [];
 function inLane<T>(fn: () => Promise<T>): Promise<T> {
