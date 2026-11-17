@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
-import { ArrowRight, Check, MonitorPlay, MoreHorizontal, Play, Presentation, Trash2, Zap } from 'lucide-react';
+import { ArrowRight, Check, MonitorPlay, MoreHorizontal, Play, Trash2, Zap } from 'lucide-react';
 import { useCrumbs } from '../../components/layout/Crumbs';
 import { del, post } from '../../lib/api';
 import { toast } from '../../lib/store';
 import { Button, Card, ErrorState, IconButton, Input, MenuItem, Popover, Select, Skeleton, cn, useConfirm } from '../../components/ui';
 import { useClasses } from '../classes/data';
-import { EmptyArt, ThemeBanner, themeOf } from '../classes/look';
+import { EmptyArt, ThemeBanner, themeBackground, themeOf } from '../classes/look';
+import { INK } from '../classes/tone';
 import { useLessons, type LessonCard } from '../prep/data';
 import { SlideThumb } from '../prep/Slides';
 import { lasted, percent, useLectures, type LectureCard } from './data';
@@ -51,14 +52,14 @@ function LiveCard({ l }: { l: LectureCard }) {
   return (
     <ThemeBanner theme={theme} className="rounded-2xl shadow-sm">
       <div className="flex min-h-[148px] flex-col justify-center gap-3 px-5 py-5 sm:px-8">
-        <span className="inline-flex w-fit items-center gap-1.5 rounded-full bg-white/20 px-2.5 py-1 text-[13px] font-medium">
+        <span className="inline-flex w-fit items-center gap-1.5 rounded-full bg-white/20 px-2.5 py-1 text-[14px] font-medium">
           <span className="size-2 animate-pulse rounded-full bg-[#ff5d6c]" />
           上课中 · {lasted(l.startedAt, Date.now())}
         </span>
         <div>
           <h2 className="max-w-[min(560px,100%)] text-[24px] font-semibold leading-snug">{l.title}</h2>
-          <p className="mt-1 text-[14px] text-white/85">
-            {l.className} · 到课 {l.attended}/{l.classSize} · 推题 {l.pushed}
+          <p className="mt-1 text-[15px] text-white">
+            {l.className} · 来了 {l.attended} 人{l.pushed ? ` · 推了 ${l.pushed} 道题` : ''}
           </p>
         </div>
         <button
@@ -144,7 +145,7 @@ function Starter({ live }: { live: LectureCard[] }) {
                   onClick={() => setClassId(k.id)}
                   aria-pressed={on}
                   className={cn(
-                    'inline-flex h-9 shrink-0 items-center gap-2 rounded-full border px-3.5 text-[14.5px] font-medium shadow-xs transition-colors',
+                    'inline-flex h-9 shrink-0 items-center gap-2 rounded-full border px-3.5 text-[15px] font-medium shadow-xs transition-colors',
                     on ? 'border-transparent text-white' : 'border-line bg-surface text-ink-2 hover:border-line-strong hover:text-ink',
                   )}
                   style={on ? { background: `linear-gradient(135deg, ${t.from}, ${t.to})` } : undefined}
@@ -155,13 +156,13 @@ function Starter({ live }: { live: LectureCard[] }) {
                 </button>
               );
             })}
-            {!classes.length && <p className="text-[14px] text-ink-3">还没有班级</p>}
+            {!classes.length && <p className="text-[15px] text-ink-2">还没有班级</p>}
           </div>
         </div>
       </div>
       <div className="px-5 pb-5 pt-4 sm:px-7">
         {running ? (
-          <p className="py-3 text-[15px] text-ink-2">
+          <p className="py-3 text-[16px] text-ink-2">
             正在上「<span className="font-medium text-ink">{running.title}</span>」
           </p>
         ) : (
@@ -171,13 +172,13 @@ function Starter({ live }: { live: LectureCard[] }) {
                 <div className="flex aspect-video items-center justify-center rounded-lg border border-dashed border-line-strong bg-surface-2 text-ink-3">
                   <Zap className="size-6" />
                 </div>
-                <p className="mt-2 text-[13.5px] font-medium text-ink">不用备好的课</p>
+                <p className="mt-2 text-[14px] font-medium text-ink">只推题、点名</p>
               </LessonChoice>
               {mine.map((l) => (
                 <LessonChoice key={l.id} on={picked === l.id} onClick={() => setLessonId(l.id)}>
                   <LessonCover l={l} />
-                  <p className="mt-2 line-clamp-2 text-[13.5px] font-medium leading-snug text-ink">{l.title || l.request || '下一节课'}</p>
-                  <p className="mt-0.5 truncate text-[12px] text-ink-3">
+                  <p className="mt-2 line-clamp-2 text-[14px] font-medium leading-snug text-ink">{l.title || l.request || '下一节课'}</p>
+                  <p className="mt-0.5 truncate text-[13px] text-ink-2">
                     {[l.classId !== classId && l.className, l.counts.slides && `课件 ${l.counts.slides} 页`, l.counts.practice && `练习 ${l.counts.practice}`].filter(Boolean).join(' · ')}
                   </p>
                 </LessonChoice>
@@ -225,7 +226,7 @@ function LessonCover({ l }: { l: LessonCard }) {
       {l.cover ? (
         <SlideThumb slide={l.cover.slide} theme={l.cover.theme} />
       ) : (
-        <div className="flex h-full items-center justify-center bg-gradient-to-br from-brand-soft to-surface-2 px-3 text-center text-[13px] font-semibold text-brand-ink">
+        <div className="flex h-full items-center justify-center bg-gradient-to-br from-brand-soft to-surface-2 px-3 text-center text-[14px] font-semibold text-brand-ink">
           {l.title || l.request || '下一节课'}
         </div>
       )}
@@ -233,11 +234,13 @@ function LessonCover({ l }: { l: LessonCard }) {
   );
 }
 
-/** 上过的课：一节一行（班多的时候能只看一个班） */
+/** 上过的课：一节一张卡片，封面是那节课课件的第一页（没带课件的用班级颜色），下面写哪天、来了几个、答对多少（班多的时候能只看一个班） */
 function Past({ q }: { q: ReturnType<typeof useLectures> }) {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const confirm = useConfirm();
+  const lessons = useLessons().data?.lessons || [];
+  const cover = new Map(lessons.map((l) => [l.id, l.cover]));
   const [only, setOnly] = useState(0);
   const past = q.data?.past || [];
   const used = [...new Map(past.map((l) => [l.classId, l.className])).entries()];
@@ -254,7 +257,7 @@ function Past({ q }: { q: ReturnType<typeof useLectures> }) {
   return (
     <section>
       <div className="mb-3.5 flex items-center gap-3">
-        <h2 className="text-[17px] font-semibold text-ink">上过的课</h2>
+        <h2 className="text-[18px] font-semibold text-ink">上过的课</h2>
         {used.length > 1 && (
           <Select sizeVariant="sm" className="ml-auto w-auto" value={only} onChange={(e) => setOnly(Number(e.target.value))} aria-label="哪个班">
             <option value={0}>全部班级</option>
@@ -275,67 +278,69 @@ function Past({ q }: { q: ReturnType<typeof useLectures> }) {
           <EmptyArt src="/illustrations/entry-tutor-v2.webp" title="还没有上过课" />
         </Card>
       ) : (
-        <Card padded={false}>
-          <ul>
-            {shown.map((l) => {
-              const t = themeOf(l.classId);
-              return (
-                <li key={l.id} className="group flex items-center border-b border-line last:border-0">
-                  <button
-                    type="button"
-                    onClick={() => navigate(`/classroom/${l.id}`)}
-                    className="flex min-w-0 flex-1 flex-wrap items-center gap-x-4 gap-y-2 px-5 py-3.5 text-left transition-colors hover:bg-surface-2 sm:flex-nowrap sm:px-6"
-                  >
-                    <span className="flex size-10 shrink-0 items-center justify-center rounded-full" style={{ backgroundColor: `${t.ink}1f`, color: t.ink }}>
-                      <Presentation className="size-5" />
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-[15px] font-medium text-ink">{l.title}</span>
-                      <span className="mt-0.5 block truncate text-[13px] text-ink-3">
-                        {l.className} · {dayTime(l.startedAt)}
-                        {l.endedAt ? ` · ${lasted(l.startedAt, l.endedAt)}` : ''}
-                      </span>
-                    </span>
-                    <span className="flex shrink-0 items-center gap-5 text-[13px] text-ink-3 max-sm:w-full max-sm:pl-14">
-                      <Stat label="到课" value={`${l.attended}`} sub={`/${l.classSize}`} />
-                      <Stat label="推题" value={`${l.pushed}`} />
-                      <Stat label="正确率" value={percent(l.rate)} tone={l.rate === null ? undefined : l.rate >= 0.6 ? 'ok' : 'bad'} />
-                    </span>
-                  </button>
-                  <div className="pr-2 sm:pr-3">
-                    <Popover
-                      width={140}
-                      trigger={({ toggle }) => (
-                        <IconButton label="更多" onClick={toggle} className="text-ink-3">
-                          <MoreHorizontal className="size-[18px]" />
-                        </IconButton>
-                      )}
-                    >
-                      {(close) => (
-                        <MenuItem icon={<Trash2 />} danger onClick={() => (close(), remove(l))}>
-                          删掉
-                        </MenuItem>
-                      )}
-                    </Popover>
+        <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {shown.map((l) => {
+            const c = l.lessonId ? cover.get(l.lessonId) : null;
+            const t = themeOf(l.classId);
+            return (
+              <li key={l.id} className="group relative">
+                <button
+                  type="button"
+                  onClick={() => navigate(`/classroom/${l.id}`)}
+                  className="flex h-full w-full flex-col overflow-hidden rounded-xl border border-line bg-surface text-left shadow-xs transition-[border-color,box-shadow,transform] hover:-translate-y-0.5 hover:border-line-strong hover:shadow-md"
+                >
+                  <div className="aspect-video w-full overflow-hidden border-b border-line">
+                    {c ? (
+                      <SlideThumb slide={c.slide} theme={c.theme} />
+                    ) : (
+                      <div className="flex h-full items-center justify-center px-6 text-center text-[16px] font-semibold text-white" style={themeBackground(t)}>
+                        {l.title}
+                      </div>
+                    )}
                   </div>
-                </li>
-              );
-            })}
-          </ul>
-        </Card>
+                  <div className="flex flex-1 flex-col px-4 pb-4 pt-3">
+                    <p className="line-clamp-2 text-[15px] font-semibold leading-snug text-ink">{l.title}</p>
+                    <p className="mt-1 truncate text-[13px] text-ink-3">
+                      {l.className} · {dayTime(l.startedAt)}
+                      {l.endedAt ? ` · ${lasted(l.startedAt, l.endedAt)}` : ''}
+                    </p>
+                    <p className="mt-auto pt-3 text-[14px] text-ink-2">
+                      来了 <b className="font-semibold text-ink">{l.attended}</b> 人
+                      {l.pushed > 0 && (
+                        <>
+                          <span className="mx-1.5 text-ink-3">·</span>
+                          {l.pushed} 道题
+                          {l.rate !== null && (
+                            <>
+                              ，答对 <b className={cn('font-semibold', l.rate < 0.6 ? INK.bad : INK.ok)}>{percent(l.rate)}</b>
+                            </>
+                          )}
+                        </>
+                      )}
+                    </p>
+                  </div>
+                </button>
+                <div className="absolute right-2 top-2 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100 pointer-coarse:opacity-100">
+                  <Popover
+                    width={140}
+                    trigger={({ toggle }) => (
+                      <IconButton label="更多" onClick={toggle} className="rounded-full bg-surface/90 text-ink-2 shadow-xs hover:bg-surface">
+                        <MoreHorizontal className="size-[18px]" />
+                      </IconButton>
+                    )}
+                  >
+                    {(close) => (
+                      <MenuItem icon={<Trash2 />} danger onClick={() => (close(), remove(l))}>
+                        删掉
+                      </MenuItem>
+                    )}
+                  </Popover>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
       )}
     </section>
-  );
-}
-
-function Stat({ label, value, sub, tone }: { label: string; value: string; sub?: string; tone?: 'ok' | 'bad' }) {
-  return (
-    <span className="text-center leading-tight">
-      <span className={cn('block text-[16px] font-semibold tabular-nums', tone === 'ok' ? 'text-ok' : tone === 'bad' ? 'text-bad' : 'text-ink')}>
-        {value}
-        {sub && <span className="text-[12.5px] font-normal text-ink-3">{sub}</span>}
-      </span>
-      <span className="mt-0.5 block text-[12px]">{label}</span>
-    </span>
   );
 }

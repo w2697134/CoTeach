@@ -13,6 +13,7 @@ import { NewQuestion } from './NewQuestion';
 import { Fit, Projector, QuestionStage } from './Stage';
 import { SummaryView } from './SummaryView';
 import { useLecture, useLectureState, type LectureDetail } from './data';
+import { CHIP } from '../classes/tone';
 
 /**
  * 上课（/classroom/:id，2026-11-17）：在上的课是上课的页面，下了课的是小结。
@@ -199,13 +200,13 @@ function Live({ d }: { d: LectureDetail }) {
   return (
     <div className="flex h-full min-h-0 flex-col gap-3 max-lg:overflow-y-auto">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-1 pt-0.5">
-        <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-bad-soft px-2.5 py-1 text-[13px] font-medium text-bad">
-          <span className="size-2 animate-pulse rounded-full bg-bad" />
+        <span className={cn('inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-[14px] font-medium', CHIP.bad)}>
+          <span className="size-2 animate-pulse rounded-full bg-[#ef4444]" />
           上课中
           <Elapsed from={d.lecture.startedAt} />
         </span>
         <h1 className="min-w-0 max-w-full truncate text-[18px] font-semibold text-ink">{d.lecture.title}</h1>
-        <span className="shrink-0 text-[13.5px] text-ink-3">{d.lecture.className}</span>
+        <span className="shrink-0 text-[14px] text-ink-2">{d.lecture.className}</span>
         <div className="ml-auto flex shrink-0 items-center gap-2">
           {(deck || shownQuestion) && (
             <Button variant="secondary" className="max-lg:hidden" icon={<Maximize2 className="size-4" />} onClick={() => setFull(true)}>
@@ -264,7 +265,9 @@ function Live({ d }: { d: LectureDetail }) {
             />
           )}
           {deck && !focused && notes && slide?.notes && (
-            <div className="max-h-40 shrink-0 overflow-y-auto rounded-xl border border-line bg-surface px-4 py-3 text-[14px] leading-relaxed whitespace-pre-wrap text-ink-2">{slide.notes}</div>
+            <div className="max-h-40 shrink-0 overflow-y-auto rounded-xl border border-line bg-surface px-4 py-3 text-[15px] leading-relaxed whitespace-pre-wrap text-ink">
+              <p className="max-w-[44em]">{slide.notes}</p>
+            </div>
           )}
         </section>
         <Panel
@@ -346,7 +349,7 @@ function SlideBar({
                   className={cn('relative aspect-video overflow-hidden rounded-md border', i === page ? 'border-brand ring-2 ring-brand/25' : 'border-line hover:border-line-strong')}
                 >
                   <SlideThumb slide={s} theme={deck.theme} />
-                  <span className="absolute bottom-0.5 left-1 text-[11px] text-ink-3">{i + 1}</span>
+                  <span className="absolute bottom-0.5 left-1 rounded bg-surface/85 px-1 text-[13px] leading-5 text-ink-2">{i + 1}</span>
                 </button>
               ))}
             </div>

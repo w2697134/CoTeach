@@ -6,6 +6,7 @@ import { Button, cn } from '../../components/ui';
 import { QTYPE_NAME } from '../prep/data';
 import { Bars } from './Bars';
 import { optionText, percent, type Pushed } from './data';
+import { INK } from '../classes/tone';
 
 /**
  * 课件在大块里尽量放大、不变形：电脑上按这块的宽和高取能放下的最大 16:9，手机上铺满宽度。
@@ -47,11 +48,11 @@ export function QuestionStage({
           第 {p.n} 题 · {QTYPE_NAME[p.q.type]}
         </span>
         <span className="text-[clamp(14px,2vmin,22px)] tabular-nums text-ink-2">
-          已答 <b className="text-ink">{p.answered}</b> / {here}
+          答了 <b className="text-ink">{p.answered}</b> / {here}
         </span>
         {shown && p.correct !== null && (
           <span className="text-[clamp(14px,2vmin,22px)] tabular-nums text-ink-2">
-            正确率 <b className={p.answered && p.correct / p.answered >= 0.6 ? 'text-ok' : 'text-bad'}>{percent(p.answered ? p.correct / p.answered : null)}</b>
+            答对 <b className={p.answered && p.correct / p.answered >= 0.6 ? INK.ok : INK.bad}>{percent(p.answered ? p.correct / p.answered : null)}</b>
           </span>
         )}
         <div className="ml-auto flex items-center gap-2">
@@ -70,7 +71,7 @@ export function QuestionStage({
       <div className="mt-[3vmin] text-[clamp(18px,3.2vmin,40px)] font-medium text-ink">
         <Markdown className="text-[length:inherit]! leading-snug!">{p.q.stem}</Markdown>
       </div>
-      {p.q.code && <pre className="mt-[2vmin] overflow-x-auto rounded-xl bg-[#1e2233] px-[2.4vmin] py-[1.8vmin] font-mono text-[clamp(13px,2vmin,24px)] leading-relaxed text-[#e6e9f5]">{p.q.code}</pre>}
+      {p.q.code && <pre className="mt-[2vmin] overflow-x-auto rounded-xl border border-line bg-surface-2 px-[2.4vmin] py-[1.8vmin] font-mono text-[clamp(13px,2vmin,24px)] leading-relaxed text-ink">{p.q.code}</pre>}
       <div className="mt-[3vmin] flex-1">
         {shown && p.bars ? (
           <Bars big bars={p.bars} answered={p.answered} mark />
@@ -85,15 +86,24 @@ export function QuestionStage({
           </ul>
         ) : null}
         {!shown && (
-          <div className="mt-[4vmin] max-w-[70vmin]">
-            <div className="h-[1.6vmin] min-h-2 overflow-hidden rounded-full bg-surface-3">
-              <div className="h-full rounded-full bg-brand transition-[width] duration-500" style={{ width: `${Math.round(share * 100)}%` }} />
+          // 一个人一个格子，答了的亮起来（大屏上不写名字，免得没答的人难堪）
+          <div className="mt-[4vmin]">
+            <div className="flex max-w-[110vmin] flex-wrap gap-[0.9vmin]">
+              {Array.from({ length: Math.max(here, p.answered) }, (_, i) => (
+                <span
+                  key={i}
+                  className={cn('size-[2.6vmin] min-h-3.5 min-w-3.5 rounded-[0.6vmin] transition-colors duration-500', i < p.answered ? 'bg-brand' : 'bg-surface-3')}
+                />
+              ))}
             </div>
+            <p className="mt-[1.6vmin] text-[clamp(15px,2.4vmin,28px)] text-ink-2">
+              {here && p.answered >= here ? '都答完了' : share >= 0.8 ? `还差 ${here - p.answered} 个人` : `${p.answered} 个人答了`}
+            </p>
           </div>
         )}
         {shown && (p.q.answer || p.q.explain) && !p.q.options?.length && (
           <div className="mt-[3vmin] rounded-xl bg-ok-soft px-[2.4vmin] py-[1.8vmin] text-[clamp(15px,2.4vmin,28px)] text-ink">
-            <span className="mr-3 font-semibold text-ok">答案</span>
+            <span className={cn('mr-3 font-semibold', INK.ok)}>答案</span>
             {p.q.type === 'code' ? <pre className="mt-1 whitespace-pre-wrap font-mono text-[0.8em]">{p.q.answer}</pre> : p.q.answer}
           </div>
         )}
@@ -157,7 +167,7 @@ export function Projector({
             <button type="button" className="rounded-full p-2 hover:bg-white/10" onClick={() => onPage(page - 1)} aria-label="上一页">
               <ChevronLeft className="size-5" />
             </button>
-            <span className="text-[13px] tabular-nums">
+            <span className="text-[14px] tabular-nums">
               {page + 1} / {pages}
             </span>
             <button type="button" className="rounded-full p-2 hover:bg-white/10" onClick={() => onPage(page + 1)} aria-label="下一页">
