@@ -186,7 +186,7 @@ function studentStory(h: Homework, now: number, lost: Mistake[] | undefined): St
   if (s === 'returned') return { line: <span className={INK.warn}>老师退回了，改好再交一次</span>, action: { label: '重交', to: '', primary: true } };
   if (s === 'missing') return { line: <span className={INK.bad}>过了截止，没交</span>, ...(h.allowLate ? { action: { label: '补交', to: '' } } : {}) };
   if (s === 'submitted' || s === 'late') return { line: s === 'late' ? '迟交了，等批改' : '交了，等批改' };
-  return { line: h.dueAt && h.dueAt < now ? '还没交' : `还没交，${dueWords(h.dueAt, now)}`, action: { label: '去交', to: '', primary: true } };
+  return { line: '还没交', action: { label: '去交', to: '', primary: true } };
 }
 
 /**

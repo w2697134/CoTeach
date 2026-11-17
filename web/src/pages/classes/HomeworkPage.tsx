@@ -609,6 +609,7 @@ function ReviewForStudents({ h }: { h: HomeworkDetail }) {
 
 function StudentView({ h }: { h: HomeworkDetail }) {
   const qc = useQueryClient();
+  const navigate = useNavigate();
   const mine = h.mine;
   const [editing, setEditing] = useState(!mine);
   const [text, setText] = useState(mine?.text || ''),
@@ -650,6 +651,17 @@ function StudentView({ h }: { h: HomeworkDetail }) {
         {mine && !editing && !h.lock && (
           <Button size="sm" className="ml-auto" icon={<PenLine className="size-4" />} onClick={() => setEditing(true)}>
             修改
+          </Button>
+        )}
+        {!mine && !h.lock && (
+          <Button
+            size="sm"
+            variant="soft"
+            className="ml-auto"
+            icon={<MessageCircle className="size-4" />}
+            onClick={() => navigate(`/cot?ask=${encodeURIComponent(`「${h.title}」从哪儿下手？先别告诉我答案`)}`)}
+          >
+            卡住了，问 {BUDDY.name}
           </Button>
         )}
       </div>
