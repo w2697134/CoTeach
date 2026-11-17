@@ -120,30 +120,30 @@ function PersonTile({
   const faded = s.joined === false;
   const body = (
     <>
-      <Avatar name={s.name} seed={s.id} size={40} className={cn(faded && 'opacity-45')} />
+      <Avatar name={s.name} seed={s.id} size={36} className={cn('shrink-0', faded && 'opacity-45')} />
       <span className="min-w-0 flex-1">
         <span className={cn('flex items-center gap-1.5 text-[15px] font-medium', faded ? 'text-ink-2' : 'text-ink')}>
           <span className="truncate">{s.name}</span>
           {me && <span className="shrink-0 rounded-full bg-brand-soft px-2 text-[13px] font-normal text-brand-ink">我</span>}
         </span>
         {(s.studentNo || tag) && (
-          <span className="mt-0.5 flex items-center gap-2 text-[13px] text-ink-3">
-            {s.studentNo && <span className="tabular-nums">{s.studentNo}</span>}
+          <span className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-2 text-[13px] text-ink-3">
+            {s.studentNo && <span className="truncate tabular-nums">{s.studentNo}</span>}
             {tag}
           </span>
         )}
       </span>
     </>
   );
-  const box = 'flex w-full items-center gap-3 rounded-lg border border-line bg-surface px-3.5 py-3 text-left';
+  const box = 'flex w-full items-center gap-2.5 rounded-lg border border-line bg-surface px-3 py-2.5 text-left sm:gap-3 sm:px-3.5 sm:py-3';
   return (
     <li className="group relative">
       {onOpen ? (
-        <button type="button" onClick={onOpen} className={cn(box, 'pr-10 transition-colors hover:border-line-strong hover:bg-surface-2')}>
+        <button type="button" onClick={onOpen} className={cn(box, 'pr-9 transition-colors hover:border-line-strong hover:bg-surface-2 sm:pr-10')}>
           {body}
         </button>
       ) : (
-        <div className={cn(box, menu && 'pr-10')}>{body}</div>
+        <div className={cn(box, menu && 'pr-9 sm:pr-10')}>{body}</div>
       )}
       {menu && (
         <div className="absolute right-1.5 top-1/2 -translate-y-1/2 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100 pointer-coarse:opacity-100">
@@ -263,7 +263,7 @@ function TeacherPeople({
       ) : !shown.length ? (
         <Empty compact title="没有找到" />
       ) : (
-        <ul className="grid gap-2.5 p-4 sm:grid-cols-2 sm:p-5 lg:grid-cols-3 xl:grid-cols-4">
+        <ul className="grid grid-cols-2 gap-2 p-3 sm:gap-2.5 sm:p-5 lg:grid-cols-3 xl:grid-cols-4">
           {shown.map((s) => (
             <PersonTile
               key={s.id}
@@ -335,7 +335,7 @@ function StudentPeople({ theme, teacher, classmates }: { theme: Theme; teacher: 
       {!shown.length ? (
         <Empty compact title="没有找到" />
       ) : (
-        <ul className="grid gap-2.5 p-4 sm:grid-cols-2 sm:p-5 lg:grid-cols-3 xl:grid-cols-4">
+        <ul className="grid grid-cols-2 gap-2 p-3 sm:gap-2.5 sm:p-5 lg:grid-cols-3 xl:grid-cols-4">
           {shown.map((s) => (
             <PersonTile key={s.id} s={s} me={s.me} />
           ))}

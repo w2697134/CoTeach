@@ -136,6 +136,9 @@ export function InsightsTab({ classId, theme }: { classId: number; theme: Theme 
 
 function Point({ p, n, theme }: { p: InsightPoint; n: number; theme: Theme }) {
   const [all, setAll] = useState(false);
+  // 手机上一列排下来太长：学生原话先收着，点了再看；电脑上一直摆在右边
+  const [ev, setEv] = useState(false);
+  const evCount = p.reasons.length + p.questions.length;
   // 先摆两条，学生问的在前（比扣分原因更像学生自己的话），其余点「还有几条」
   const asks = all ? p.questions : p.questions.slice(0, 2);
   const reasons = all ? p.reasons : p.reasons.slice(0, Math.max(0, 2 - asks.length));
@@ -186,9 +189,20 @@ function Point({ p, n, theme }: { p: InsightPoint; n: number; theme: Theme }) {
               ))}
             </p>
           )}
+          {evCount > 0 && (
+            <button
+              type="button"
+              onClick={() => setEv(!ev)}
+              aria-expanded={ev}
+              className="mt-3 inline-flex items-center gap-1 text-[14px] font-medium text-brand-ink hover:underline lg:hidden"
+            >
+              <ChevronDown className={cn('size-4 transition-transform', ev && 'rotate-180')} />
+              {ev ? '收起学生原话' : `看学生原话（${evCount}）`}
+            </button>
+          )}
         </div>
-        {p.reasons.length + p.questions.length > 0 && (
-          <aside className="space-y-4 border-t border-line bg-surface-2/70 px-5 py-5 sm:px-6 lg:border-l lg:border-t-0 lg:px-5">
+        {evCount > 0 && (
+          <aside className={cn('space-y-4 border-t border-line bg-surface-2/70 px-5 py-5 sm:px-6 lg:block lg:border-l lg:border-t-0 lg:px-5', !ev && 'hidden')}>
             {asks.length > 0 && (
               <div>
                 <p className="text-[14px] font-medium text-ink-2">学生问学伴</p>
