@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { motion } from 'motion/react';
 import { ArrowDown, ArrowUp, Check, Pencil, Plus, Trash2 } from 'lucide-react';
 import { Markdown } from '../../components/Markdown';
 import { Button, IconButton, Input, Select, Textarea, cn, useConfirm } from '../../components/ui';
@@ -21,6 +22,8 @@ export function QuestionsView({
   onSelect,
   onSave,
   head,
+  live,
+  readOnly,
 }: {
   list: Question[];
   homework: boolean;
@@ -28,7 +31,12 @@ export function QuestionsView({
   onSelect: (i: number | null) => void;
   onSave: (next: Question[]) => Promise<void>;
   head?: React.ReactNode;
+  /** 还在出题（边出边显示）：不能改，出好一道淡入一道 */
+  live?: boolean;
+  /** 还在备的时候出好了的题：先看，备完再改 */
+  readOnly?: boolean;
 }) {
+  const locked = live || readOnly;
   const confirm = useConfirm();
   const [editing, setEditing] = useState<number | 'new' | null>(null);
   const [saving, setSaving] = useState(false);
@@ -56,9 +64,11 @@ export function QuestionsView({
         </p>
         <div className="ml-auto flex items-center gap-2">
           {head}
-          <Button size="sm" variant="secondary" icon={<Plus className="size-4" />} onClick={() => setEditing('new')}>
-            加一道
-          </Button>
+          {!locked && (
+            <Button size="sm" variant="secondary" icon={<Plus className="size-4" />} onClick={() => setEditing('new')}>
+              加一道
+            </Button>
+          )}
         </div>
       </div>
       <div className="space-y-3">
@@ -66,14 +76,15 @@ export function QuestionsView({
           editing === i ? (
             <QuestionEditor key={q.id || i} q={q} n={i + 1} homework={homework} saving={saving} onCancel={() => setEditing(null)} onSave={(x) => save(list.map((y, k) => (k === i ? x : y)))} />
           ) : (
+            <motion.div key={q.id || i} initial={live ? { opacity: 0, y: 8 } : false} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35 }}>
             <QuestionCard
-              key={q.id || i}
               q={q}
               n={i + 1}
               homework={homework}
               active={selected === i}
               onClick={() => onSelect(selected === i ? null : i)}
               actions={
+                locked ? null : (
                 <>
                   <IconButton label="上移" disabled={i === 0} onClick={() => move(i, -1)}>
                     <ArrowUp className="size-4" />
@@ -93,14 +104,22 @@ export function QuestionsView({
                     <Trash2 className="size-4" />
                   </IconButton>
                 </>
+                )
               }
             />
+            </motion.div>
           ),
+        )}
+        {live && (
+          <p className="flex items-center gap-2 px-1 text-[14px] text-ink-3">
+            <span className="size-2 animate-pulse rounded-full bg-brand" />
+            我还在出题
+          </p>
         )}
         {editing === 'new' && (
           <QuestionEditor q={blank(homework)} n={list.length + 1} homework={homework} saving={saving} onCancel={() => setEditing(null)} onSave={(x) => save([...list, x])} />
         )}
-        {!list.length && editing !== 'new' && <p className="rounded-xl border border-dashed border-line-strong px-4 py-10 text-center text-[14px] text-ink-3">还没有题</p>}
+        {!list.length && editing !== 'new' && !live && <p className="rounded-xl border border-dashed border-line-strong px-4 py-10 text-center text-[14px] text-ink-3">还没有题</p>}
       </div>
     </div>
   );

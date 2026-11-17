@@ -15,6 +15,8 @@ export interface LiveDraft {
   /** 课堂练习、课后作业出到哪了 */
   practice?: Question[];
   homework?: Question[];
+  /** 正在翻知识库里的哪一份、找什么（还没开始写的时候，页面上说它在干什么） */
+  activity?: string;
 }
 
 const live = new Map<number, LiveDraft>();
@@ -28,6 +30,7 @@ export function liveOf(id: number): LiveDraft | null {
   if (d.pages && Object.keys(d.pages).length) out.pages = d.pages;
   if (d.practice?.length) out.practice = d.practice;
   if (d.homework?.length) out.homework = d.homework;
+  if (d.activity) out.activity = d.activity;
   return Object.keys(out).length ? out : null;
 }
 

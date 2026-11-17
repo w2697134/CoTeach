@@ -225,6 +225,10 @@ async function loop(o: {
   nudge?: string;
   /** 工具写到一半时隔一会儿报一次（边做边显示）；换备用模型重来时报 null */
   onPartial?: (call: { name: string; args: Record<string, unknown> } | null) => void;
+  /** 要用一个工具了（翻知识库时页面上说在翻哪一份） */
+  onTool?: (call: ToolCall) => void;
+  /** 这一步的工具都办完了，接着想下一步（页面上不再说「在翻某一份」） */
+  afterTools?: () => void;
 }): Promise<string> {
   append(o.teacherId, o.key, null, { role: 'user', content: o.first });
   let nudged = false;
@@ -247,6 +251,7 @@ async function loop(o: {
       continue;
     }
     for (const call of r.toolCalls) {
+      o.onTool?.(call);
       let out: string;
       try {
         out = await o.run(call);
@@ -255,9 +260,24 @@ async function loop(o: {
       }
       append(o.teacherId, o.key, null, { role: 'tool', toolCallId: call.id, content: out });
     }
+    o.afterTools?.();
     if (o.done?.()) return last;
   }
   return last;
+}
+
+/** 翻知识库的那一步，页面上怎么说：在翻哪一份、在找什么（不是翻知识库就不说） */
+function kbActivity(call: ToolCall): string | undefined {
+  const a = call.args || {};
+  if (call.name === 'read_kb') {
+    const name = String(a.path ?? '').split('/').pop()?.replace(/\.(md|txt)$/i, '').trim();
+    return name ? `我在翻知识库里的《${name}》` : undefined;
+  }
+  if (call.name === 'search_kb') {
+    const q = String(a.query ?? '').trim().slice(0, 30);
+    return q ? `我在知识库里找「${q}」` : undefined;
+  }
+  return undefined;
 }
 
 function kbTool(teacherId: number, call: ToolCall): string | null {
@@ -413,6 +433,8 @@ function lanePlan(id: number, teacher: string, signal: AbortSignal) {
         signal,
         nudge: '用 save_plan 把教案存下来。',
         done: () => !!saved,
+        onTool: (c) => kbActivity(c) && setLive(id, { activity: kbActivity(c) }),
+        afterTools: () => dropLive(id, 'activity'),
         // 教案一段段写出来就先摆到页面上
         onPartial: (c) => (c?.name === 'save_plan' ? setLive(id, { plan: partialPlan(c.args) ?? undefined }) : !c && dropLive(id, 'plan')),
         run: (call) => {
@@ -430,7 +452,7 @@ function lanePlan(id: number, teacher: string, signal: AbortSignal) {
       if (!p) throw new Error(said.replace(/\s+/g, ' ').trim().slice(0, 160) || '助教没写出教案');
       const minutes = r.minutes ?? (p.steps.reduce((n, s) => n + (s.minutes || 0), 0) || null);
       savePart(id, 'plan', p, 'ta');
-      dropLive(id, 'plan');
+      dropLive(id, 'plan', 'activity');
       db.update('lessons', id, { minutes });
       return p.title;
     },
@@ -458,6 +480,8 @@ function laneDeck(id: number, teacher: string, signal: AbortSignal) {
       signal,
       nudge: '用 save_deck 把课件存下来。',
       done: () => !!saved,
+      onTool: (c) => kbActivity(c) && setLive(id, { activity: kbActivity(c) }),
+        afterTools: () => dropLive(id, 'activity'),
       // 课件一页页写出来就先摆到页面上（还没做成幻灯片，按版式显示）
       onPartial: (c) => (c?.name === 'save_deck' ? setLive(id, { slides: partialSlides(c.args) }) : !c && dropLive(id, 'slides')),
       run: (call) => {
@@ -475,7 +499,7 @@ function laneDeck(id: number, teacher: string, signal: AbortSignal) {
     const old = j<Deck | null>(lessonRow(id)?.deck ?? null, null);
     if (old?.theme) d.theme = old.theme;
     savePart(id, 'deck', d, 'ta');
-    dropLive(id, 'slides');
+    dropLive(id, 'slides', 'activity');
     const n = d.slides.length;
     if (!SLIDE_KIT_READY) return `${n} 页`;
     setLane(id, 'deck', { status: 'doing', note: `${n} 页，在做成幻灯片` });

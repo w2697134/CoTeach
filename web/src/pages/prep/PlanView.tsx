@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { motion } from 'motion/react';
 import { Plus, Trash2 } from 'lucide-react';
 import { Markdown } from '../../components/Markdown';
 import { Button, IconButton, Input, Textarea, cn } from '../../components/ui';
@@ -48,8 +49,9 @@ function StepText({ text }: { text: string }) {
 
 /**
  * 教案：排成一页文档（像 Word 里的教案），老师点「编辑」就地改，存一版（能撤回）。
+ * live：还在写（边写边显示）：不能改，新写出来的一段淡入，最后一行写着「还在写」。
  */
-export function PlanView({ plan, meta, onSave }: { plan: Plan; meta: string; onSave: (p: Plan) => Promise<void> }) {
+export function PlanView({ plan, meta, onSave, live }: { plan: Plan; meta: string; onSave?: (p: Plan) => Promise<void>; live?: boolean }) {
   const [draft, setDraft] = useState<Plan | null>(null);
   const [saving, setSaving] = useState(false);
   if (draft)
@@ -62,7 +64,7 @@ export function PlanView({ plan, meta, onSave }: { plan: Plan; meta: string; onS
         onSave={async () => {
           setSaving(true);
           try {
-            await onSave(draft);
+            await onSave?.(draft);
             setDraft(null);
           } finally {
             setSaving(false);
@@ -73,15 +75,17 @@ export function PlanView({ plan, meta, onSave }: { plan: Plan; meta: string; onS
   const total = plan.steps.reduce((n, s) => n + (s.minutes || 0), 0);
   return (
     <article className="relative mx-auto max-w-[820px] rounded-xl border border-line bg-surface px-5 py-6 shadow-xs sm:px-12 sm:py-10">
-      <Button size="sm" variant="secondary" className="absolute right-4 top-4 sm:right-6 sm:top-6" onClick={() => setDraft(structuredClone(plan))}>
-        编辑
-      </Button>
+      {!live && onSave && (
+        <Button size="sm" variant="secondary" className="absolute right-4 top-4 sm:right-6 sm:top-6" onClick={() => setDraft(structuredClone(plan))}>
+          编辑
+        </Button>
+      )}
       <header className="border-b border-line pb-5 pr-16">
         <h2 className="text-[24px] font-bold leading-snug text-ink">{plan.title}</h2>
         <p className="mt-1.5 text-[13.5px] text-ink-3">{meta}</p>
       </header>
       {plan.goals.length > 0 && (
-        <Section title="教学目标">
+        <Section live={live} title="教学目标">
           <ol className="space-y-1.5">
             {plan.goals.map((g, i) => (
               <li key={i} className="flex gap-2.5 text-[15px] leading-relaxed text-ink">
@@ -99,17 +103,17 @@ export function PlanView({ plan, meta, onSave }: { plan: Plan; meta: string; onS
         </div>
       )}
       {plan.review && (
-        <Section title="开头补讲">
+        <Section live={live} title="开头补讲">
           <div className="rounded-lg bg-surface-2 px-4 py-3 text-[15px] leading-relaxed text-ink">
             <Markdown compact>{plan.review}</Markdown>
           </div>
         </Section>
       )}
       {plan.steps.length > 0 && (
-        <Section title="教学过程" end={total ? `共 ${total} 分钟` : undefined}>
+        <Section live={live} title="教学过程" end={total ? `共 ${total} 分钟` : undefined}>
           <ol className="relative space-y-0">
             {plan.steps.map((s, i) => (
-              <li key={i} className="relative flex gap-4 pb-6 last:pb-0">
+              <motion.li key={i} initial={live ? { opacity: 0, y: 8 } : false} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35 }} className="relative flex gap-4 pb-6 last:pb-0">
                 {i < plan.steps.length - 1 && <span className="absolute bottom-0 left-[27px] top-9 w-px bg-line" />}
                 <span className="relative mt-0.5 grid h-7 w-14 shrink-0 place-items-center rounded-full bg-brand-soft text-[12.5px] font-semibold text-brand-ink">
                   {s.minutes ? `${s.minutes} 分` : '—'}
@@ -120,18 +124,18 @@ export function PlanView({ plan, meta, onSave }: { plan: Plan; meta: string; onS
                     <StepText text={s.content} />
                   </div>
                 </div>
-              </li>
+              </motion.li>
             ))}
           </ol>
         </Section>
       )}
       {plan.board && (
-        <Section title="板书设计">
+        <Section live={live} title="板书设计">
           <pre className="whitespace-pre-wrap rounded-lg border border-dashed border-line-strong bg-surface-2 px-4 py-3 font-sans text-[14.5px] leading-relaxed text-ink">{plan.board}</pre>
         </Section>
       )}
       {plan.sources.length > 0 && (
-        <Section title="用到的资料">
+        <Section live={live} title="用到的资料">
           <div className="flex flex-wrap gap-1.5">
             {plan.sources.map((s) => (
               <span key={s} className="rounded-md bg-surface-3 px-2 py-1 text-[12.5px] text-ink-2">
@@ -141,20 +145,26 @@ export function PlanView({ plan, meta, onSave }: { plan: Plan; meta: string; onS
           </div>
         </Section>
       )}
+      {live && (
+        <p className="mt-7 flex items-center gap-2 text-[14px] text-ink-3">
+          <span className="size-2 animate-pulse rounded-full bg-brand" />
+          我还在往下写
+        </p>
+      )}
     </article>
   );
 }
 
-function Section({ title, end, children }: { title: string; end?: string; children: React.ReactNode }) {
+function Section({ title, end, live, children }: { title: string; end?: string; live?: boolean; children: React.ReactNode }) {
   return (
-    <section className="mt-7">
+    <motion.section initial={live ? { opacity: 0, y: 8 } : false} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35 }} className="mt-7">
       <div className="mb-3 flex items-center gap-2">
         <span className="h-4 w-1 rounded-full bg-brand" />
         <h3 className="text-[16.5px] font-semibold text-ink">{title}</h3>
         {end && <span className="ml-auto text-[13px] text-ink-3">{end}</span>}
       </div>
       {children}
-    </section>
+    </motion.section>
   );
 }
 

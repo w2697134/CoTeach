@@ -11,16 +11,19 @@ import { AskRail, type Focus } from './AskRail';
 import { DeckPane, Present } from './DeckPane';
 import { downloadPptx, printDeck, type Deck as KitDeck } from '../../components/deck';
 import { Lanes } from './Lanes';
+import { LiveDeck } from './LiveDeck';
 import { PlanView } from './PlanView';
 import { QuestionsView } from './QuestionsView';
-import { LANES, doingNow, useLesson, type Brief, type Deck, type LaneKey, type Lesson, type Part, type Plan, type Question } from './data';
+import { LANES, doingLine, useLesson, type Brief, type Deck, type LaneKey, type Lesson, type Part, type Plan, type Question } from './data';
 import { useLiveLectures, type LectureCard } from '../classroom/data';
 
 type Tab = 'deck' | 'plan' | 'practice' | 'homework' | 'brief';
 
 /**
  * 一节课（2026-11-17）：上面课题、哪个班、多长，右边放映、导出、发作业；下面五份分页：课件、教案、课堂练习、课后作业、学情。
- * 右边一栏跟助教说着改（手机上点按钮弹出来）。还在备的时候顶上一排写着几手各做到哪，做好一份就能看一份。
+ * 右边一栏跟助教说着改（手机上点按钮弹出来）。
+ * 还在备的时候边做边显示：
+ * 顶上一句说现在做到哪了，下面自动翻到正在做的那一份，教案一段段写出来、课件一页页摆出来、题目一道道出来；老师点了别的页签就不再自动翻。
  */
 export function LessonPage() {
   const id = Number(useParams().id);
@@ -143,10 +146,52 @@ function Workspace({ l }: { l: Lesson }) {
           : tab === 'plan' || tab === 'practice' || tab === 'homework'
             ? { part: tab }
             : null;
+  // 还在备：跟着正在做的那一份翻页签（课件和题目一起做时看课件）；老师自己点了页签就不跟了
+  const [follow, setFollow] = useState(making);
+  const at = (k: LaneKey) => l.lanes[k]?.status === 'doing';
+  const target: Tab | null = !making ? null : at('brief') ? 'brief' : at('plan') ? 'plan' : at('deck') ? 'deck' : at('questions') ? 'practice' : null;
+  useEffect(() => {
+    if (follow && target) setTab(target);
+  }, [follow, target]);
+  useEffect(() => {
+    if (!making) setFollow(false);
+  }, [making]);
+  // 备完那一下：说一声备好了什么（只在这一页看着它备完时说；打开一节早就备好的课不说）
+  const wasMaking = useRef(making);
+  useEffect(() => {
+    if (wasMaking.current && !making && l.status === 'ready') {
+      const got = [l.counts.slides && `课件 ${l.counts.slides} 页`, l.counts.practice && `练习 ${l.counts.practice} 道`, l.counts.homework && `作业 ${l.counts.homework} 道`].filter(Boolean);
+      toast.success('备好了', `${got.join('，')}。先翻翻，哪里不合适跟我说`);
+    }
+    wasMaking.current = making;
+  }, [making, l.status, l.counts]);
   const switchTab = (t: Tab) => {
     setTab(t);
+    setFollow(false);
     setFocusOff(false);
   };
+  const live = l.live || {};
+  const deckSlides = l.deck?.slides ?? live.slides ?? [];
+  // 写出来的新内容在最下面：跟着往下滚到正在写的地方；老师自己滚了就不跟（在看前面的）
+  const endRef = useRef<HTMLDivElement>(null);
+  const manual = useRef(false);
+  useEffect(() => {
+    if (!making) return;
+    const stop = () => {
+      manual.current = true;
+    };
+    window.addEventListener('wheel', stop, { passive: true, capture: true });
+    window.addEventListener('touchmove', stop, { passive: true, capture: true });
+    return () => {
+      window.removeEventListener('wheel', stop, true);
+      window.removeEventListener('touchmove', stop, true);
+    };
+  }, [making]);
+  const grown = making ? `${tab}:${JSON.stringify(live).length}:${l.deck?.slides.filter((s) => s.html).length ?? 0}:${l.practice?.length ?? 0}` : '';
+  useEffect(() => {
+    if (!grown || manual.current || !follow) return;
+    endRef.current?.scrollIntoView({ block: 'end', behavior: 'smooth' });
+  }, [grown, follow]);
   const failed = LANES.map((x) => x.key).filter((k) => l.lanes[k]?.status === 'error');
   const note = failed.length ? l.lanes[failed[0]]?.note || '' : '';
   const reason = note && /[一-鿿]/.test(note) && !/HTTP|[A-Za-z]{12,}|服务中断/.test(note) ? note : '';
@@ -240,7 +285,21 @@ function Workspace({ l }: { l: Lesson }) {
         </div>
       </div>
 
-      {lanesShown && <Lanes lanes={l.lanes} className="mt-4" />}
+      {making ? (
+        // 还在备：一句话说做到哪了，下面一排几步
+        <div className="mt-4 rounded-2xl border border-brand/15 bg-brand-soft/40 px-4 py-3.5">
+          <p className="flex items-center gap-2.5 text-[15px] font-medium text-ink">
+            <span className="relative flex size-2.5 shrink-0">
+              <span className="absolute inline-flex size-full animate-ping rounded-full bg-brand/50" />
+              <span className="relative inline-flex size-2.5 rounded-full bg-brand" />
+            </span>
+            {doingLine(l)}
+          </p>
+          <Lanes lanes={l.lanes} className="mt-3" />
+        </div>
+      ) : (
+        lanesShown && <Lanes lanes={l.lanes} detail className="mt-4" />
+      )}
       {!making && failed.length > 0 && (
         <div className="mt-3 flex flex-wrap items-center gap-3 rounded-xl border border-bad/25 bg-bad/5 px-4 py-2.5">
           <div className="min-w-0 flex-1">
@@ -278,7 +337,16 @@ function Workspace({ l }: { l: Lesson }) {
           />
           <div className="pt-5">
             {tab === 'deck' &&
-              (l.deck ? (
+              (making ? (
+                // 还在备：写出来一页摆一页，排好版的换成幻灯片
+                deckSlides.length ? (
+                  <LiveDeck slides={deckSlides} theme={l.deck?.theme} pages={live.pages} writing={!l.deck && at('deck')} />
+                ) : at('deck') && l.plan?.steps.length ? (
+                  <DeckComing plan={l.plan} />
+                ) : (
+                  <Waiting busy text={at('deck') ? '课件我照着教案在写，这一步一般要两三分钟' : '教案写完，我就接着做课件'} />
+                )
+              ) : l.deck ? (
                 // 编辑器要一个定高：不然左边缩略图有多长它就多高，中间那页居中跑到屏幕下面去（2026-11-17 截图时看到中间是空的）
                 <div className="md:h-[calc(100vh-250px)] md:min-h-[520px]">
                   <DeckPane
@@ -292,46 +360,61 @@ function Workspace({ l }: { l: Lesson }) {
                   />
                 </div>
               ) : (
-                <Waiting making={making} what="课件" lane={doingNow(l.lanes)} />
+                <Waiting text="这节课还没有课件" />
               ))}
             {tab === 'plan' &&
               (l.plan ? (
                 <>
-                  <PartBar canUndo={(l.versions.plan?.count ?? 0) > 1} onUndo={() => undo('plan')} />
-                  <PlanView plan={l.plan} meta={meta} onSave={(p: Plan) => save('plan')(p)} />
+                  <PartBar canUndo={!making && (l.versions.plan?.count ?? 0) > 1} onUndo={() => undo('plan')} />
+                  <PlanView plan={l.plan} meta={meta} onSave={making ? undefined : (p: Plan) => save('plan')(p)} />
                 </>
+              ) : making && live.plan ? (
+                <PlanView plan={fullPlan(live.plan)} meta={meta} live />
+              ) : making && at('plan') ? (
+                <PlanComing brief={l.brief} />
               ) : (
-                <Waiting making={making} what="教案" lane={doingNow(l.lanes)} />
+                <Waiting busy={making} text={!making ? '这节课还没有教案' : '我先看看这个班卡在哪，接着就写教案'} />
               ))}
             {(tab === 'practice' || tab === 'homework') &&
-              (l[tab] ? (
+              (l[tab] || (making && live[tab]?.length) ? (
                 <QuestionsView
                   key={tab}
-                  list={l[tab] as Question[]}
+                  list={(l[tab] || live[tab]) as Question[]}
                   homework={tab === 'homework'}
                   selected={picked[tab]}
                   onSelect={(i) => (setPicked({ ...picked, [tab]: i }), setFocusOff(false))}
                   onSave={(next) => save(tab)(next)}
-                  head={(l.versions[tab]?.count ?? 0) > 1 ? <UndoButton onUndo={() => undo(tab)} /> : null}
+                  head={!making && (l.versions[tab]?.count ?? 0) > 1 ? <UndoButton onUndo={() => undo(tab)} /> : null}
+                  live={making && !l[tab]}
+                  readOnly={making}
                 />
               ) : (
-                <Waiting making={making} what={tab === 'practice' ? '课堂练习' : '课后作业'} lane={doingNow(l.lanes)} />
+                <Waiting
+                  busy={making}
+                  text={!making ? `这节课还没有${tab === 'practice' ? '课堂练习' : '课后作业'}` : at('questions') ? '题目我在出，一般一两分钟' : '教案写完，我就接着出题'}
+                />
               ))}
-            {tab === 'brief' && <BriefView brief={l.brief} />}
+            {tab === 'brief' && (making && at('brief') ? <Waiting busy text="我在翻这个班最近的作业，还有学生问过学伴的问题" /> : <BriefView brief={l.brief} />)}
+            <div ref={endRef} className="h-4" />
           </div>
         </div>
-        <AskRail
-          lesson={l}
-          focus={focus}
-          onClearFocus={() => setFocusOff(true)}
-          className="sticky top-4 hidden h-[calc(100vh-120px)] w-[340px] shrink-0 xl:flex"
-        />
+        {/* 还在备的时候不摆（那会儿也改不了，摆着是一大块空白）：正在长出来的内容占满 */}
+        {!making && (
+          <AskRail
+            lesson={l}
+            focus={focus}
+            onClearFocus={() => setFocusOff(true)}
+            className="sticky top-4 hidden h-[calc(100vh-120px)] w-[340px] shrink-0 xl:flex"
+          />
+        )}
       </div>
 
       {/* 屏幕窄的时候：右下角一个按钮，点开跟助教说 */}
-      <Button variant="primary" className="fixed bottom-5 right-5 z-30 rounded-full shadow-lg xl:hidden" icon={<Sparkles className="size-4" />} onClick={() => setRail(true)}>
-        跟助教说
-      </Button>
+      {!making && (
+        <Button variant="primary" className="fixed bottom-5 right-5 z-30 rounded-full shadow-lg xl:hidden" icon={<Sparkles className="size-4" />} onClick={() => setRail(true)}>
+          跟助教说
+        </Button>
+      )}
       <Drawer open={rail} onClose={() => setRail(false)} title="CoT 助教" width={420}>
         <AskRail lesson={l} focus={focus} onClearFocus={() => setFocusOff(true)} className="h-[calc(100vh-120px)] border-0" />
       </Drawer>
@@ -364,13 +447,72 @@ function UndoButton({ onUndo }: { onUndo: () => void }) {
   );
 }
 
-function Waiting({ making, what, lane }: { making: boolean; what: string; lane: string }) {
+/** 这一份还没有：一句具体的话（在做什么、等什么），不套模板 */
+function Waiting({ text, busy }: { text: string; busy?: boolean }) {
   return (
     <div className="flex flex-col items-center rounded-xl border border-dashed border-line-strong px-6 py-16 text-center">
-      <img src="/agents/lesson.webp" alt="" className={cn('size-24', making && 'animate-pulse')} />
-      <p className="mt-3 text-[15px] text-ink-2">{making ? `${lane}，${what}做好就摆在这` : `还没有${what}`}</p>
+      <img src="/agents/lesson.webp" alt="" className={cn('size-24', busy && 'animate-pulse')} />
+      <p className="mt-3 text-[15px] text-ink-2">{text}</p>
     </div>
   );
+}
+
+/**
+ * 教案还没动笔（助教在翻知识库）：摆这个班卡得最多的几处，教案开头会先补讲这些。
+ * 不摆「做好就摆在这」这类空话。
+ */
+function PlanComing({ brief }: { brief: Brief | null }) {
+  const points = brief?.points.slice(0, 3) || [];
+  if (!points.length) return <Waiting busy text="这个班还没有批过的作业，我照授课计划往下写教案" />;
+  return (
+    <div className="mx-auto max-w-[820px] rounded-xl border border-line bg-surface px-5 py-6 sm:px-10 sm:py-8">
+      <p className="text-[15px] font-medium text-ink">这个班卡得最多的几处，我放在教案开头先补讲</p>
+      <ol className="mt-4 space-y-3">
+        {points.map((p, i) => (
+          <li key={i} className="flex gap-3">
+            <span className="mt-0.5 grid size-6 shrink-0 place-items-center rounded-full bg-brand-soft text-[13px] font-semibold text-brand-ink">{i + 1}</span>
+            <div className="min-w-0">
+              <p className="text-[15px] text-ink">
+                {p.title}
+                <span className="ml-2 text-[13px] text-ink-3">{p.lost} 人丢分</span>
+              </p>
+              {p.what && <p className="mt-0.5 max-w-[44em] text-[14px] leading-relaxed text-ink-2">{p.what}</p>}
+            </div>
+          </li>
+        ))}
+      </ol>
+    </div>
+  );
+}
+
+/**
+ * 课件还没写出来（模型多半想好了一口气写完，中间看不到写到哪页）：先按教案的几个环节摆出课件的样子，
+ * 写完换成真的页。只摆教案里真有的环节，不编。
+ */
+function DeckComing({ plan }: { plan: Plan }) {
+  return (
+    <div>
+      <p className="mb-4 text-[15px] text-ink-2">课件我照着教案的 {plan.steps.length} 个环节在写，一般要两三分钟</p>
+      <div className="grid grid-cols-2 gap-x-4 gap-y-5 md:grid-cols-3 2xl:grid-cols-4">
+        {plan.steps.map((s, i) => (
+          <figure key={i}>
+            <div className="relative aspect-video overflow-hidden rounded-lg border border-dashed border-line-strong bg-surface">
+              <div className="absolute inset-0 animate-pulse bg-gradient-to-br from-brand-soft/70 via-surface to-surface" style={{ animationDelay: `${i * 160}ms` }} />
+              <div className="relative flex h-full flex-col justify-center px-4">
+                <p className="line-clamp-2 text-[15px] font-medium text-ink-2">{s.name}</p>
+                {s.minutes ? <p className="mt-1 text-[13px] text-ink-3">{s.minutes} 分钟</p> : null}
+              </div>
+            </div>
+          </figure>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** 写到一半的教案补齐没写到的栏（空的不显示） */
+function fullPlan(p: Partial<Plan>): Plan {
+  return { title: p.title || '', goals: p.goals || [], focus: p.focus || '', hard: p.hard || '', review: p.review || '', steps: p.steps || [], board: p.board || '', sources: p.sources || [] };
 }
 
 /** 学情：这个班卡在哪，丢分、问过的人数（程序数的），助教建议怎么补 */
