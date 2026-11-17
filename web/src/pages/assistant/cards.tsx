@@ -158,6 +158,22 @@ function CardLine({ text }: { text: string }) {
   );
 }
 
+/** 卡片上问老师的话：长的先摆三行，点「展开」看全；学生来问的字大一号 */
+function Question({ text, big }: { text: string; big: boolean }) {
+  const [open, setOpen] = useState(false);
+  const long = text.length > 80;
+  return (
+    <div className={cn('break-words text-ink', big ? 'text-[15px] leading-relaxed' : 'text-[14px] font-medium leading-snug')}>
+      <p className={cn('whitespace-pre-wrap', long && !open && 'line-clamp-3')}>{text}</p>
+      {long && (
+        <button type="button" className="text-[12.5px] font-normal text-brand-ink hover:underline" onClick={() => setOpen(!open)}>
+          {open ? '收起' : '展开'}
+        </button>
+      )}
+    </div>
+  );
+}
+
 export interface AskData {
   toolCallId: string;
   questions: { question: string; options: string[]; multiple?: boolean }[];
@@ -180,6 +196,7 @@ export function AskCard({ runId, data, live }: { runId: number; data: AskData; l
   const [picks, setPicks] = useState<string[][]>(() => qs.map(() => []));
   const [texts, setTexts] = useState<string[]>(() => qs.map(() => ''));
   const [busy, setBusy] = useState(false);
+  const [typing, setTyping] = useState(false);
   const from = data.from;
   const suggest = data.suggest;
   // 答过的收成一行，只写答了什么（问的什么鼠标停上去看）
@@ -249,32 +266,57 @@ export function AskCard({ runId, data, live }: { runId: number; data: AskData; l
       )}
       {qs.map((q, i) => (
         <div key={i} className={i ? 'mt-3.5' : ''}>
-          <p className={cn('whitespace-pre-wrap break-words text-ink', from ? 'text-[15px] leading-relaxed' : 'text-[14px] font-medium leading-snug')}>{q.question}</p>
+          <Question text={q.question} big={!!from} />
           {suggest && i === 0 && (
             <p className="mt-1 break-words text-[13px] leading-relaxed text-ink-3">
               <span className="text-ink-2">{suggest.name}</span> · {suggest.duty}
             </p>
           )}
           {q.options.length ? (
-            <div className="mt-2 flex flex-wrap gap-1.5">
-              {q.options.map((o) => {
-                const on = picks[i].includes(o);
-                return (
-                  <button
-                    key={o}
-                    type="button"
-                    disabled={busy}
-                    onClick={() => choose(i, o, q.multiple)}
-                    className={cn(
-                      'rounded-full border px-3 py-1 text-left text-[13px] leading-snug transition-colors disabled:opacity-60',
-                      on ? 'border-brand bg-brand-soft text-brand-ink' : 'border-line-strong text-ink-2 hover:border-brand/50 hover:text-ink',
-                    )}
-                  >
-                    {o}
-                  </button>
-                );
-              })}
-            </div>
+            // 选项短的一排小圆角；有长的（一整句话）就一行一个排成单子，不挤成好几排
+            q.options.some((o) => o.length > 12) ? (
+              <div className="mt-2.5 overflow-hidden rounded-lg border border-line">
+                {q.options.map((o, k) => {
+                  const on = picks[i].includes(o);
+                  return (
+                    <button
+                      key={o}
+                      type="button"
+                      disabled={busy}
+                      onClick={() => choose(i, o, q.multiple)}
+                      className={cn(
+                        'flex w-full items-start gap-2.5 px-3 py-2 text-left text-[13.5px] leading-snug transition-colors disabled:opacity-60',
+                        k > 0 && 'border-t border-line',
+                        on ? 'bg-brand-soft text-brand-ink' : 'text-ink-2 hover:bg-surface-2 hover:text-ink',
+                      )}
+                    >
+                      <span className={cn('mt-[3px] size-3.5 shrink-0 rounded-full border', on ? 'border-[4px] border-brand' : 'border-line-strong')} />
+                      <span className="line-clamp-2 min-w-0 flex-1">{o}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {q.options.map((o) => {
+                  const on = picks[i].includes(o);
+                  return (
+                    <button
+                      key={o}
+                      type="button"
+                      disabled={busy}
+                      onClick={() => choose(i, o, q.multiple)}
+                      className={cn(
+                        'rounded-full border px-3 py-1 text-left text-[13px] leading-snug transition-colors disabled:opacity-60',
+                        on ? 'border-brand bg-brand-soft text-brand-ink' : 'border-line-strong text-ink-2 hover:border-brand/50 hover:text-ink',
+                      )}
+                    >
+                      {o}
+                    </button>
+                  );
+                })}
+              </div>
+            )
           ) : (
             <Input
               className="mt-2"
@@ -284,21 +326,28 @@ export function AskCard({ runId, data, live }: { runId: number; data: AskData; l
               onKeyDown={(e) => e.key === 'Enter' && !e.nativeEvent.isComposing && ready && !busy && send(picks, texts)}
             />
           )}
-          {from && q.options.length > 0 && i === 0 && (
-            <div className="mt-2.5 flex items-center gap-1.5">
-              <Input
-                className="min-w-0 flex-1"
-                value={texts[0]}
-                maxLength={2000}
-                placeholder="自己回一句"
-                onChange={(e) => setTexts(texts.map((t, j) => (j === 0 ? e.target.value : t)))}
-                onKeyDown={(e) => e.key === 'Enter' && !e.nativeEvent.isComposing && texts[0].trim() && !busy && send(qs.map(() => []), texts)}
-              />
-              <Button size="sm" variant="primary" loading={busy} disabled={!texts[0].trim()} onClick={() => send(qs.map(() => []), texts)}>
-                回复
-              </Button>
-            </div>
-          )}
+          {/* 自己回一句：平时收着，点「自己回复」才展开（输入框一直摆着显得乱） */}
+          {from && q.options.length > 0 && i === 0 &&
+            (typing ? (
+              <div className="mt-2.5 flex items-center gap-1.5">
+                <Input
+                  autoFocus
+                  className="min-w-0 flex-1"
+                  value={texts[0]}
+                  maxLength={2000}
+                  placeholder="自己回一句"
+                  onChange={(e) => setTexts(texts.map((t, j) => (j === 0 ? e.target.value : t)))}
+                  onKeyDown={(e) => e.key === 'Enter' && !e.nativeEvent.isComposing && texts[0].trim() && !busy && send(qs.map(() => []), texts)}
+                />
+                <Button size="sm" variant="primary" loading={busy} disabled={!texts[0].trim()} onClick={() => send(qs.map(() => []), texts)}>
+                  回复
+                </Button>
+              </div>
+            ) : (
+              <button type="button" className="mt-2 text-[13px] text-ink-3 hover:text-brand-ink" onClick={() => setTyping(true)}>
+                自己回复
+              </button>
+            ))}
         </div>
       ))}
       {!quick && (
