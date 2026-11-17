@@ -206,7 +206,7 @@ function Workspace({ l }: { l: Lesson }) {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:gap-4">
         <div className="min-w-0 flex-1">
           <h1 className="text-[22px] font-semibold leading-snug text-ink sm:text-[24px]">{l.title || l.request || '下一节课'}</h1>
-          <p className="mt-1 text-[13.5px] text-ink-3">
+          <p className="mt-1 text-[14px] text-ink-3">
             {meta}
             {!making && (
               <button type="button" className="ml-3 text-brand-ink hover:underline" onClick={() => setShowLanes(!showLanes)}>
@@ -524,13 +524,13 @@ function BriefView({ brief }: { brief: Brief | null }) {
       {brief.points.map((p, i) => (
         <div key={i} className="rounded-xl border border-line bg-surface px-4 py-3.5 shadow-xs">
           <div className="flex items-start gap-2">
-            <p className="min-w-0 flex-1 text-[15.5px] font-semibold text-ink">{p.title}</p>
-            <span className="shrink-0 rounded-full bg-bad/10 px-2 py-0.5 text-[12.5px] font-medium text-bad">{p.lost} 人丢分</span>
-            {p.asked > 0 && <span className="shrink-0 rounded-full bg-info/10 px-2 py-0.5 text-[12.5px] font-medium text-info">{p.asked} 人问过</span>}
+            <p className="min-w-0 flex-1 text-[16px] font-semibold text-ink">{p.title}</p>
+            <span className="shrink-0 rounded-full bg-bad/10 px-2 py-0.5 text-[13px] font-medium text-bad">{p.lost} 人丢分</span>
+            {p.asked > 0 && <span className="shrink-0 rounded-full bg-info/10 px-2 py-0.5 text-[13px] font-medium text-info">{p.asked} 人问过</span>}
           </div>
           <p className="mt-1.5 text-[14px] leading-relaxed text-ink-2">{p.what}</p>
-          {p.teach && <p className="mt-2 rounded-lg bg-surface-2 px-3 py-2 text-[13.5px] leading-relaxed text-ink">{p.teach}</p>}
-          {p.homework.length > 0 && <p className="mt-2 text-[12.5px] text-ink-3">出在：{p.homework.join('、')}</p>}
+          {p.teach && <p className="mt-2 rounded-lg bg-surface-2 px-3 py-2 text-[14px] leading-relaxed text-ink">{p.teach}</p>}
+          {p.homework.length > 0 && <p className="mt-2 text-[13px] text-ink-3">出在：{p.homework.join('、')}</p>}
         </div>
       ))}
     </div>
@@ -583,7 +583,7 @@ function PublishModal({ open, lesson, onClose, onDone }: { open: boolean; lesson
           {lesson.className} · {lesson.homework?.length ?? 0} 道题 · 满分 {total}
         </p>
         <label className="block">
-          <span className="mb-1.5 block text-[13.5px] font-medium text-ink-2">截止时间</span>
+          <span className="mb-1.5 block text-[14px] font-medium text-ink-2">截止时间</span>
           <Input type="datetime-local" value={due} onChange={(e) => setDue(e.target.value)} />
         </label>
         <Checkbox checked={late} onChange={setLate} label="截止后还能交（标迟交）" />

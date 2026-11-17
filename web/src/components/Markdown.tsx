@@ -189,7 +189,7 @@ export const Markdown = memo(function Markdown({ children, className, final = tr
     [final, onRunCode, extraComponents],
   );
   return (
-    <div className={cn('md', compact && 'text-[14.5px]', className)}>
+    <div className={cn('md', compact && 'text-[15px]', className)}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm, remarkMath]}
         rehypePlugins={[

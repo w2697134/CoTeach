@@ -137,8 +137,8 @@ function QuestionCard({ q, n, homework, active, onClick, actions }: { q: Questio
       )}
     >
       <div className="flex items-center gap-2">
-        <span className="text-[14.5px] font-semibold text-ink">第 {n} 题</span>
-        <span className="rounded-md bg-brand-soft px-1.5 py-0.5 text-[12px] font-medium text-brand-ink">{QTYPE_NAME[q.type]}</span>
+        <span className="text-[15px] font-semibold text-ink">第 {n} 题</span>
+        <span className="rounded-md bg-brand-soft px-1.5 py-0.5 text-[13px] font-medium text-brand-ink">{QTYPE_NAME[q.type]}</span>
         {homework && q.points !== undefined && <span className="text-[13px] text-ink-3">{q.points} 分</span>}
         <div className="ml-auto flex items-center opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100" onClick={(e) => e.stopPropagation()}>
           {actions}
@@ -199,7 +199,7 @@ function QuestionEditor({ q, n, homework, saving, onSave, onCancel }: { q: Quest
   return (
     <div className="space-y-3 rounded-xl border border-brand/30 bg-surface px-4 py-4 shadow-xs ring-2 ring-brand/10 sm:px-5">
       <div className="flex flex-wrap items-center gap-2">
-        <span className="text-[14.5px] font-semibold text-ink">第 {n} 题</span>
+        <span className="text-[15px] font-semibold text-ink">第 {n} 题</span>
         <Select
           sizeVariant="sm"
           className="w-auto"
@@ -216,7 +216,7 @@ function QuestionEditor({ q, n, homework, saving, onSave, onCancel }: { q: Quest
           ))}
         </Select>
         {homework && (
-          <label className="ml-auto flex items-center gap-1.5 text-[13.5px] text-ink-2">
+          <label className="ml-auto flex items-center gap-1.5 text-[14px] text-ink-2">
             <Input className="w-20" type="number" min={0.5} step={0.5} value={d.points ?? ''} onChange={(e) => set({ points: e.target.value ? Number(e.target.value) : undefined })} />分
           </label>
         )}

@@ -22,13 +22,14 @@
   --c-primary-hover: #4338ca;
   --c-primary-soft: #eef0ff;
   --c-primary-ink: #4338ca;
-  --c-ok: #059669;
+  /* 绿、橙、红、蓝要拿来写字：跟白底的对比度都到 4.5:1 以上（2026-11-17 量过：原来的绿 3.8、蓝 3.6、红在浅红底上 4.2） */
+  --c-ok: #047857;
   --c-ok-soft: #e7f6ef;
-  --c-warn: #d97706;
+  --c-warn: #b45309;
   --c-warn-soft: #fdf4e3;
-  --c-bad: #dc2626;
+  --c-bad: #b91c1c;
   --c-bad-soft: #fdecec;
-  --c-info: #0284c7;
+  --c-info: #0369a1;
   --c-info-soft: #e6f3fa;
   --c-overlay: rgba(15, 23, 42, 0.42);
   --c-glass: rgba(255, 255, 255, 0.72);
@@ -303,7 +304,7 @@
 
 /* ============================================================ Markdown 渲染 */
 .md {
-  font-size: 14.5px;
+  font-size: 15px;
   line-height: 1.75;
   color: var(--c-text);
   word-break: break-word;
@@ -354,7 +355,7 @@
 }
 .md pre { margin: 0; }
 /* 知识库里翻开的一页：字大一点、行距松一点，读起来像文档 */
-.md-doc { font-size: 15.5px; line-height: 1.85; }
+.md-doc { font-size: 16px; line-height: 1.85; }
 .md-doc p { margin: 0.75em 0; }
 .md-doc h1 { font-size: 1.4em; }
 .md-doc h2 { font-size: 1.22em; margin-top: 1.8em; }
@@ -414,7 +415,7 @@
   --cm-prop: #7ee787;
   --cm-punct: #8b949e;
 }
-.cm-editor { height: 100%; font-size: 13.5px; background: transparent; }
+.cm-editor { height: 100%; font-size: 14px; background: transparent; }
 .cm-editor.cm-focused { outline: none; }
 .cm-scroller { font-family: var(--font-mono) !important; line-height: 1.7 !important; }
 .cm-gutters { background: transparent !important; border-right: 1px solid var(--c-border) !important; color: var(--c-text-3) !important; }

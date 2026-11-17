@@ -32,7 +32,7 @@ export function PrepPage() {
       <Composer classes={classes} defaultClass={only || all[0]?.classId || classes[0]?.id || 0} onStarted={(id) => navigate(`/prep/${id}`)} />
       <section>
         <div className="mb-4 flex items-center gap-3">
-          <h2 className="text-[17px] font-semibold text-ink">备好的课</h2>
+          <h2 className="text-[18px] font-semibold text-ink">备好的课</h2>
           {used.length > 1 && (
             <Select
               sizeVariant="sm"
@@ -173,10 +173,10 @@ function LessonTile({ l }: { l: LessonCard }) {
       </div>
       <div className="flex flex-1 flex-col p-3.5">
         <p className="line-clamp-2 text-[15px] font-medium leading-snug text-ink">{l.title || l.request || '下一节课'}</p>
-        <p className="mt-1 text-[12.5px] text-ink-3">
+        <p className="mt-1 text-[13px] text-ink-3">
           {l.className} · {when(l.updatedAt)}
         </p>
-        <div className="mt-auto flex flex-wrap items-center gap-x-3 gap-y-1 pt-2.5 text-[12.5px] text-ink-3">
+        <div className="mt-auto flex flex-wrap items-center gap-x-3 gap-y-1 pt-2.5 text-[13px] text-ink-3">
           {l.counts.slides > 0 && <span>课件 {l.counts.slides} 页</span>}
           {l.counts.practice > 0 && <span>练习 {l.counts.practice}</span>}
           {l.counts.homework > 0 && <span>作业 {l.counts.homework}</span>}

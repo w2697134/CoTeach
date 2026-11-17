@@ -32,7 +32,7 @@ function StepText({ text }: { text: string }) {
   const { tag, head, items } = splitSteps(text);
   return (
     <>
-      {tag && <span className="mb-1 mr-1.5 inline-block rounded-md bg-surface-3 px-1.5 py-0.5 text-[12px] font-medium text-ink-2">{tag}</span>}
+      {tag && <span className="mb-1 mr-1.5 inline-block rounded-md bg-surface-3 px-1.5 py-0.5 text-[13px] font-medium text-ink-2">{tag}</span>}
       {head && <Markdown compact>{head}</Markdown>}
       {items.length > 0 && (
         <ol className="mt-1 list-decimal space-y-1 pl-5 marker:text-ink-3">
@@ -82,7 +82,7 @@ export function PlanView({ plan, meta, onSave, live }: { plan: Plan; meta: strin
       )}
       <header className="border-b border-line pb-5 pr-16">
         <h2 className="text-[24px] font-bold leading-snug text-ink">{plan.title}</h2>
-        <p className="mt-1.5 text-[13.5px] text-ink-3">{meta}</p>
+        <p className="mt-1.5 text-[14px] text-ink-3">{meta}</p>
       </header>
       {plan.goals.length > 0 && (
         <Section live={live} title="教学目标">
@@ -115,12 +115,12 @@ export function PlanView({ plan, meta, onSave, live }: { plan: Plan; meta: strin
             {plan.steps.map((s, i) => (
               <motion.li key={i} initial={live ? { opacity: 0, y: 8 } : false} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35 }} className="relative flex gap-4 pb-6 last:pb-0">
                 {i < plan.steps.length - 1 && <span className="absolute bottom-0 left-[27px] top-9 w-px bg-line" />}
-                <span className="relative mt-0.5 grid h-7 w-14 shrink-0 place-items-center rounded-full bg-brand-soft text-[12.5px] font-semibold text-brand-ink">
+                <span className="relative mt-0.5 grid h-7 w-14 shrink-0 place-items-center rounded-full bg-brand-soft text-[13px] font-semibold text-brand-ink">
                   {s.minutes ? `${s.minutes} 分` : '—'}
                 </span>
                 <div className="min-w-0 flex-1">
-                  <p className="text-[15.5px] font-semibold text-ink">{s.name}</p>
-                  <div className="mt-1 text-[14.5px] leading-relaxed text-ink-2">
+                  <p className="text-[16px] font-semibold text-ink">{s.name}</p>
+                  <div className="mt-1 text-[15px] leading-relaxed text-ink-2">
                     <StepText text={s.content} />
                   </div>
                 </div>
@@ -131,14 +131,14 @@ export function PlanView({ plan, meta, onSave, live }: { plan: Plan; meta: strin
       )}
       {plan.board && (
         <Section live={live} title="板书设计">
-          <pre className="whitespace-pre-wrap rounded-lg border border-dashed border-line-strong bg-surface-2 px-4 py-3 font-sans text-[14.5px] leading-relaxed text-ink">{plan.board}</pre>
+          <pre className="whitespace-pre-wrap rounded-lg border border-dashed border-line-strong bg-surface-2 px-4 py-3 font-sans text-[15px] leading-relaxed text-ink">{plan.board}</pre>
         </Section>
       )}
       {plan.sources.length > 0 && (
         <Section live={live} title="用到的资料">
           <div className="flex flex-wrap gap-1.5">
             {plan.sources.map((s) => (
-              <span key={s} className="rounded-md bg-surface-3 px-2 py-1 text-[12.5px] text-ink-2">
+              <span key={s} className="rounded-md bg-surface-3 px-2 py-1 text-[13px] text-ink-2">
                 {s.replace(/\.md$/i, '')}
               </span>
             ))}
@@ -160,7 +160,7 @@ function Section({ title, end, live, children }: { title: string; end?: string; 
     <motion.section initial={live ? { opacity: 0, y: 8 } : false} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35 }} className="mt-7">
       <div className="mb-3 flex items-center gap-2">
         <span className="h-4 w-1 rounded-full bg-brand" />
-        <h3 className="text-[16.5px] font-semibold text-ink">{title}</h3>
+        <h3 className="text-[16px] font-semibold text-ink">{title}</h3>
         {end && <span className="ml-auto text-[13px] text-ink-3">{end}</span>}
       </div>
       {children}
@@ -171,8 +171,8 @@ function Section({ title, end, live, children }: { title: string; end?: string; 
 function Note({ title, text, tone }: { title: string; text: string; tone: 'brand' | 'warn' }) {
   return (
     <div className={cn('rounded-lg px-4 py-3', tone === 'brand' ? 'bg-brand-soft/60' : 'bg-warn/10')}>
-      <p className={cn('text-[13.5px] font-semibold', tone === 'brand' ? 'text-brand-ink' : 'text-warn')}>{title}</p>
-      <div className="mt-1 text-[14.5px] leading-relaxed text-ink">
+      <p className={cn('text-[14px] font-semibold', tone === 'brand' ? 'text-brand-ink' : 'text-warn')}>{title}</p>
+      <div className="mt-1 text-[15px] leading-relaxed text-ink">
         <Markdown compact>{text}</Markdown>
       </div>
     </div>
@@ -197,7 +197,7 @@ function PlanEditor({
   const setStep = (i: number, patch: Partial<PlanStep>) => set({ steps: plan.steps.map((s, k) => (k === i ? { ...s, ...patch } : s)) });
   const field = (label: string, node: React.ReactNode) => (
     <label className="block">
-      <span className="mb-1.5 block text-[13.5px] font-medium text-ink-2">{label}</span>
+      <span className="mb-1.5 block text-[14px] font-medium text-ink-2">{label}</span>
       {node}
     </label>
   );
@@ -214,7 +214,7 @@ function PlanEditor({
       </div>
       {field('开头补讲', <Textarea autoGrow value={plan.review} onChange={(e) => set({ review: e.target.value })} />)}
       <div>
-        <span className="mb-1.5 block text-[13.5px] font-medium text-ink-2">教学过程</span>
+        <span className="mb-1.5 block text-[14px] font-medium text-ink-2">教学过程</span>
         <div className="space-y-2.5">
           {plan.steps.map((s, i) => (
             <div key={i} className="rounded-lg border border-line p-2.5">

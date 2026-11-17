@@ -402,7 +402,7 @@ export function MenuItem({
 }
 
 export function MenuLabel({ children }: { children: ReactNode }) {
-  return <div className="px-2.5 pb-1 pt-2 text-[12.5px] font-medium uppercase tracking-wide text-ink-3">{children}</div>;
+  return <div className="px-2.5 pb-1 pt-2 text-[13px] font-medium uppercase tracking-wide text-ink-3">{children}</div>;
 }
 
 /* ---------------- Tooltip（轻量） ---------------- */

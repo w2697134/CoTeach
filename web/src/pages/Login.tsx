@@ -52,7 +52,7 @@ export function AuthShell({ children }: { children: ReactNode }) {
           <Logo size={36} />
           <div className="leading-tight">
             <p className="text-[18px] font-bold tracking-tight text-ink">{APP_SHORT_NAME}</p>
-            <p className="text-[12.5px] text-ink-3">{APP_NAME}</p>
+            <p className="text-[13px] text-ink-3">{APP_NAME}</p>
           </div>
         </div>
         <div className="mx-auto flex w-full max-w-[420px] flex-1 flex-col justify-center py-10">{children}</div>
@@ -109,7 +109,7 @@ export function LoginPage() {
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
-    if (!username || !password) return toast.warning('请输入账号和密码');
+    if (!username || !password) return toast.warning('账号和密码都要填');
     setLoading('form');
     try {
       await login(username.trim(), password);

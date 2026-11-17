@@ -67,7 +67,7 @@ export function AskRail({ lesson, focus, onClearFocus, className }: { lesson: Le
       <div className="flex items-center gap-2.5 border-b border-line px-4 py-3">
         <img src="/illustrations/cot-v1.webp" alt="" className="size-8 shrink-0 rounded-full bg-brand-soft object-contain p-0.5" />
         <p className="text-[15px] font-medium text-ink">CoT 助教</p>
-        {lesson.asking && <span className="ml-auto text-[12.5px] text-brand-ink">在改…</span>}
+        {lesson.asking && <span className="ml-auto text-[13px] text-brand-ink">在改…</span>}
       </div>
       <div ref={list} className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-4">
         {!lesson.asks.length && !lesson.making && (SUGGEST[focus?.part ?? 'plan'] || []).length > 0 && (
@@ -99,7 +99,7 @@ export function AskRail({ lesson, focus, onClearFocus, className }: { lesson: Le
               <div className="w-fit max-w-[92%] rounded-2xl rounded-tl-md bg-surface-2 px-3.5 py-2 text-[14px] leading-relaxed text-ink">
                 <p className="whitespace-pre-wrap">{a.reply}</p>
                 {a.changed.length > 0 && (
-                  <p className="mt-1.5 flex flex-wrap items-center gap-x-2 text-[12.5px] text-ink-3">
+                  <p className="mt-1.5 flex flex-wrap items-center gap-x-2 text-[13px] text-ink-3">
                     改了{a.changed.map((p) => PART_NAME[p]).join('、')}
                     {undoable === a.id && (
                       <button type="button" className="text-brand-ink hover:underline" onClick={() => undo(a)}>
@@ -116,7 +116,7 @@ export function AskRail({ lesson, focus, onClearFocus, className }: { lesson: Le
       <div className="border-t border-line p-3">
         {focus && (
           <div className="mb-2 flex items-center gap-1">
-            <span className="rounded-md bg-brand-soft px-2 py-0.5 text-[12.5px] text-brand-ink">{focusLabel(focus)}</span>
+            <span className="rounded-md bg-brand-soft px-2 py-0.5 text-[13px] text-brand-ink">{focusLabel(focus)}</span>
             <IconButton label="不带这一处" className="size-6" onClick={onClearFocus}>
               <X className="size-3.5" />
             </IconButton>

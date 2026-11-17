@@ -656,7 +656,7 @@ function ToolButton({ icon, children, onClick, active, danger }: { icon: ReactNo
       onMouseDown={(e) => e.preventDefault()}
       onClick={onClick}
       className={cn(
-        'inline-flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-sm px-2.5 text-[13.5px] font-medium transition-colors [&>svg]:size-4',
+        'inline-flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-sm px-2.5 text-[14px] font-medium transition-colors [&>svg]:size-4',
         danger ? 'text-ink-2 hover:bg-bad-soft hover:text-bad' : 'text-ink-2 hover:bg-surface-3 hover:text-ink',
         active && 'bg-brand-soft text-brand-ink hover:bg-brand-soft hover:text-brand-ink',
       )}
@@ -934,7 +934,7 @@ function SlideTools({
     case 'code': {
       const c = s.code || { lang: 'python', text: '' };
       out.push(
-        <label key="lang" className="relative inline-flex h-8 shrink-0 items-center gap-1 rounded-sm px-2.5 text-[13.5px] font-medium text-ink-2 hover:bg-surface-3 hover:text-ink">
+        <label key="lang" className="relative inline-flex h-8 shrink-0 items-center gap-1 rounded-sm px-2.5 text-[14px] font-medium text-ink-2 hover:bg-surface-3 hover:text-ink">
           {CODE_LANGS.find((l) => l.id === c.lang)?.label || c.lang}
           <ChevronDown className="size-3.5 opacity-60" />
           <select
@@ -1116,7 +1116,7 @@ function Canvas({
         </div>
       )}
       {overflow && (
-        <span className="absolute left-4 top-3.5 inline-flex items-center gap-1.5 rounded-full bg-warn-soft px-2.5 py-1 text-[12.5px] font-medium text-warn shadow-xs">
+        <span className="absolute left-4 top-3.5 inline-flex items-center gap-1.5 rounded-full bg-warn-soft px-2.5 py-1 text-[13px] font-medium text-warn shadow-xs">
           <TriangleAlert className="size-3.5" />
           字太多
         </span>
@@ -1170,7 +1170,7 @@ function Notes({ slide, readOnly, onText, narrow }: { slide: Slide; readOnly: bo
         </div>
       )}
       <div className="flex h-full flex-col px-5 pb-3 pt-2.5">
-        <p className="mb-1 text-[12.5px] font-medium text-ink-3">讲稿</p>
+        <p className="mb-1 text-[13px] font-medium text-ink-3">讲稿</p>
         {readOnly ? (
           <div className="min-h-0 flex-1 overflow-y-auto whitespace-pre-wrap text-[15px] leading-7 text-ink-2">{slide.notes}</div>
         ) : (
@@ -1483,7 +1483,7 @@ const Filmstrip = forwardRef<HTMLDivElement, FilmstripProps>(function Filmstrip(
                 type="button"
                 onClick={toggle}
                 className={cn(
-                  'ml-[22px] flex h-[52px] w-[168px] items-center justify-center gap-1.5 rounded-md border border-dashed border-line-strong text-[13.5px] text-ink-3 transition-colors hover:border-brand hover:bg-brand-soft hover:text-brand-ink',
+                  'ml-[22px] flex h-[52px] w-[168px] items-center justify-center gap-1.5 rounded-md border border-dashed border-line-strong text-[14px] text-ink-3 transition-colors hover:border-brand hover:bg-brand-soft hover:text-brand-ink',
                   open && 'border-brand bg-brand-soft text-brand-ink',
                 )}
               >

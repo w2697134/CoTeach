@@ -14,11 +14,11 @@ export class ApiError extends Error {
 
 type Json = Record<string, any> | any[] | null;
 export function responseMessage(data: unknown, status: number): string {
-  if (status >= 500) return '服务暂时不可用，请稍后重试';
+  if (status >= 500) return '服务器那边出了点问题，过一会儿再试';
   const message = data && typeof data === 'object' ? (data as { error?: unknown }).error : '';
   if (typeof message === 'string' && /[\u3400-\u9fff]/.test(message) && !/HTTP\s*\d|API.?Key|\{.*\}|Too (big|small)/i.test(message))
     return message;
-  return status === 403 ? '没有访问权限' : status === 401 ? '请重新登录' : '操作未完成，请稍后重试';
+  return status === 403 ? '这个你没有权限' : status === 401 ? '登录过期了，重新登录一下' : '没办成，再试一次';
 }
 
 let onUnauthorized: (() => void) | null = null;

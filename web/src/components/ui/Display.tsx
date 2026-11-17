@@ -105,7 +105,7 @@ export function Skeleton({ className, style }: { className?: string; style?: CSS
   return <div className={cn('skeleton', className)} style={style} />;
 }
 
-export function PageLoading({ label = '加载中…' }: { label?: string }) {
+export function PageLoading({ label = '正在打开' }: { label?: string }) {
   return (
     <div className="flex h-[50vh] items-center justify-center">
       <Spinner label={label} />
@@ -121,16 +121,16 @@ export function ErrorState({ error, onRetry }: { error: unknown; onRetry?: () =>
       <div className="flex size-12 items-center justify-center rounded-2xl bg-bad-soft text-bad">
         <XCircle className="size-6" />
       </div>
-      <p className="text-[16px] font-medium text-ink">{denied ? '没有访问权限' : missing ? '内容已不存在' : '加载失败'}</p>
-      {!denied && <p className="max-w-sm text-[14px] text-ink-3">{(error as Error)?.message || '请稍后重试'}</p>}
+      <p className="text-[16px] font-medium text-ink">{denied ? '这一页你看不了' : missing ? '这个已经不在了' : '没打开'}</p>
+      {!denied && <p className="max-w-sm text-[14px] text-ink-3">{(error as Error)?.message || '网络可能断了一下'}</p>}
       {onRetry && !denied && !missing && (
         <button onClick={onRetry} className="mt-1 rounded-md border border-line px-4 py-1.5 text-sm text-ink-2 hover:bg-surface-3">
-          重试
+          再试一次
         </button>
       )}
       {(denied || missing) && (
-        <a href="/knowledge" className="text-brand">
-          返回知识库
+        <a href="/" className="text-brand">
+          回首页
         </a>
       )}
     </div>
@@ -228,7 +228,7 @@ export function Progress({
 /* ---------------- Kbd / Divider ---------------- */
 export function Kbd({ children }: { children: ReactNode }) {
   return (
-    <kbd className="inline-flex h-5 min-w-5 items-center justify-center rounded border border-line bg-surface-2 px-1 font-mono text-[12.5px] text-ink-3">
+    <kbd className="inline-flex h-5 min-w-5 items-center justify-center rounded border border-line bg-surface-2 px-1 font-mono text-[13px] text-ink-3">
       {children}
     </kbd>
   );
@@ -353,7 +353,7 @@ export function Tabs<T extends string>({
               {it.icon}
               {it.label}
               {it.count !== undefined && it.count !== null && (
-                <span className={cn('rounded-full px-1.5 text-[12.5px] leading-4', value === it.value ? 'bg-brand-soft text-brand-ink' : 'bg-surface-3 text-ink-3')}>
+                <span className={cn('rounded-full px-1.5 text-[13px] leading-4', value === it.value ? 'bg-brand-soft text-brand-ink' : 'bg-surface-3 text-ink-3')}>
                   {it.count}
                 </span>
               )}
@@ -404,7 +404,7 @@ export function Tabs<T extends string>({
           {it.count !== undefined && it.count !== null && (
             <span
               className={cn(
-                'rounded-full px-1.5 text-[12.5px] leading-4',
+                'rounded-full px-1.5 text-[13px] leading-4',
                 value === it.value ? 'bg-brand-soft text-brand-ink' : 'bg-surface-3 text-ink-3',
               )}
             >

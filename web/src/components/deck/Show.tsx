@@ -498,7 +498,7 @@ function PresenterView({
         <span className="text-[15px] tabular-nums text-white/70">
           {index + 1} / {slides.length}
         </span>
-        {blank && <span className="rounded-full bg-white/10 px-2.5 py-0.5 text-[12.5px] text-white/80">{blank === 'black' ? '黑屏' : '白屏'}</span>}
+        {blank && <span className="rounded-full bg-white/10 px-2.5 py-0.5 text-[13px] text-white/80">{blank === 'black' ? '黑屏' : '白屏'}</span>}
         <span className="h-5 w-px bg-white/10" />
         <button
           type="button"

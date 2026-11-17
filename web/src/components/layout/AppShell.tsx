@@ -319,7 +319,7 @@ function UserMenu() {
           <Avatar name={user.name} seed={user.id} size={30} />
           <span className="hidden text-left leading-tight md:block">
             <span className="block text-[14px] font-medium text-ink">{user.name}</span>
-            <span className="block text-[12.5px] text-ink-3">{user.role === 'student' ? '学生' : user.role === 'admin' ? '管理员' : user.title || '教师'}</span>
+            <span className="block text-[13px] text-ink-3">{user.role === 'student' ? '学生' : user.role === 'admin' ? '管理员' : user.title || '教师'}</span>
           </span>
         </button>
       )}

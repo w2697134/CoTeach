@@ -74,7 +74,7 @@ export function ThemeGrid({ slide, current, onPick }: { slide: Slide; current: s
             sectionNo={1}
             className={cn('rounded-[6px] ring-1 ring-line', current === t.id && 'ring-2 ring-brand')}
           />
-          <span className="mt-2 flex items-center gap-2 px-0.5 text-[13.5px] text-ink">
+          <span className="mt-2 flex items-center gap-2 px-0.5 text-[14px] text-ink">
             <span className="flex -space-x-1">
               {t.swatch.map((c, i) => (
                 <span key={i} className="size-3.5 rounded-full ring-2 ring-surface" style={{ background: c }} />

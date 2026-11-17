@@ -116,7 +116,7 @@ export function AdminPage() {
                 <Avatar name={u.name} seed={u.id} size={36} className={cn(!u.active && 'opacity-45')} />
                 <div className="min-w-0 flex-1">
                   <p className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                    <span className={cn('truncate text-[14.5px] font-medium', u.active ? 'text-ink' : 'text-ink-3')}>{u.name}</span>
+                    <span className={cn('truncate text-[15px] font-medium', u.active ? 'text-ink' : 'text-ink-3')}>{u.name}</span>
                     <span className="rounded-full bg-surface-3 px-2 py-0.5 text-[12px] text-ink-2">{ROLE[u.role]}</span>
                     {u.demo && <span className="rounded-full bg-info-soft px-2 py-0.5 text-[12px] text-info">演示</span>}
                     {!u.active && <span className="rounded-full bg-bad-soft px-2 py-0.5 text-[12px] text-bad">已停用</span>}
