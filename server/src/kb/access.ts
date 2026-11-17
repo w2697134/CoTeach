@@ -66,7 +66,7 @@ export function authorizeReader(kbId: number, reader: Reader) {
   const kb = loadKb(kbId);
   if (kb.teacher_id !== reader.teacherId || kb.deleted_at) throw forbidden();
   if (reader.role === 'student' && (kb.kind !== 'class' || reader.studentId === undefined)) throw forbidden();
-  if (kb.kind === 'class' && reader.classId !== kb.id) throw forbidden('先进到对应的班里再看');
+  if (kb.kind === 'class' && reader.classId !== kb.id) throw forbidden('先进到对应班级里再看');
   if (reader.studentId !== undefined) {
     if (!reader.classId) throw forbidden();
     const classroom = loadKb(reader.classId);

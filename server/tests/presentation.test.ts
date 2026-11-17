@@ -49,7 +49,7 @@ test('旧失败步骤缺字段不崩溃，不暴露 undefined、工具纠错话�
   for (const name of ['write_file', 'move_file', 'finish', 'search', 'read_file', 'done']) {
     const view = toolPresentation({ name, label: '旧标签', error: '没有实际改动，无需修改时请调用 done' });
     assert.ok(view.label);
-    assert.equal(view.error, '这一步没有完成');
+    assert.equal(view.error, '这一步没办成');
     assert.ok(!JSON.stringify(view).includes('undefined'));
   }
   assert.equal(plainPath(undefined), '');
