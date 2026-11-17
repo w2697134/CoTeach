@@ -128,6 +128,7 @@ export function AskRail({ lesson, focus, onClearFocus, className }: { lesson: Le
             maxRows={6}
             value={text}
             disabled={lesson.making}
+            data-ask-input
             placeholder={lesson.making ? '备好了再改' : '要怎么改？'}
             onChange={(e) => setText(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && (e.preventDefault(), send())}

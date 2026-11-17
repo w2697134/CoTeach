@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { BookOpenCheck, ChevronDown, ClipboardList, Download, FileText, MessageSquareText, MonitorPlay, MoreHorizontal, Play, Presentation, RotateCcw, Send, Sparkles, Trash2, Users } from 'lucide-react';
@@ -9,10 +9,11 @@ import { Button, Checkbox, Drawer, ErrorState, IconButton, Input, MenuItem, Moda
 import { when } from '../classes/homework';
 import { AskRail, type Focus } from './AskRail';
 import { DeckPane, Present } from './DeckPane';
+import { downloadPptx, printDeck, type Deck as KitDeck } from '../../components/deck';
 import { Lanes } from './Lanes';
 import { PlanView } from './PlanView';
 import { QuestionsView } from './QuestionsView';
-import { LANES, doingNow, useLesson, type Brief, type LaneKey, type Lesson, type Part, type Plan, type Question } from './data';
+import { LANES, doingNow, useLesson, type Brief, type Deck, type LaneKey, type Lesson, type Part, type Plan, type Question } from './data';
 import { useLiveLectures, type LectureCard } from '../classroom/data';
 
 type Tab = 'deck' | 'plan' | 'practice' | 'homework' | 'brief';
@@ -70,6 +71,30 @@ function Workspace({ l }: { l: Lesson }) {
       throw e;
     }
   };
+  // 课件每改一下编辑器都告诉外面：先放进页面的数据（同一个对象，编辑器不会当成外面换了新的），停 0.9 秒没再改才存
+  const deckTimer = useRef<number | undefined>(undefined);
+  const pendingDeck = useRef<Deck | null>(null);
+  const flushDeck = () => {
+    window.clearTimeout(deckTimer.current);
+    const d = pendingDeck.current;
+    pendingDeck.current = null;
+    if (d) void put(`/prep/${l.id}/deck`, { data: d }).catch((e) => toast.fromError(e));
+  };
+  const onDeckChange = (d: Deck) => {
+    qc.setQueryData<{ lesson: Lesson }>(['lesson', l.id], (old) => (old ? { lesson: { ...old.lesson, deck: d } } : old));
+    pendingDeck.current = d;
+    window.clearTimeout(deckTimer.current);
+    deckTimer.current = window.setTimeout(flushDeck, 900);
+  };
+  useEffect(() => () => flushDeck(), []); // eslint-disable-line react-hooks/exhaustive-deps
+  const askAbout = (i: number) => {
+    flushDeck();
+    setPage(i);
+    setFocusOff(false);
+    if (window.innerWidth < 1280) setRail(true);
+    else requestAnimationFrame(() => document.querySelector<HTMLTextAreaElement>('[data-ask-input]')?.focus());
+  };
+
   const undo = async (part: Part) => {
     try {
       await post(`/prep/${l.id}/undo`, { part });
@@ -162,6 +187,20 @@ function Workspace({ l }: { l: Lesson }) {
           >
             {(close) => (
               <div className="py-1">
+                <MenuItem
+                  icon={<Presentation className="size-4" />}
+                  disabled={!l.deck}
+                  onClick={() => (close(), l.deck && void downloadPptx(l.deck as unknown as KitDeck, { fileName: l.title }).catch((e) => toast.fromError(e)))}
+                >
+                  课件（PPT）
+                </MenuItem>
+                <MenuItem
+                  icon={<Presentation className="size-4" />}
+                  disabled={!l.deck}
+                  onClick={() => (close(), l.deck && void printDeck(l.deck as unknown as KitDeck, { title: l.title }).catch((e) => toast.fromError(e)))}
+                >
+                  课件（PDF）
+                </MenuItem>
                 <MenuItem icon={<FileText className="size-4" />} disabled={!l.plan} onClick={() => (close(), download(`/api/prep/${l.id}/docx`))}>
                   教案（Word）
                 </MenuItem>
@@ -240,7 +279,15 @@ function Workspace({ l }: { l: Lesson }) {
           <div className="pt-5">
             {tab === 'deck' &&
               (l.deck ? (
-                <DeckPane deck={l.deck} page={Math.min(page, l.deck.slides.length - 1)} onPage={setPage} onChange={save('deck')} />
+                <DeckPane
+                  deck={l.deck}
+                  readOnly={making}
+                  busyPage={l.asking && focus?.part === 'deck' && focus.page ? focus.page - 1 : null}
+                  fileName={l.title}
+                  initialSlide={Math.min(page, l.deck.slides.length - 1)}
+                  onChange={onDeckChange}
+                  onAskAI={askAbout}
+                />
               ) : (
                 <Waiting making={making} what="课件" lane={doingNow(l.lanes)} />
               ))}

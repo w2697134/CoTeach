@@ -41,7 +41,9 @@ try {
   for (let i = 0; i < slides.length; i++) {
     const s = slides[i];
     if (!s.html) { rows.push({ page: i + 1, title: s.title, html: false }); continue; }
-    const doc = `<!doctype html><html><head><meta charset="utf-8"><style>html,body{margin:0;padding:0;width:1280px;height:720px;overflow:hidden}${css}</style></head><body><div class="slide">${s.html}</div></body></html>`;
+    // 模型写的就带着最外层 <div class="slide">；没带的包一层。主题用默认的紫蓝（body 上的 t-violet）
+    const page = /^\s*<div[^>]*class="[^"]*\bslide\b/.test(s.html) ? s.html : `<div class="slide">${s.html}</div>`;
+    const doc = `<!doctype html><html><head><meta charset="utf-8"><style>html,body{margin:0;padding:0;width:1280px;height:720px;overflow:hidden}${css}</style></head><body class="t-violet">${page}</body></html>`;
     await run(`document.open(); document.write(${JSON.stringify(doc)}); document.close(); new Promise(r => setTimeout(r, 300))`);
     const m = await run(`(() => {
       const slide = document.querySelector('.slide');
