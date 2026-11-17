@@ -131,7 +131,7 @@ export function PlanView({ plan, meta, onSave, live }: { plan: Plan; meta: strin
       )}
       {plan.board && (
         <Section live={live} title="板书设计">
-          <pre className="whitespace-pre-wrap rounded-lg border border-dashed border-line-strong bg-surface-2 px-4 py-3 font-sans text-[15px] leading-relaxed text-ink">{plan.board}</pre>
+          <pre className="overflow-x-auto whitespace-pre-wrap rounded-lg border border-dashed border-line-strong bg-surface-2 px-4 py-3 font-sans text-[15px] leading-relaxed text-ink">{plan.board}</pre>
         </Section>
       )}
       {plan.sources.length > 0 && (
