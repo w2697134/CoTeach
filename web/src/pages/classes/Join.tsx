@@ -14,7 +14,7 @@ export function PeekCard({ k }: { k: ClassPeek }) {
   return (
     <div className="flex items-center gap-3 rounded-lg border border-line bg-surface-2 px-3 py-2.5">
       <span
-        className="flex size-10 shrink-0 items-center justify-center rounded-lg text-[17px] font-medium text-white"
+        className="flex size-10 shrink-0 items-center justify-center rounded-lg text-[16px] font-medium text-white"
         style={themeBackground(themeOf(k.id))}
       >
         {k.name.slice(0, 1)}

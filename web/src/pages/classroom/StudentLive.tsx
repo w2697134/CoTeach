@@ -52,7 +52,7 @@ function Room({ s }: { s: StudentState }) {
             {teacherTitle(s.teacher)} · {s.className}
           </span>
         </div>
-        <h1 className="mt-2 text-[20px] font-semibold leading-snug">{s.title}</h1>
+        <h1 className="mt-2 text-[18px] font-semibold leading-snug">{s.title}</h1>
         {!live && (
           <p className="mt-1.5 text-[14px] text-white/85">
             {s.endedAt ? `上了 ${lasted(s.startedAt, s.endedAt)}` : ''}

@@ -45,7 +45,7 @@ function ClassCard({ item, student }: { item: ClassItem; student: boolean }) {
         style={{ ...themeBackground(theme), ...(item.archived ? { filter: 'grayscale(.85)', opacity: 0.8 } : {}) }}
       >
         <div className="flex items-start gap-1">
-          <h3 className="line-clamp-2 min-w-0 flex-1 break-words pt-0.5 text-[19px] font-medium leading-[1.4]">{item.name}</h3>
+          <h3 className="line-clamp-2 min-w-0 flex-1 break-words pt-0.5 text-[18px] font-medium leading-[1.45]">{item.name}</h3>
           {!student && (
             // 菜单和改名框里的点击不能冒到卡片上（卡片一点就进班）
             <div className="-mr-1.5 shrink-0" onClick={stop} onKeyDown={stop}>

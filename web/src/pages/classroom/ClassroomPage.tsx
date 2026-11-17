@@ -132,7 +132,7 @@ function Starter({ live }: { live: LectureCard[] }) {
           style={{ maskImage: 'linear-gradient(to right, transparent, #000 40%)', WebkitMaskImage: 'linear-gradient(to right, transparent, #000 40%)' }}
         />
         <div className="relative">
-          <h2 className="text-[22px] font-semibold tracking-tight text-ink">开始上课</h2>
+          <h2 className="text-[24px] font-semibold tracking-tight text-ink">开始上课</h2>
           <div className="no-scrollbar -mx-5 mt-4 flex max-w-[680px] gap-2 overflow-x-auto px-5 pb-1 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0">
             {classes.map((k) => {
               const t = themeOf(k.id);

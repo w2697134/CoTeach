@@ -29,7 +29,7 @@ export function JoinLandingPage() {
       <header className="flex items-center gap-3 px-5 py-4 sm:px-8 sm:py-6">
         <Logo size={34} />
         <div className="leading-tight">
-          <p className="text-[17px] font-bold tracking-tight text-ink">{APP_SHORT_NAME}</p>
+          <p className="text-[18px] font-bold tracking-tight text-ink">{APP_SHORT_NAME}</p>
           <p className="text-[13px] text-ink-3">{APP_NAME}</p>
         </div>
       </header>
@@ -63,13 +63,13 @@ function CodeForm({ initial, error }: { initial: string; error: string }) {
   };
   return (
     <form onSubmit={next} className="rounded-xl border border-line bg-surface p-6 shadow-xs sm:p-8">
-      <h1 className="text-[22px] font-semibold tracking-tight text-ink">加入班级</h1>
+      <h1 className="text-[24px] font-semibold tracking-tight text-ink">加入班级</h1>
       <label className="mt-6 block text-[14px] text-ink">
         加课码
         <Input
           autoFocus
           sizeVariant="lg"
-          className="mt-1.5 font-mono text-[20px] uppercase tracking-[0.3em]"
+          className="mt-1.5 font-mono text-[18px] uppercase tracking-[0.3em]"
           value={code}
           maxLength={8}
           autoComplete="off"
