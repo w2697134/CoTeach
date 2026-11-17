@@ -107,6 +107,8 @@ function Workspace({ l }: { l: Lesson }) {
     setFocusOff(false);
   };
   const failed = LANES.map((x) => x.key).filter((k) => l.lanes[k]?.status === 'error');
+  const note = failed.length ? l.lanes[failed[0]]?.note || '' : '';
+  const reason = note && /[一-鿿]/.test(note) && !/HTTP|[A-Za-z]{12,}|服务中断/.test(note) ? note : '';
   const lanesShown = making || showLanes || failed.length > 0;
   const meta = [l.className, l.minutes ? `${l.minutes} 分钟` : '', when(l.updatedAt)].filter(Boolean).join(' · ');
   const missing = !making && l.plan && (!l.deck || !l.practice);
@@ -183,7 +185,11 @@ function Workspace({ l }: { l: Lesson }) {
       {lanesShown && <Lanes lanes={l.lanes} className="mt-4" />}
       {!making && failed.length > 0 && (
         <div className="mt-3 flex flex-wrap items-center gap-3 rounded-xl border border-bad/25 bg-bad/5 px-4 py-2.5">
-          <p className="text-[14px] text-ink">{failed.map((k) => `「${LANES.find((x) => x.key === k)!.name}」`).join('、')}没做成</p>
+          <div className="min-w-0 flex-1">
+            <p className="text-[14px] text-ink">{failed.map((k) => `「${LANES.find((x) => x.key === k)!.name}」`).join('、')}没做成</p>
+            {/* 助教说了为什么（缺资料、不知道讲哪节）就摆出来；报错原文（英文、HTTP）不摆 */}
+            {reason && <p className="mt-0.5 text-[13px] leading-relaxed text-ink-2">{reason}</p>}
+          </div>
           <Button size="sm" variant="secondary" icon={<RotateCcw className="size-4" />} onClick={() => fill(retryLanes(failed))}>
             重来
           </Button>

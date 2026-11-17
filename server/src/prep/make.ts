@@ -390,7 +390,7 @@ function lanePlan(id: number, teacher: string, signal: AbortSignal) {
     async () => {
       const r = lessonRow(id)!;
       let saved: Plan | null = null;
-      await loop({
+      const said = await loop({
         teacherId: r.teacher_id,
         key: `prep:${id}:plan:${now()}`,
         system: planPrompt(teacher),
@@ -412,7 +412,8 @@ function lanePlan(id: number, teacher: string, signal: AbortSignal) {
         },
       });
       const p = saved as Plan | null;
-      if (!p) throw new Error('助教没写出教案');
+      // 没写成多半是缺了东西（没资料、不知道讲哪节）：把它说的原因带给老师
+      if (!p) throw new Error(said.replace(/\s+/g, ' ').trim().slice(0, 160) || '助教没写出教案');
       const minutes = r.minutes ?? (p.steps.reduce((n, s) => n + (s.minutes || 0), 0) || null);
       savePart(id, 'plan', p, 'ta');
       db.update('lessons', id, { minutes });

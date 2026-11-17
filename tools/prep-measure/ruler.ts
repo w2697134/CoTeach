@@ -5,7 +5,7 @@
  *   在 server 目录：node --import tsx ../tools/prep-measure/ruler.ts <标签> [句子编号…]
  * 用的是副本（.secret 原样复制，不打开），不写开发库；花的是开发和线上共用的模型额度，跑前想好跑几句。
  */
-import { copyFileSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -19,6 +19,8 @@ mkdirSync(join(out, 'data'), { recursive: true });
 const dev = join(ROOT, 'server', 'data');
 new DatabaseSync(join(dev, 'coteach.db'), { readOnly: true }).exec(`VACUUM INTO '${join(out, 'data', 'coteach.db').replace(/'/g, "''")}'`);
 copyFileSync(join(dev, '.secret'), join(out, 'data', '.secret'));
+// 知识库（git）、整理出来的、原件、作业附件也要：不复制的话助教翻不了资料，备出来的课不算数（prep-v1 就是这样）
+for (const d of ['knowledge', 'kb', 'sources', 'homework']) if (existsSync(join(dev, d))) cpSync(join(dev, d), join(out, 'data', d), { recursive: true });
 process.env.CT_DATA_DIR = join(out, 'data');
 process.env.CT_DEMO_MODE = '0';
 process.env.CT_GRADE_AUTO = '0';
