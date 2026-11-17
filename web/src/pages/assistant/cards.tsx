@@ -112,7 +112,7 @@ export function ActionCard({ data, status }: { data: ActionData; status?: 'done'
         </div>
       )}
       {data.code && (
-        <Modal open={qr} onClose={() => setQr(false)} title={name ? `加入「${name}」` : '加入班级'} width={400}>
+        <Modal open={qr} onClose={() => setQr(false)} title={name ? `加入「${name}」` : '加入课程'} width={400}>
           <div className="flex flex-col items-center gap-4 pb-2 pt-1">
             <Qr text={joinLink(data.code)} size={208} className="ring-1 ring-line" />
             <p className="font-mono text-[28px] font-semibold tracking-[0.14em] text-ink">{data.code}</p>
@@ -120,7 +120,7 @@ export function ActionCard({ data, status }: { data: ActionData; status?: 'done'
               <Button size="sm" icon={<Copy className="size-4" />} onClick={() => copyText(joinLink(data.code!), '链接')}>
                 复制链接
               </Button>
-              <Button size="sm" icon={<Download className="size-4" />} onClick={() => downloadQr(data.code!, name || '班级')}>
+              <Button size="sm" icon={<Download className="size-4" />} onClick={() => downloadQr(data.code!, name || '课程')}>
                 下载二维码
               </Button>
             </div>

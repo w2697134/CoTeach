@@ -156,7 +156,7 @@ function Starter({ live }: { live: LectureCard[] }) {
                 </button>
               );
             })}
-            {!classes.length && <p className="text-[15px] text-ink-2">还没有班级</p>}
+            {!classes.length && <p className="text-[15px] text-ink-2">还没有课程</p>}
           </div>
         </div>
       </div>
@@ -259,8 +259,8 @@ function Past({ q }: { q: ReturnType<typeof useLectures> }) {
       <div className="mb-3.5 flex items-center gap-3">
         <h2 className="text-[18px] font-semibold text-ink">上过的课</h2>
         {used.length > 1 && (
-          <Select sizeVariant="sm" className="ml-auto w-auto" value={only} onChange={(e) => setOnly(Number(e.target.value))} aria-label="哪个班">
-            <option value={0}>全部班级</option>
+          <Select sizeVariant="sm" className="ml-auto w-auto" value={only} onChange={(e) => setOnly(Number(e.target.value))} aria-label="哪门课">
+            <option value={0}>全部课程</option>
             {used.map(([id, name]) => (
               <option key={id} value={id}>
                 {name}

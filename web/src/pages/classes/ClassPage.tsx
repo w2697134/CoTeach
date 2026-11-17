@@ -42,7 +42,7 @@ function ImportRoster({ id, open, onClose }: { id: number; open: boolean; onClos
       if (r.added || r.matched) toast.success([r.added && `导入 ${r.added} 人`, r.matched && `${r.matched} 人已经加入`].filter(Boolean).join('，'));
       if (r.conflicts.length) {
         setText(r.conflicts.map((s) => `${s.studentNo} ${s.name}`).join('\n'));
-        setError(r.conflicts.map((s) => `学号 ${s.studentNo} 在班里是「${s.existingName}」，没有改成「${s.name}」`).join('；'));
+        setError(r.conflicts.map((s) => `学号 ${s.studentNo} 在这门课里是「${s.existingName}」，没有改成「${s.name}」`).join('；'));
         return;
       }
       if (!r.added && !r.matched) toast.info('都已经在名单里了');
@@ -300,7 +300,7 @@ function TeacherPeople({
                         )}
                         {live && (
                           <MenuItem icon={<UserMinus />} danger onClick={() => onRemove(s)}>
-                            移出班级
+                            移出课程
                           </MenuItem>
                         )}
                       </div>
@@ -392,7 +392,7 @@ export function ClassPage() {
     [projecting, setProjecting] = useState(false),
     [secret, setSecret] = useState<{ name: string; password: string } | null>(null);
   const remove = async (s: ClassStudent) => {
-    if (!(await confirm({ title: `把「${s.name}」移出这个班？`, desc: `学号 ${s.studentNo}`, okText: '移出', danger: true }))) return;
+    if (!(await confirm({ title: `把「${s.name}」移出这门课？`, desc: `学号 ${s.studentNo}`, okText: '移出', danger: true }))) return;
     try {
       const r = await api<{ students: ClassStudent[] }>(`/classes/${id}/students/${s.id}`, { method: 'DELETE' });
       qc.setQueryData<ClassDetail>(['class', id], (old) => (old ? { ...old, students: r.students } : old));
@@ -424,7 +424,7 @@ export function ClassPage() {
   const k = q.data;
   const theme = themeOf(id);
   const joined = (k?.students || []).filter((s) => s.joined).length;
-  useCrumbs([{ label: '班级', to: '/classes' }, { label: k?.name }]);
+  useCrumbs([{ label: '课程', to: '/classes' }, { label: k?.name }]);
   return (
     <div className="space-y-5">
       {q.error ? (
@@ -464,7 +464,7 @@ export function ClassPage() {
                   {(close) => (
                     <div onClick={close}>
                       <MenuItem icon={<LogOut />} danger onClick={leave}>
-                        退出班级
+                        退出课程
                       </MenuItem>
                     </div>
                   )}

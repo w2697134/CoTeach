@@ -189,7 +189,7 @@ export function KnowledgeTools({ kb, onDeleted }: { kb: KnowledgeBase; onDeleted
                       setError('');
                     }}
                   >
-                    班级名单
+                    学生名单
                   </MenuItem>
                   {archived ? (
                     <MenuItem icon={<Sparkles />} onClick={summarize}>
@@ -234,7 +234,7 @@ export function KnowledgeTools({ kb, onDeleted }: { kb: KnowledgeBase; onDeleted
       <Modal
         open={modal === 'students'}
         onClose={() => !busy && setModal(null)}
-        title="班级名单"
+        title="学生名单"
         footer={<Button onClick={() => setModal(null)}>完成</Button>}
       >
         <div className="space-y-4">

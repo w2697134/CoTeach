@@ -110,7 +110,7 @@ export function ClassTools({
               </MenuItem>
             )}
             <MenuItem icon={<Trash2 />} danger onClick={remove}>
-              删除这个班
+              删除这门课
             </MenuItem>
           </div>
         )}

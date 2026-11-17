@@ -159,7 +159,7 @@ export function ReviewPage() {
   const [busy, setBusy] = useState<'write' | 'share' | null>(null);
   const d = q.data;
   useCrumbs([
-    { label: '班级', to: '/classes' },
+    { label: '课程', to: '/classes' },
     { label: d?.className, to: `/classes/${classId}` },
     { label: d?.title, to: `/classes/${classId}/homework/${id}` },
     { label: '讲评' },

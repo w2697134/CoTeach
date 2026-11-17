@@ -73,7 +73,7 @@ function Basis({ d }: { d: Insights }) {
       <AgentAvatar agent={TA} size={36} status={d.status === 'writing' ? 'running' : null} />
       <p className="min-w-0 text-[15px] leading-relaxed text-ink-2">
         {d.status === 'writing' ? (
-          '助教在重新看这个班'
+          '助教在重新看这门课'
         ) : b ? (
           <>
             助教翻了 <b className="font-semibold text-ink">{b.homework}</b> 份作业的 <b className="font-semibold text-ink">{b.graded}</b> 份批改
@@ -107,14 +107,14 @@ export function InsightsTab({ classId, theme }: { classId: number; theme: Theme 
       return (
         <Card className="flex items-center justify-center gap-3 py-14 text-[15px] text-ink-2">
           <Loader2 className="size-5 animate-spin" style={{ color: theme.ink }} />
-          助教在翻这个班的作业和问题，一两分钟
+          助教在翻这门课的作业和问题，一两分钟
         </Card>
       );
     return (
       <Card padded={false}>
         <EmptyArt
           src="/illustrations/entry-homework-v1.webp"
-          title={d.status === 'error' && d.error ? d.error : '还没看过这个班'}
+          title={d.status === 'error' && d.error ? d.error : '还没看过这门课'}
           action={
             <Button variant="primary" loading={again.busy} icon={<RefreshCw className="size-4" />} onClick={again.run}>
               让助教看看

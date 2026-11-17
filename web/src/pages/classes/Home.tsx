@@ -45,7 +45,8 @@ function ClassCard({ item, student }: { item: ClassItem; student: boolean }) {
         style={{ ...themeBackground(theme), ...(item.archived ? { filter: 'grayscale(.85)', opacity: 0.8 } : {}) }}
       >
         <div className="flex items-start gap-1">
-          <h3 className="line-clamp-2 min-w-0 flex-1 break-words pt-0.5 text-[18px] font-medium leading-[1.45]">{item.name}</h3>
+          {/* 课程名只在空格处换行（「计科2501 Python / 程序设计」），一段放不下才从中间断 */}
+          <h3 className="line-clamp-2 min-w-0 flex-1 break-keep pt-0.5 text-[18px] font-medium leading-[1.45] [overflow-wrap:anywhere]">{item.name}</h3>
           {!student && (
             // 菜单和改名框里的点击不能冒到卡片上（卡片一点就进班）
             <div className="-mr-1.5 shrink-0" onClick={stop} onKeyDown={stop}>
@@ -150,7 +151,7 @@ function NewClassModal({ open, onClose, onCreated }: { open: boolean; onClose: (
     <Modal
       open={open}
       onClose={() => !busy && onClose()}
-      title="新建班级"
+      title="新建课程"
       footer={
         <>
           <Button disabled={busy} onClick={onClose}>
@@ -164,7 +165,7 @@ function NewClassModal({ open, onClose, onCreated }: { open: boolean; onClose: (
     >
       <div className="space-y-4">
         <label className="block text-[14px] text-ink">
-          班级名称
+          课程名称
           <Input
             autoFocus
             className="mt-1.5"
@@ -194,7 +195,7 @@ export function ClassesPage({ joinCode }: { joinCode?: string }) {
     archived = list.filter((k) => k.archived);
   const [creating, setCreating] = useState(false),
     [showArchived, setShowArchived] = useState(false);
-  useCrumbs([{ label: '班级' }]);
+  useCrumbs([{ label: '课程' }]);
   const grid = (items: ClassItem[]) => (
     <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
       {items.map((k, i) => (
@@ -213,7 +214,7 @@ export function ClassesPage({ joinCode }: { joinCode?: string }) {
       <div className="mb-5">
         <button type="button" onClick={() => (student ? setJoining(true) : setCreating(true))} className={pill}>
           <Plus className="size-4" />
-          {student ? '加入班级' : '新建班级'}
+          {student ? '加入课程' : '新建课程'}
         </button>
       </div>
       {classes.error ? (
@@ -227,11 +228,11 @@ export function ClassesPage({ joinCode }: { joinCode?: string }) {
         <Card padded={false}>
           <EmptyArt
             src="/illustrations/classes/empty-classes.webp"
-            title={student ? '还没有加入班级' : '还没有班级'}
+            title={student ? '还没有加入课程' : '还没有课程'}
             action={
               student && (
                 <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setJoining(true)}>
-                  加入班级
+                  加入课程
                 </Button>
               )
             }

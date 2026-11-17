@@ -41,6 +41,18 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
       active ? 'bg-brand-soft text-brand-ink' : 'text-ink-2 hover:bg-surface-3 hover:text-ink',
     );
   const mark = <motion.span layoutId="nav-indicator" className="absolute -left-3 top-2.5 h-6 w-[3px] rounded-r-full bg-brand" />;
+  // 原来叫「班级」。叫课程（地址还是 /classes）
+  const courses = (
+    <NavLink to="/classes" onClick={onNavigate} className={({ isActive }) => item(isActive)}>
+      {({ isActive }) => (
+        <>
+          {isActive && mark}
+          <Users className={cn('size-5 shrink-0', isActive ? 'text-brand' : 'text-ink-3')} />
+          <span className="min-w-0 flex-1">课程</span>
+        </>
+      )}
+    </NavLink>
+  );
   return (
     <div className="flex h-full flex-col">
       <div className="flex h-[72px] shrink-0 items-center gap-3 px-4">
@@ -63,16 +75,9 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
             </>
           )}
         </NavLink>
-        <NavLink to="/classes" onClick={onNavigate} className={({ isActive }) => item(isActive)}>
-          {({ isActive }) => (
-            <>
-              {isActive && mark}
-              <Users className={cn('size-5 shrink-0', isActive ? 'text-brand' : 'text-ink-3')} />
-              <span className="min-w-0 flex-1">班级</span>
-            </>
-          )}
-        </NavLink>
-        {/* 老师的备课：挑班、备下节课，助教照知识库和学情写教案（2026-11-16） */}
+        {/* 照用的先后排：课程（先建课、学生加进来）、备课、课堂。 */}
+        {courses}
+        {/* 老师的备课：挑课程、备下节课，助教照知识库和学情写教案（2026-11-16） */}
         {!student && !admin && (
           <NavLink to="/prep" onClick={onNavigate} className={({ isActive }) => item(isActive)}>
             {({ isActive }) => (
@@ -84,7 +89,7 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
             )}
           </NavLink>
         )}
-        {/* 老师的课堂：开课放课件、推题、看作答、点名、下课小结（2026-11-17） */}
+        {/* 老师的课堂：开课放课件、推题、看作答、点名、下课小结（2026-11-17）；单拎出来，不放进课程里面 */}
         {!student && !admin && (
           <NavLink to="/classroom" onClick={onNavigate} className={({ isActive }) => item(isActive)}>
             {({ isActive }) => (
@@ -380,7 +385,7 @@ export function AppShell() {
     : /^\/knowledge\/?$/.test(location.pathname)
       ? '知识库'
       : /^\/classes(\/|$)/.test(location.pathname)
-        ? '班级'
+        ? '课程'
         : /^\/assistant/.test(location.pathname)
           ? TA.name
           : /^\/cot/.test(location.pathname)

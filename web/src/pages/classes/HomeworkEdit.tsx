@@ -83,7 +83,7 @@ export function HomeworkEditPage() {
     if (!Number.isFinite(p) || p < 1 || p > 1000) return setError('满分填 1 到 1000 之间的数');
     if (hasDue && !due) return setError('选一下截止时间');
     if (later && !published && !publish) return setError('选一下发布时间');
-    if (!editing && !to.length) return setError('至少发给一个班');
+    if (!editing && !to.length) return setError('至少发给一门课');
     setBusy(true);
     setError('');
     const fields = {
@@ -102,7 +102,7 @@ export function HomeworkEditPage() {
         toast.success('作业改好了');
       } else {
         await post('/homework', { ...fields, classIds: to });
-        toast.success(fields.publishAt ? `作业会在${when(fields.publishAt)} 发布` : to.length > 1 ? `作业发给了 ${to.length} 个班` : '作业布置好了');
+        toast.success(fields.publishAt ? `作业会在${when(fields.publishAt)} 发布` : to.length > 1 ? `作业发给了 ${to.length} 门课` : '作业布置好了');
       }
       await qc.invalidateQueries({ queryKey: ['homework'] });
       qc.invalidateQueries({ queryKey: ['classes'] });
@@ -114,7 +114,7 @@ export function HomeworkEditPage() {
     }
   };
   useCrumbs([
-    { label: '班级', to: '/classes' },
+    { label: '课程', to: '/classes' },
     { label: k.data?.name, to: `/classes/${classId}` },
     ...(editing ? [{ label: existing.data?.title, to: back }] : []),
     { label: editing ? '改作业' : '布置作业' },

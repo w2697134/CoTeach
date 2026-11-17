@@ -151,8 +151,8 @@ export function AdminPage() {
                   <p className="mt-0.5 truncate text-[13px] tabular-nums text-ink-3">
                     {[
                       u.username,
-                      u.role === 'teacher' && `${u.classes} 个班`,
-                      u.role === 'student' && `加入 ${u.joined} 个班`,
+                      u.role === 'teacher' && `${u.classes} 门课`,
+                      u.role === 'student' && `加入 ${u.joined} 门课`,
                       u.lastActiveAt ? `最近 ${when(u.lastActiveAt)}` : '还没用过',
                     ]
                       .filter(Boolean)

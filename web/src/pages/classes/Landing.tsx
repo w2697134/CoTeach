@@ -63,7 +63,7 @@ function CodeForm({ initial, error }: { initial: string; error: string }) {
   };
   return (
     <form onSubmit={next} className="rounded-xl border border-line bg-surface p-6 shadow-xs sm:p-8">
-      <h1 className="text-[24px] font-semibold tracking-tight text-ink">加入班级</h1>
+      <h1 className="text-[24px] font-semibold tracking-tight text-ink">加入课程</h1>
       <label className="mt-6 block text-[14px] text-ink">
         加课码
         <Input
@@ -156,7 +156,7 @@ function JoinForm({ k, code, onLeaving }: { k: ClassPeek; code: string; onLeavin
       </div>
       {!k.open ? (
         <div className="px-6 py-8 text-center">
-          <p className="text-[15px] text-ink-2">{k.archived ? '这个班已经归档了，不能再加入' : '这个班已经停止加入了，问问老师'}</p>
+          <p className="text-[15px] text-ink-2">{k.archived ? '这门课已经归档了，不能再加入' : '这门课已经停止加入了，问问老师'}</p>
           <p className="mt-5 text-[14px]">
             <Link to="/login" className="text-brand hover:underline">
               登录
@@ -199,7 +199,7 @@ function JoinForm({ k, code, onLeaving }: { k: ClassPeek; code: string; onLeavin
             </p>
           )}
           <Button type="submit" variant="primary" size="lg" block loading={busy} disabled={!ready}>
-            {fresh ? '加入班级' : '登录并加入'}
+            {fresh ? '加入课程' : '登录并加入'}
           </Button>
           <p className="text-center text-[14px] text-ink-3">
             {fresh ? '已经有账号？' : '第一次来？'}

@@ -392,7 +392,7 @@ function Workspace({ l }: { l: Lesson }) {
               ) : making && at('plan') ? (
                 <PlanComing brief={l.brief} />
               ) : (
-                <Waiting busy={making} text={!making ? '这节课还没有教案' : '我先看看这个班卡在哪，接着就写教案'} />
+                <Waiting busy={making} text={!making ? '这节课还没有教案' : '我先看看大家卡在哪，接着就写教案'} />
               ))}
             {(tab === 'practice' || tab === 'homework') &&
               (l[tab] || (making && live[tab]?.length) ? (
@@ -413,7 +413,7 @@ function Workspace({ l }: { l: Lesson }) {
                   text={!making ? `这节课还没有${tab === 'practice' ? '课堂练习' : '课后作业'}` : at('questions') ? '题目我在出，一般一两分钟' : '教案写完，我就接着出题'}
                 />
               ))}
-            {tab === 'brief' && (making && at('brief') ? <Waiting busy text="我在翻这个班最近的作业，还有学生问过学伴的问题" /> : <BriefView brief={l.brief} />)}
+            {tab === 'brief' && (making && at('brief') ? <Waiting busy text="我在翻这门课最近的作业，还有学生问过学伴的问题" /> : <BriefView brief={l.brief} />)}
             <div ref={endRef} className="h-4" />
           </div>
         </div>
@@ -483,10 +483,10 @@ function Waiting({ text, busy }: { text: string; busy?: boolean }) {
  */
 function PlanComing({ brief }: { brief: Brief | null }) {
   const points = brief?.points.slice(0, 3) || [];
-  if (!points.length) return <Waiting busy text="这个班还没有批过的作业，我照授课计划往下写教案" />;
+  if (!points.length) return <Waiting busy text="这门课还没有批过的作业，我照授课计划往下写教案" />;
   return (
     <div className="mx-auto max-w-[820px] rounded-xl border border-line bg-surface px-5 py-6 sm:px-10 sm:py-8">
-      <p className="text-[15px] font-medium text-ink">这个班卡得最多的几处，我放在教案开头先补讲</p>
+      <p className="text-[15px] font-medium text-ink">大家卡得最多的几处，我放在教案开头先补讲</p>
       <ol className="mt-4 space-y-3">
         {points.map((p, i) => (
           <li key={i} className="flex gap-3">
@@ -538,7 +538,7 @@ function fullPlan(p: Partial<Plan>): Plan {
 /** 学情：这个班卡在哪，丢分、问过的人数（程序数的），助教建议怎么补 */
 function BriefView({ brief }: { brief: Brief | null }) {
   if (!brief?.points.length)
-    return <p className="rounded-xl border border-dashed border-line-strong px-4 py-12 text-center text-[14px] text-ink-3">这个班还没有批过的作业，学生也还没问过学伴</p>;
+    return <p className="rounded-xl border border-dashed border-line-strong px-4 py-12 text-center text-[14px] text-ink-3">这门课还没有批过的作业，学生也还没问过学伴</p>;
   return (
     <div className="mx-auto grid max-w-[1000px] gap-3 md:grid-cols-2">
       {brief.points.map((p, i) => (
@@ -593,7 +593,7 @@ function PublishModal({ open, lesson, onClose, onDone }: { open: boolean; lesson
             取消
           </Button>
           <Button variant="primary" loading={busy} onClick={go}>
-            发到班里
+            发给学生
           </Button>
         </>
       }

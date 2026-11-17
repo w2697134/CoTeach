@@ -85,7 +85,7 @@ export function JoinModal({ open, onClose, initialCode = '' }: { open: boolean; 
     <Modal
       open={open}
       onClose={() => !busy && onClose()}
-      title="加入班级"
+      title="加入课程"
       width={460}
       footer={
         <>
@@ -93,7 +93,7 @@ export function JoinModal({ open, onClose, initialCode = '' }: { open: boolean; 
             取消
           </Button>
           <Button variant="primary" loading={busy} disabled={!canJoin || (!found!.joined && (!(fixedNo || no).trim() || !name.trim()))} onClick={join}>
-            {found?.joined ? '进入班级' : '加入'}
+            {found?.joined ? '进入课程' : '加入'}
           </Button>
         </>
       }

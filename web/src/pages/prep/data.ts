@@ -156,7 +156,7 @@ export const useLesson = (id: number) => useQuery(lessonQuery(id));
 /** 正在做哪一手（列表卡片上写一句） */
 export function doingNow(lanes: Partial<Record<LaneKey, Lane>>) {
   const at = (k: LaneKey) => lanes[k]?.status === 'doing';
-  if (at('brief')) return '正在看这个班卡在哪';
+  if (at('brief')) return '正在看大家卡在哪';
   if (at('plan')) return '正在写教案';
   if (at('deck') && at('questions')) return '正在做课件、出题';
   if (at('deck')) return '正在做课件';
@@ -171,7 +171,7 @@ export function doingNow(lanes: Partial<Record<LaneKey, Lane>>) {
 export function doingLine(l: Lesson): string {
   const at = (k: LaneKey) => l.lanes[k]?.status === 'doing';
   const live = l.live || {};
-  if (at('brief')) return '我先看看这个班最近的作业，大家卡在哪';
+  if (at('brief')) return '我先看看这门课最近的作业，大家卡在哪';
   if (at('plan')) {
     const steps = live.plan?.steps || [];
     const last = steps[steps.length - 1];

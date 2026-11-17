@@ -94,7 +94,7 @@ function Forgot({ open, onClose }: { open: boolean; onClose: () => void }) {
     >
       <ul className="space-y-2.5 text-[15px] leading-relaxed text-ink-2">
         <li>
-          <span className="font-medium text-ink">学生：</span>找任课老师，在班级的「成员」里帮你重置
+          <span className="font-medium text-ink">学生：</span>找任课老师，在课程的「成员」里帮你重置
         </li>
         <li>
           <span className="font-medium text-ink">老师：</span>找管理员重置

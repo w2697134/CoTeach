@@ -239,7 +239,7 @@ export function IntakeCard({ cid, intake }: { cid: number; intake: Intake }) {
                     })
                   }
                 >
-                  改交到这个班
+                  改交到这门课
                 </Button>
               )}
             </div>

@@ -263,7 +263,7 @@ function Grader({
         ) : !w ? (
           <Skeleton className="h-40" />
         ) : !w.joined ? (
-          <Empty compact title="还没加入这个班" />
+          <Empty compact title="还没加入这门课" />
         ) : !s ? (
           <Empty compact title={w.status === 'missing' ? '过了截止还没交' : '还没交'} />
         ) : (
@@ -528,7 +528,7 @@ function TeacherView({ h, initial }: { h: HomeworkDetail; initial: number | null
           </div>
         )}
         {!all.length ? (
-          <Empty compact title="班里还没有学生" />
+          <Empty compact title="这门课还没有学生" />
         ) : !shown.length ? (
           <Empty compact title={filter === 'wait' ? '没有等着批的' : filter === 'out' ? '都交了' : '没有'} />
         ) : (
@@ -747,7 +747,7 @@ export function HomeworkPage() {
     id = Number(params.hid);
   const student = useAuth((s) => s.user?.role) === 'student';
   const q = useHomework(id);
-  useCrumbs([{ label: '班级', to: '/classes' }, { label: q.data?.className, to: `/classes/${classId}` }, { label: q.data?.title }]);
+  useCrumbs([{ label: '课程', to: '/classes' }, { label: q.data?.className, to: `/classes/${classId}` }, { label: q.data?.title }]);
   const initial = Number(search.get('s')) || null;
   return (
     <div className="space-y-5">

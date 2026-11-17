@@ -39,9 +39,9 @@ export function PrepPage() {
               className="ml-auto w-auto"
               value={only}
               onChange={(e) => setParams(Number(e.target.value) ? { class: e.target.value } : {})}
-              aria-label="哪个班"
+              aria-label="哪门课"
             >
-              <option value={0}>全部班级</option>
+              <option value={0}>全部课程</option>
               {used.map((k) => (
                 <option key={k.id} value={k.id}>
                   {k.name}
@@ -119,8 +119,8 @@ function Composer({ classes, defaultClass, onStarted }: { classes: { id: number;
             className="min-h-[64px] resize-none border-0 bg-transparent px-1.5 text-[15px] shadow-none focus-visible:ring-0"
           />
           <div className="mt-2 flex flex-wrap items-center gap-2">
-            <Select sizeVariant="sm" className="w-auto max-w-[14rem]" value={classId} onChange={(e) => setClassId(Number(e.target.value))} aria-label="给哪个班备">
-              {!classes.length && <option value={0}>还没有班级</option>}
+            <Select sizeVariant="sm" className="w-auto max-w-[14rem]" value={classId} onChange={(e) => setClassId(Number(e.target.value))} aria-label="给哪门课备">
+              {!classes.length && <option value={0}>还没有课程</option>}
               {classes.map((k) => (
                 <option key={k.id} value={k.id}>
                   {k.name}

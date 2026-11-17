@@ -722,7 +722,7 @@ export const KeeperPanel = forwardRef<
   const cls = classes[0]?.name;
   const starters = cls
     ? [`给「${cls}」布置一份作业，下周五交`, `给「${cls}」备下一节课`, `「${cls}」最近那份作业交了几个人`, '学生这两天都问了学伴什么']
-    : ['帮我建一个班，名字叫计科2501', '学生这两天都问了学伴什么'];
+    : ['帮我建一门课，名字叫计科2501 Python 程序设计', '学生这两天都问了学伴什么'];
   const detach = (key: string) =>
     setAttached((prev) => {
       const a = prev.find((x) => x.key === key);
@@ -815,7 +815,7 @@ export const KeeperPanel = forwardRef<
               <p className="text-[18px] font-semibold text-ink">{me?.name ? `${me.name}老师好，我是你的 CoT 助教` : '我是你的 CoT 助教'}</p>
               {!archived && (
                 <>
-                  <p className="text-[15px] text-ink-2">班里的事跟我说一声就行，比如：</p>
+                  <p className="text-[15px] text-ink-2">教学上的事跟我说一声就行，比如：</p>
                   <div className="mt-1 flex w-full flex-col gap-2">
                     {starters.map((s) => (
                       <button

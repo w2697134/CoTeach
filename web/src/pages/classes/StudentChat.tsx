@@ -20,7 +20,7 @@ export function StudentChatPage() {
     queryKey: ['student-cot', classId, csid],
     queryFn: () => get<{ name: string; studentNo: string; joined: boolean; runs: StuRun[] }>(`/cot/students/${csid}?class=${classId}`),
   });
-  useCrumbs([{ label: '班级', to: '/classes' }, { label: k.data?.name, to: `/classes/${classId}?tab=people` }, { label: q.data?.name }]);
+  useCrumbs([{ label: '课程', to: '/classes' }, { label: k.data?.name, to: `/classes/${classId}?tab=people` }, { label: q.data?.name }]);
   if (q.error) return <ErrorState error={q.error} onRetry={() => q.refetch()} />;
   if (!q.data) return <Skeleton className="h-64" />;
   return (
