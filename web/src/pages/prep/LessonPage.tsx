@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
-import { BookOpenCheck, ChevronDown, ClipboardList, Download, FileText, MessageSquareText, MonitorPlay, MoreHorizontal, Play, Presentation, RotateCcw, Send, Sparkles, Trash2, Users } from 'lucide-react';
+import { BookOpenCheck, ChevronDown, ClipboardList, Download, FileText, MessageSquareText, MoreHorizontal, Play, Presentation, RotateCcw, Send, Sparkles, Trash2, Users } from 'lucide-react';
 import { useCrumbs } from '../../components/layout/Crumbs';
 import { del, download, post, put } from '../../lib/api';
 import { toast } from '../../lib/store';
@@ -15,7 +15,6 @@ import { LiveDeck } from './LiveDeck';
 import { PlanView } from './PlanView';
 import { QuestionsView } from './QuestionsView';
 import { LANES, doingLine, useLesson, type Brief, type Deck, type LaneKey, type Lesson, type Part, type Plan, type Question } from './data';
-import { useLiveLectures, type LectureCard } from '../classroom/data';
 
 type Tab = 'deck' | 'plan' | 'practice' | 'homework' | 'brief';
 
@@ -60,21 +59,6 @@ function Workspace({ l }: { l: Lesson }) {
   const [publishing, setPublishing] = useState(false);
   const [rail, setRail] = useState(false);
   const refresh = () => qc.invalidateQueries({ queryKey: ['lesson', l.id] });
-  // 上课：给这节课的班开一堂课，直接进上课的页面；这节课正在上的就回到课堂
-  const running = (useLiveLectures<LectureCard>(true).data?.live || []).find((x) => x.classId === l.classId && x.lessonId === l.id);
-  const [starting, setStarting] = useState(false);
-  const teach = async () => {
-    if (running) return navigate(`/classroom/${running.id}`);
-    setStarting(true);
-    try {
-      const r = await post<{ id: number }>('/classroom', { classId: l.classId, lessonId: l.id });
-      qc.invalidateQueries({ queryKey: ['lectures'] });
-      navigate(`/classroom/${r.id}`);
-    } catch (e) {
-      toast.fromError(e);
-      setStarting(false);
-    }
-  };
 
   const save = (part: Part) => async (data: unknown) => {
     try {
@@ -237,9 +221,6 @@ function Workspace({ l }: { l: Lesson }) {
         <div className="flex flex-wrap items-center gap-2">
           <Button variant="primary" icon={<Play className="size-4" />} disabled={!l.deck} onClick={() => setPresenting(true)}>
             放映
-          </Button>
-          <Button variant="soft" icon={<MonitorPlay className="size-4" />} loading={starting} disabled={making} onClick={teach}>
-            {running ? '回到课堂' : '上课'}
           </Button>
           <Popover
             width={200}

@@ -50,9 +50,6 @@ const Mistakes = page(() => import('./pages/cot/MistakesPage'), 'MistakesPage');
 const Prep = page(() => import('./pages/prep/PrepPage'), 'PrepPage');
 const Lesson = page(() => import('./pages/prep/LessonPage'), 'LessonPage');
 const StudentChat = page(() => import('./pages/classes/StudentChat'), 'StudentChatPage');
-const Classroom = page(() => import('./pages/classroom/ClassroomPage'), 'ClassroomPage');
-const Lecture = page(() => import('./pages/classroom/LecturePage'), 'LecturePage');
-const StudentLive = page(() => import('./pages/classroom/StudentLive'), 'StudentLivePage');
 /** 课件组件的演示页，只在开发环境有（打包上线时这段整个去掉） */
 const DeckLab = import.meta.env.DEV ? lazy(() => import('./pages/lab/DeckLab').then((m) => ({ default: m.DeckLabPage }))) : null;
 
@@ -189,31 +186,9 @@ export const router = createBrowserRouter([
           </S>
         ),
       },
-      // 课堂（2026-11-17）：老师开课、上课、看小结；学生在 /live/:id 进课堂作答、提问
-      {
-        path: 'classroom',
-        element: (
-          <S>
-            <TeacherOnly><Classroom /></TeacherOnly>
-          </S>
-        ),
-      },
-      {
-        path: 'classroom/:id',
-        element: (
-          <S>
-            <TeacherOnly><Lecture /></TeacherOnly>
-          </S>
-        ),
-      },
-      {
-        path: 'live/:id',
-        element: (
-          <S>
-            <StudentOnly><StudentLive /></StudentOnly>
-          </S>
-        ),
-      },
+      // 课堂（2026-11-17 做的）11-18 拿掉了，旧地址都回首页；后台和数据还留着
+      { path: 'classroom/*', element: <Navigate replace to="/" /> },
+      { path: 'live/*', element: <Navigate replace to="/" /> },
       {
         path: 'mistakes',
         element: (

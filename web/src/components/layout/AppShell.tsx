@@ -1,13 +1,12 @@
 import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router';
 import { AnimatePresence, motion } from 'motion/react';
-import { ArrowLeft, BookOpen, KeyRound, LogOut, Menu, Monitor, Moon, NotebookPen, Presentation, School, ShieldCheck, Smartphone, Sun, Users } from 'lucide-react';
+import { ArrowLeft, BookOpen, KeyRound, LogOut, Menu, Monitor, Moon, NotebookPen, Presentation, ShieldCheck, Smartphone, Sun, Users } from 'lucide-react';
 import { APP_NAME, APP_SHORT_NAME } from '../../lib/brand';
 import { post } from '../../lib/api';
 import { toast, useAuth, useTheme, useUi } from '../../lib/store';
 import { AgentAvatar, Avatar, Button, IconButton, Input, MenuItem, MenuLabel, Modal, Popover, cn } from '../ui';
 import { BUDDY, TA, useKnowledgeBases } from '../../pages/kb/data';
-import { useLiveLectures } from '../../pages/classroom/data';
 import { CrumbTrail, useCurrentCrumbs } from './Crumbs';
 
 /** 现在打开的是哪个知识库（不在某个知识库里时为 null） */
@@ -33,8 +32,6 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
     admin = role === 'admin';
   const bases = useKnowledgeBases(!student).data?.knowledgeBases || [];
   const pending = bases.reduce((n, k) => n + k.pending, 0);
-  // 有课正在上，「课堂」后面亮一个红点
-  const lecturing = (useLiveLectures(!student && !admin, 30_000).data?.live.length ?? 0) > 0;
   const item = (active: boolean) =>
     cn(
       'group relative flex h-11 items-center gap-3.5 rounded-lg px-3.5 text-[16px] font-medium transition-colors',
@@ -75,7 +72,7 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
             </>
           )}
         </NavLink>
-        {/* 照用的先后排：课程（先建课、学生加进来）、备课、课堂。 */}
+        {/* 照用的先后排：课程（先建课、学生加进来）、备课；「课堂」11-18 拿掉了 */}
         {courses}
         {/* 老师的备课：挑课程、备下节课，助教照知识库和学情写教案（2026-11-16） */}
         {!student && !admin && (
@@ -85,19 +82,6 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
                 {isActive && mark}
                 <Presentation className={cn('size-5 shrink-0', isActive ? 'text-brand' : 'text-ink-3')} />
                 <span className="min-w-0 flex-1">备课</span>
-              </>
-            )}
-          </NavLink>
-        )}
-        {/* 老师的课堂：开课放课件、推题、看作答、点名、下课小结（2026-11-17）；单拎出来，不放进课程里面 */}
-        {!student && !admin && (
-          <NavLink to="/classroom" onClick={onNavigate} className={({ isActive }) => item(isActive)}>
-            {({ isActive }) => (
-              <>
-                {isActive && mark}
-                <School className={cn('size-5 shrink-0', isActive ? 'text-brand' : 'text-ink-3')} />
-                <span className="min-w-0 flex-1">课堂</span>
-                {lecturing && <span className="size-2 animate-pulse rounded-full bg-bad" aria-label="正在上课" />}
               </>
             )}
           </NavLink>
@@ -406,7 +390,7 @@ export function AppShell() {
   useEffect(() => setMobileNav(false), [location.pathname, setMobileNav]);
   // 知识库页面占满整屏高度，自己管滚动；班级页面是普通页面
   // 上课的页面也占满整屏：大块是课件，旁边一栏自己滚动
-  const full = location.pathname.startsWith('/c/') || /^\/(knowledge|assistant|cot)(\/|$)/.test(location.pathname) || /^\/classroom\/\d+/.test(location.pathname);
+  const full = location.pathname.startsWith('/c/') || /^\/(knowledge|assistant|cot)(\/|$)/.test(location.pathname);
   // 一节课的页面不设最大宽度：右边助教一栏贴着屏幕右边从上到下，左边内容占满剩下的地方
   const dock = /^\/prep\/\d+/.test(location.pathname);
   return (
