@@ -348,7 +348,7 @@ function Workspace({ l }: { l: Lesson }) {
                 )
               ) : l.deck ? (
                 // 编辑器要一个定高：不然左边缩略图有多长它就多高，中间那页居中跑到屏幕下面去（2026-11-17 截图时看到中间是空的）
-                <div className="md:h-[calc(100vh-250px)] md:min-h-[520px]">
+                <div className="h-[min(82vh,700px)] md:h-[calc(100vh-250px)] md:min-h-[520px]">
                   <DeckPane
                     deck={l.deck}
                     readOnly={making}

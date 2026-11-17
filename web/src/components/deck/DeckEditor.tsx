@@ -387,7 +387,7 @@ export const DeckEditor = forwardRef<DeckEditorHandle, DeckEditorProps>(function
   return (
     <div ref={root} className={cn('flex h-full min-h-0 flex-col overflow-hidden bg-surface text-ink', className)}>
       {/* ---------------- 工具栏 ---------------- */}
-      <div className="flex h-[52px] shrink-0 items-center gap-1 border-b border-line bg-surface px-2.5">
+      <div className="no-scrollbar flex h-[52px] shrink-0 items-center gap-1 overflow-x-auto border-b border-line bg-surface px-2.5">
         {toolbarStart}
         {!readOnly && cur && (
           <>
