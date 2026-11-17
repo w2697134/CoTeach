@@ -10,17 +10,26 @@ export interface Theme {
   to: string;
   /** 白底上用的同色（小圆标里的字、成员页的标题、作业卡片上的小方块）；都压到 4.5:1 以上，写成字也看得清 */
   ink: string;
+  /** 深色模式下黑底上用的同色（亮一些，也在 4.5:1 以上） */
+  light: string;
   art: string;
 }
 const art = (name: string) => `/illustrations/classes/cover-${name}.webp`;
 const THEMES: Theme[] = [
-  { from: '#2f86f6', to: '#5db7ff', ink: '#2a70cd', art: art('sky') },
-  { from: '#1fb46f', to: '#2ec4b0', ink: '#138150', art: art('mint') },
-  { from: '#f6833b', to: '#f9c24b', ink: '#ae5724', art: art('peach') },
-  { from: '#6c5ce7', to: '#5091f6', ink: '#6152e0', art: art('lavender') },
-  { from: '#ee525f', to: '#f77fa2', ink: '#c6404c', art: art('peach') },
-  { from: '#0fadaf', to: '#3fcac8', ink: '#0b7d7e', art: art('mint') },
+  { from: '#2f86f6', to: '#5db7ff', ink: '#2a70cd', light: '#5db7ff', art: art('sky') },
+  { from: '#1fb46f', to: '#2ec4b0', ink: '#138150', light: '#2ec4b0', art: art('mint') },
+  { from: '#f6833b', to: '#f9c24b', ink: '#ae5724', light: '#f9c24b', art: art('peach') },
+  { from: '#6c5ce7', to: '#5091f6', ink: '#6152e0', light: '#a5a8ff', art: art('lavender') },
+  { from: '#ee525f', to: '#f77fa2', ink: '#c6404c', light: '#f77fa2', art: art('peach') },
+  { from: '#0fadaf', to: '#3fcac8', ink: '#0b7d7e', light: '#3fcac8', art: art('mint') },
 ];
+
+/**
+ * 用这个班的颜色写字：浅色模式用 ink，深色模式换亮的 light。
+ * 用法：className={THEME_TEXT} style={inkVars(theme)}
+ */
+export const THEME_TEXT = 'text-[var(--ink)] dark:text-[var(--ink-l)]';
+export const inkVars = (t: Theme) => ({ '--ink': t.ink, '--ink-l': t.light }) as CSSProperties;
 /** 每个班固定一种颜色，挨着放的几个班颜色不一样 */
 export const themeOf = (classId: number) => THEMES[(classId - 1 + THEMES.length) % THEMES.length];
 
@@ -75,7 +84,7 @@ export function DateBlock({ t, label, theme, soon, past }: { t: number | null; l
       className={cn('flex w-14 shrink-0 flex-col items-center self-start overflow-hidden rounded-lg border text-center leading-none', past ? 'border-line bg-surface-2' : 'border-transparent')}
       style={past ? undefined : { backgroundColor: `${theme.ink}14`, boxShadow: soon ? `0 0 0 2px ${theme.ink}40` : undefined }}
     >
-      <span className="w-full py-1 text-[13px] font-medium text-white" style={{ backgroundColor: past ? 'var(--c-text-3)' : theme.ink }}>
+      <span className="w-full py-1 text-[13px] font-medium text-white" style={{ backgroundColor: past ? '#64748b' : theme.ink }}>
         {d ? `${d.getMonth() + 1}月` : '不限'}
       </span>
       <span className={cn('pb-0.5 pt-1.5 text-[24px] font-semibold tabular-nums', past ? 'text-ink-2' : 'text-ink')}>{d ? d.getDate() : '—'}</span>

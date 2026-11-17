@@ -11,7 +11,7 @@ import { FileList, FilePicker, openFile } from './HwFiles';
 import { dueWords } from './HomeworkList';
 import { isImage, fileUrl, num, useHomework, when, type GradeItem, type HomeworkDetail, type HwFile, type StudentWork, type Submission } from './homework';
 import { AiBar, AiCell, GradedBy, ItemBars, ItemEditor, MarkList, MarkedText, RubricCard, SameDialog, sumItems, type SameAsk } from './Grading';
-import { themeOf } from './look';
+import { THEME_TEXT, inkVars, themeOf } from './look';
 import { CHIP, INK, scoreInk } from './tone';
 
 /** 一份作业的抬头：标题、满分、截止、截止后收不收、什么时候发，下面要求（一行四十几个字）和附件 */
@@ -23,7 +23,7 @@ function Brief({ h, menu, mark, note }: { h: HomeworkDetail; menu?: React.ReactN
     <Card className="space-y-4">
       <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
-          <h1 className="text-balance break-words text-[24px] font-semibold leading-tight tracking-tight" style={{ color: theme.ink }}>
+          <h1 className={cn('text-balance break-words text-[24px] font-semibold leading-tight tracking-tight', THEME_TEXT)} style={inkVars(theme)}>
             {h.title}
           </h1>
           <p className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[14px] text-ink-2">

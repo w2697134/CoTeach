@@ -5,7 +5,7 @@ import { get, post } from '../../lib/api';
 import { toast } from '../../lib/store';
 import { AgentAvatar, Button, Card, ErrorState, Skeleton, cn } from '../../components/ui';
 import { TA } from '../kb/data';
-import { EmptyArt, type Theme } from './look';
+import { EmptyArt, THEME_TEXT, inkVars, type Theme } from './look';
 import { when } from './homework';
 
 export interface InsightPoint {
@@ -171,7 +171,7 @@ function Point({ p, n, theme }: { p: InsightPoint; n: number; theme: Theme }) {
           {p.what && <p className="mt-3 max-w-[44em] break-words text-[15px] leading-relaxed text-ink">{p.what}</p>}
           {p.teach && (
             <div className="mt-4 max-w-[44em] rounded-lg border-l-[3px] bg-surface-2 py-3 pl-4 pr-4" style={{ borderColor: theme.ink }}>
-              <p className="text-[14px] font-semibold" style={{ color: theme.ink }}>
+              <p className={cn('text-[14px] font-semibold', THEME_TEXT)} style={inkVars(theme)}>
                 下节课这么讲
               </p>
               <p className="mt-1 break-words text-[15px] leading-relaxed text-ink">{p.teach}</p>

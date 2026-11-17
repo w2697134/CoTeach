@@ -9,7 +9,7 @@ import { useAuth } from '../../lib/store';
 import { Avatar, Button, Card, ErrorState, Input, Modal, Skeleton, cn } from '../../components/ui';
 import { useClasses, type ClassItem } from './data';
 import { JoinModal } from './Join';
-import { EmptyArt, themeBackground, themeOf } from './look';
+import { EmptyArt, THEME_TEXT, inkVars, themeBackground, themeOf } from './look';
 import { ClassTools } from './Tools';
 import { CHIP, INK } from './tone';
 
@@ -67,8 +67,8 @@ function ClassCard({ item, student }: { item: ClassItem; student: boolean }) {
           </p>
         )}
         <span
-          className="absolute -bottom-[18px] right-4 flex size-9 items-center justify-center rounded-full bg-surface text-[15px] font-semibold shadow-[0_2px_6px_rgba(15,23,42,.15)]"
-          style={{ color: theme.ink }}
+          className={cn('absolute -bottom-[18px] right-4 flex size-9 items-center justify-center rounded-full bg-surface text-[15px] font-semibold shadow-[0_2px_6px_rgba(15,23,42,.15)]', THEME_TEXT)}
+          style={inkVars(theme)}
         >
           {student ? '学' : '教'}
         </span>

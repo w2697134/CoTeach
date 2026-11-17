@@ -11,7 +11,7 @@ import { GradesTab } from './GradesTab';
 import { HomeworkList } from './HomeworkList';
 import { InsightsAction, InsightsTab } from './InsightsTab';
 import { CodeLine, InviteModal, InvitePanel, Projector, copyText } from './Invite';
-import { EmptyArt, ThemeBanner, themeOf, type Theme } from './look';
+import { EmptyArt, THEME_TEXT, ThemeBanner, inkVars, themeOf, type Theme } from './look';
 import { RosterInput } from './RosterInput';
 import { ClassTools } from './Tools';
 import { CHIP } from './tone';
@@ -85,7 +85,7 @@ function ImportRoster({ id, open, onClose }: { id: number; open: boolean; onClos
 function SectionHead({ theme, title, note, actions, className }: { theme: Theme; title: string; note?: ReactNode; actions?: ReactNode; className?: string }) {
   return (
     <div className={cn('flex flex-wrap items-center gap-3 border-b px-5 pb-3 pt-5 sm:px-6', className)} style={{ borderColor: `${theme.ink}66` }}>
-      <h2 className="text-[19px] font-semibold tracking-tight" style={{ color: theme.ink }}>
+      <h2 className={cn('text-[18px] font-semibold tracking-tight', THEME_TEXT)} style={inkVars(theme)}>
         {title}
       </h2>
       {note && <span className="text-[14px] text-ink-3">{note}</span>}
@@ -210,8 +210,8 @@ function TeacherPeople({
               <button
                 type="button"
                 onClick={onInvite}
-                className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md px-2.5 text-[14px] font-medium transition-colors hover:bg-surface-3"
-                style={{ color: theme.ink }}
+                className={cn('inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md px-2.5 text-[14px] font-medium transition-colors hover:bg-surface-3', THEME_TEXT)}
+                style={inkVars(theme)}
               >
                 <UserPlus className="size-4" />
                 邀请学生

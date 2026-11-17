@@ -7,7 +7,7 @@ import { api, post } from '../../lib/api';
 import { toast } from '../../lib/store';
 import { Button, IconButton, Modal, cn, useConfirm } from '../../components/ui';
 import { joinLink, type ClassDetail } from './data';
-import { themeBackground, themeOf } from './look';
+import { THEME_TEXT, inkVars, themeBackground, themeOf } from './look';
 
 /** 老师邀请学生：照雨课堂、课堂派、Google Classroom。加课码、二维码、链接，能下载二维码发群里，能全屏投到教室大屏上 */
 
@@ -143,7 +143,7 @@ export function InvitePanel({ k, onProject, vertical }: { k: { id: number; name:
       <div className={cn('flex min-w-0 flex-col items-center', !vertical && 'sm:items-start')}>
         <p className="text-[14px] text-ink-3">加课码</p>
         <div className="mt-1 flex items-center gap-1">
-          <span className="font-mono text-[38px] font-semibold leading-none tracking-[0.14em]" style={{ color: themeOf(k.id).ink }}>
+          <span className={cn('font-mono text-[38px] font-semibold leading-none tracking-[0.14em]', THEME_TEXT)} style={inkVars(themeOf(k.id))}>
             {k.code}
           </span>
           <IconButton label="复制加课码" onClick={() => copyText(k.code, '加课码')}>
@@ -234,11 +234,11 @@ export function InviteModal({
       </div>
       <div className="mt-5 divide-y divide-line border-t border-line">
         <div className="flex items-center gap-3 py-3.5">
-          <span className="flex-1 text-[14.5px] text-ink">允许加入</span>
+          <span className="flex-1 text-[15px] text-ink">允许加入</span>
           <Switch checked={opened} disabled={busy === 'open'} onChange={setOpen} label="允许加入" />
         </div>
         <div className="flex items-center gap-3 py-3">
-          <span className="flex-1 text-[14.5px] text-ink">换一个加课码</span>
+          <span className="flex-1 text-[15px] text-ink">换一个加课码</span>
           <Button size="sm" icon={<RefreshCw className="size-4" />} loading={busy === 'code'} disabled={!opened} onClick={reset}>
             换码
           </Button>

@@ -44,7 +44,7 @@ function PickColumns({ table, onDone }: { table: Table; onDone: (text: string, p
         </Button>
       </div>
       <div className="mt-3 overflow-x-auto rounded-md border border-line bg-surface">
-        <table className="w-full text-left text-[12.5px]">
+        <table className="w-full text-left text-[13px]">
           <tbody>
             {shown.map((r, y) => (
               <tr key={y} className="border-b border-line last:border-0">
@@ -140,7 +140,7 @@ export function RosterInput({ value, onChange, autoFocus }: { value: string; onC
         }}
       />
       {note && (
-        <p role="alert" className="mt-2 text-[13.5px] text-bad">
+        <p role="alert" className="mt-2 text-[14px] text-bad">
           {note}
         </p>
       )}

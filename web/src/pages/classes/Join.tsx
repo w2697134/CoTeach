@@ -6,6 +6,7 @@ import { toast, useAuth } from '../../lib/store';
 import { Button, Input, Modal, Skeleton } from '../../components/ui';
 import { normalCode, type ClassPeek } from './data';
 import { themeBackground, themeOf } from './look';
+import { INK } from './tone';
 
 /** 输了加课码看到的班：彩色方块写班名第一个字，旁边是班名、老师，进不去的写原因 */
 export function PeekCard({ k }: { k: ClassPeek }) {
@@ -22,7 +23,7 @@ export function PeekCard({ k }: { k: ClassPeek }) {
         <p className="truncate text-[15px] font-medium text-ink">{k.name}</p>
         <p className="text-[13px] text-ink-3">
           {k.teacher}
-          {note && <span className={!k.joined ? 'text-warn' : undefined}> · {note}</span>}
+          {note && <span className={!k.joined ? INK.warn : undefined}> · {note}</span>}
         </p>
       </div>
     </div>

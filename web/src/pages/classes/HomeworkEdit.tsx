@@ -156,7 +156,7 @@ export function HomeworkEditPage() {
             <Row label="发给">
               <div className="space-y-1.5">
                 {others.map((c) => (
-                  <label key={c.id} className="flex cursor-pointer items-center gap-2.5 rounded-md px-1 py-1 text-[14.5px] text-ink hover:bg-surface-2">
+                  <label key={c.id} className="flex cursor-pointer items-center gap-2.5 rounded-md px-1 py-1 text-[15px] text-ink hover:bg-surface-2">
                     <input
                       type="checkbox"
                       className="size-4 accent-[var(--c-primary)]"
@@ -190,7 +190,7 @@ export function HomeworkEditPage() {
           <Row label="批改">
             <div className="space-y-1">
               {AI_MODES.map((m) => (
-                <label key={m.value} className="flex cursor-pointer items-center gap-2.5 rounded-md px-1 py-1 text-[14.5px] text-ink hover:bg-surface-2">
+                <label key={m.value} className="flex cursor-pointer items-center gap-2.5 rounded-md px-1 py-1 text-[15px] text-ink hover:bg-surface-2">
                   <input type="radio" name="ai-mode" className="size-4 accent-[var(--c-primary)]" checked={aiMode === m.value} onChange={() => setAiMode(m.value)} />
                   {m.label}
                 </label>

@@ -11,6 +11,7 @@ import { QTYPE_NAME } from '../prep/data';
 import { SlideThumb } from '../prep/Slides';
 import { teacherTitle } from '../cot/data';
 import { themeBackground, themeOf } from '../classes/look';
+import { CHIP, INK } from '../classes/tone';
 import { Bars } from './Bars';
 import { isChoice, lasted, letter, optionText, useStudentLecture, type StudentQuestion, type StudentState } from './data';
 
@@ -53,7 +54,7 @@ function Room({ s }: { s: StudentState }) {
         </div>
         <h1 className="mt-2 text-[20px] font-semibold leading-snug">{s.title}</h1>
         {!live && (
-          <p className="mt-1.5 text-[13.5px] text-white/85">
+          <p className="mt-1.5 text-[14px] text-white/85">
             {s.endedAt ? `上了 ${lasted(s.startedAt, s.endedAt)}` : ''}
             {s.questions.length > 0 && ` · 答了 ${done.length} 道`}
             {done.some((x) => x.correct !== undefined && x.correct !== null) && `，对了 ${right} 道`}
@@ -70,7 +71,7 @@ function Room({ s }: { s: StudentState }) {
           <div className="aspect-video">
             <SlideThumb slide={s.slide} theme={s.theme ?? undefined} />
           </div>
-          <p className="border-t border-line px-4 py-2 text-[12.5px] tabular-nums text-ink-3">
+          <p className="border-t border-line px-4 py-2 text-[13px] tabular-nums text-ink-3">
             {s.page + 1} / {s.pages}
           </p>
         </div>
@@ -85,10 +86,10 @@ function Room({ s }: { s: StudentState }) {
 
       {s.asks.length > 0 && (
         <div className="rounded-2xl border border-line bg-surface px-4 py-3">
-          <p className="text-[12.5px] text-ink-3">我问的</p>
+          <p className="text-[13px] text-ink-3">我问的</p>
           <ul className="mt-1.5 space-y-1.5">
             {s.asks.map((a) => (
-              <li key={a.id} className="text-[14.5px] leading-relaxed text-ink">
+              <li key={a.id} className="text-[15px] leading-relaxed text-ink">
                 {a.text}
               </li>
             ))}
@@ -128,23 +129,23 @@ function QuestionCard({ lectureId, x, live }: { lectureId: number; x: StudentQue
   };
   const tag = shown
     ? x.correct === true
-      ? { text: '答对了', cls: 'bg-ok-soft text-ok' }
+      ? { text: '答对了', cls: CHIP.ok }
       : x.correct === false
-        ? { text: '答错了', cls: 'bg-bad-soft text-bad' }
+        ? { text: '答错了', cls: CHIP.bad }
         : mine
           ? { text: '已交', cls: 'bg-surface-3 text-ink-2' }
-          : { text: '没交', cls: 'bg-surface-3 text-ink-3' }
+          : { text: '没交', cls: 'bg-surface-3 text-ink-2' }
     : mine
-      ? { text: '已交', cls: 'bg-info-soft text-info' }
+      ? { text: '已交', cls: CHIP.info }
       : live
         ? null
-        : { text: '没交', cls: 'bg-surface-3 text-ink-3' };
+        : { text: '没交', cls: 'bg-surface-3 text-ink-2' };
   return (
     <div className={cn('rounded-2xl border bg-surface px-4 py-4 shadow-xs sm:px-5', open ? 'border-brand/50 ring-2 ring-brand/10' : 'border-line')}>
       <div className="flex items-center gap-2">
         <span className="text-[14px] font-semibold text-ink">第 {x.n} 题</span>
-        <span className="rounded-md bg-brand-soft px-1.5 py-0.5 text-[12px] font-medium text-brand-ink">{QTYPE_NAME[x.type]}</span>
-        {tag && <span className={cn('ml-auto rounded-full px-2.5 py-0.5 text-[12.5px] font-medium', tag.cls)}>{tag.text}</span>}
+        <span className="rounded-md bg-brand-soft px-1.5 py-0.5 text-[13px] font-medium text-brand-ink">{QTYPE_NAME[x.type]}</span>
+        {tag && <span className={cn('ml-auto rounded-full px-2.5 py-0.5 text-[13px] font-medium', tag.cls)}>{tag.text}</span>}
       </div>
       <div className="mt-2.5 text-ink">
         <Markdown className="text-[16px]! leading-relaxed!">{x.stem}</Markdown>
@@ -176,7 +177,7 @@ function QuestionCard({ lectureId, x, live }: { lectureId: number; x: StudentQue
                 >
                   <span
                     className={cn(
-                      'grid size-7 shrink-0 place-items-center text-[13.5px] font-semibold',
+                      'grid size-7 shrink-0 place-items-center text-[14px] font-semibold',
                       x.type === 'multi' ? 'rounded-md' : 'rounded-full',
                       shown && ok ? 'bg-ok text-white' : shown && on ? 'bg-bad text-white' : on ? 'bg-brand text-white' : 'bg-surface-3 text-ink-2',
                     )}
@@ -184,8 +185,8 @@ function QuestionCard({ lectureId, x, live }: { lectureId: number; x: StudentQue
                     {letter(i)}
                   </span>
                   <span className="min-w-0 flex-1">{optionText(o, letter(i))}</span>
-                  {shown && ok && <Check className="size-4 shrink-0 text-ok" />}
-                  {shown && on && !ok && <X className="size-4 shrink-0 text-bad" />}
+                  {shown && ok && <Check className={cn('size-4 shrink-0', INK.ok)} />}
+                  {shown && on && !ok && <X className={cn('size-4 shrink-0', INK.bad)} />}
                 </button>
               </li>
             );
@@ -204,7 +205,7 @@ function QuestionCard({ lectureId, x, live }: { lectureId: number; x: StudentQue
                 onClick={() => setText(v)}
                 className={cn(
                   'flex h-14 items-center justify-center gap-2 rounded-xl border text-[18px] font-semibold transition-colors',
-                  ok ? 'border-ok bg-ok-soft text-ok' : shown && on ? 'border-bad bg-bad-soft text-bad' : on ? 'border-brand bg-brand-soft text-brand-ink' : 'border-line text-ink-2',
+                  ok ? `border-ok ${CHIP.ok}` : shown && on ? `border-bad ${CHIP.bad}` : on ? 'border-brand bg-brand-soft text-brand-ink' : 'border-line text-ink-2',
                 )}
               >
                 {v === '对' ? <Check className="size-5" /> : <X className="size-5" />}
@@ -217,10 +218,10 @@ function QuestionCard({ lectureId, x, live }: { lectureId: number; x: StudentQue
         x.type === 'blank' ? (
           <Input sizeVariant="lg" className="mt-3" value={text} maxLength={200} placeholder="答案" onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && submit()} />
         ) : (
-          <Textarea autoGrow rows={4} className={cn('mt-3 text-[15px]', x.type === 'code' && 'font-mono text-[13.5px]')} value={text} maxLength={5000} placeholder="答案" onChange={(e) => setText(e.target.value)} />
+          <Textarea autoGrow rows={4} className={cn('mt-3 text-[15px]', x.type === 'code' && 'font-mono text-[14px]')} value={text} maxLength={5000} placeholder="答案" onChange={(e) => setText(e.target.value)} />
         )
       ) : mine?.text ? (
-        <div className={cn('mt-3 rounded-xl bg-surface-2 px-3.5 py-2.5 text-[15px] text-ink', x.type === 'code' && 'whitespace-pre-wrap font-mono text-[13.5px]')}>{mine.text}</div>
+        <div className={cn('mt-3 rounded-xl bg-surface-2 px-3.5 py-2.5 text-[15px] text-ink', x.type === 'code' && 'whitespace-pre-wrap font-mono text-[14px]')}>{mine.text}</div>
       ) : null}
 
       {open && (
@@ -232,20 +233,20 @@ function QuestionCard({ lectureId, x, live }: { lectureId: number; x: StudentQue
       {shown && (
         <div className="mt-3.5 space-y-2.5 border-t border-line pt-3">
           {!isChoice(x.type) && x.type !== 'judge' && x.answer && (
-            <p className="text-[14.5px] text-ink">
-              <span className="mr-2 font-medium text-ok">{x.type === 'blank' ? '答案' : '参考答案'}</span>
+            <p className="text-[15px] text-ink">
+              <span className={cn('mr-2 font-medium', INK.ok)}>{x.type === 'blank' ? '答案' : '参考答案'}</span>
               {x.type === 'code' ? <pre className="mt-1 whitespace-pre-wrap font-mono text-[13px]">{x.answer}</pre> : x.answer}
             </p>
           )}
           {x.explain && (
-            <p className="text-[14.5px] leading-relaxed text-ink-2">
+            <p className="text-[15px] leading-relaxed text-ink-2">
               <span className="mr-2 font-medium text-ink">解析</span>
               {x.explain}
             </p>
           )}
           {x.stats && x.stats.answered > 0 && (
             <div>
-              <p className="text-[12.5px] text-ink-3">
+              <p className="text-[13px] text-ink-3">
                 全班 {x.stats.answered} 人答{x.stats.correct !== null ? `，${x.stats.correct} 人对` : ''}
               </p>
               {x.stats.bars && <Bars className="mt-2" bars={x.stats.bars} answered={x.stats.answered} mark />}

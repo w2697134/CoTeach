@@ -4,7 +4,7 @@ import { ArrowDown, ArrowUp, Download } from 'lucide-react';
 import { Button, Card, Empty, ErrorState, Skeleton, cn } from '../../components/ui';
 import { STATUS, num, useGrades, when, type Grades } from './homework';
 import { StudentMark } from './HomeworkList';
-import type { Theme } from './look';
+import { THEME_TEXT, inkVars, type Theme } from './look';
 import { CHIP, INK, scoreInk } from './tone';
 
 type Cell = Grades['rows'][number]['cells'][number];
@@ -84,7 +84,7 @@ export function GradesTab({
       <Card padded={false}>
         <div className="flex items-baseline gap-2 border-b border-line px-5 py-5 sm:px-6">
           <span className="text-[15px] text-ink-2">我的平均分</span>
-          <span className={cn('text-[24px] font-semibold leading-none tabular-nums', avg !== null && avg < 60 && INK.bad)} style={avg !== null && avg >= 60 ? { color: theme.ink } : undefined}>
+          <span className={cn('text-[24px] font-semibold leading-none tabular-nums', avg !== null && avg < 60 ? INK.bad : THEME_TEXT)} style={inkVars(theme)}>
             {avg !== null ? num(avg) : '—'}
           </span>
           <span className="text-[14px] text-ink-2">百分制</span>
@@ -169,8 +169,8 @@ export function GradesTab({
                   <button
                     type="button"
                     onClick={nextSort}
-                    className="inline-flex items-center gap-1 text-[14px] font-semibold"
-                    style={{ color: theme.ink }}
+                    className={cn('inline-flex items-center gap-1 text-[14px] font-semibold', THEME_TEXT)}
+                    style={inkVars(theme)}
                     title="按平均分排"
                   >
                     平均分
