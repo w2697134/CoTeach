@@ -613,6 +613,8 @@ function SessionButtons({ compact, disabled }: { compact: boolean; disabled: boo
 export interface KeeperHandle {
   /** 拖到页面上的资料也从这里交，输入框里写了话就一起带上 */
   handIn: (files: Picked[]) => void;
+  /** 知识库页的交资料框：马上发出去（输入框里写了话、摆了文件的一起带上）；助教正忙就先摆在输入框上方，返回 false */
+  handInNow?: (files: Picked[]) => boolean;
 }
 
 /**
@@ -630,8 +632,10 @@ export const KeeperPanel = forwardRef<
     onOpenChanges?: () => void;
     /** page：CoT 助教页上占满整页，对话摆在中间一栏；panel：知识库页右边那一栏 */
     variant?: 'panel' | 'page';
+    /** 知识库页右边还没说过话时摆的几句话，点一下就发 */
+    suggestions?: string[];
   }
->(function KeeperPanel({ kbId, file, onOpenChange, onOpenChanges, variant = 'panel' }, ref) {
+>(function KeeperPanel({ kbId, file, onOpenChange, onOpenChanges, variant = 'panel', suggestions }, ref) {
   const page = variant === 'page';
   // 知识库页右边那一栏只摆在知识库页说的事（学生来问、布置作业这些只在助教页）
   const place = page ? undefined : ('kb' as const);
@@ -710,25 +714,30 @@ export const KeeperPanel = forwardRef<
       if (a?.url) URL.revokeObjectURL(a.url);
       return prev.filter((x) => x.key !== key);
     });
-  useImperativeHandle(ref, () => ({ handIn: attach }));
+  useImperativeHandle(ref, () => ({
+    handIn: attach,
+    handInNow: (files: Picked[]) => {
+      if (busy || sending || archived) {
+        attach(files);
+        return false;
+      }
+      void send(files);
+      return true;
+    },
+  }));
 
-  const send = async () => {
-    const msg = text.trim();
-    if ((!msg && !attached.length) || archived || busy || sending) return;
+  /** extra：知识库页交资料框里刚交的文件；said：点的那句现成的话（输入框里写的留着） */
+  const send = async (extra: Picked[] = [], said?: string) => {
+    const msg = (said ?? text).trim();
+    const files = [...attached.map((a) => a.picked), ...extra];
+    if ((!msg && !files.length) || archived || busy || sending) return;
     setSending(true);
     // 发了话就回到最新的一条，看得到自己说的和它的回答
     stick.current = true;
     try {
       // 很长的一段（教案、讲稿）服务器会当一份文件交给它；说给正看着的这段会话（翻出来的以前那段也能接着说）
-      await sendMessage(
-        msg,
-        kbId,
-        file ?? null,
-        attached.map((a) => a.picked),
-        q.data ? q.data.session : undefined,
-        place,
-      );
-      setText('');
+      await sendMessage(msg, kbId, file ?? null, files, q.data ? q.data.session : undefined, place);
+      if (said === undefined) setText('');
       attached.forEach((a) => a.url && URL.revokeObjectURL(a.url));
       setAttached([]);
       qc.invalidateQueries({ queryKey: ['keeper-runs'] });
@@ -788,6 +797,28 @@ export const KeeperPanel = forwardRef<
             <div className="flex flex-col items-center gap-3 pt-[12vh] text-center">
               <AgentAvatar agent={TA} size={72} />
               <p className="text-[18px] font-semibold text-ink">{me?.name ? `${me.name}老师好，我是 CoT 助教` : '我是 CoT 助教'}</p>
+            </div>
+          )}
+          {/* 知识库页右边还没说过话：几句老师会说的话，点一下就发（从这个库现在的样子算出来的） */}
+          {!page && q.data && !runs.length && (
+            <div className="flex flex-col items-center gap-3 pt-[6vh] text-center">
+              <AgentAvatar agent={TA} size={56} />
+              <p className="text-[15px] leading-6 text-ink-2">{me?.name ? `${me.name}老师，` : ''}资料想怎么理，说一声就行</p>
+              {!!suggestions?.length && !archived && (
+                <div className="mt-2 flex w-full flex-col gap-2">
+                  {suggestions.map((s) => (
+                    <button
+                      key={s}
+                      type="button"
+                      disabled={busy || sending}
+                      onClick={() => send([], s)}
+                      className="w-full rounded-xl border border-line bg-surface px-3.5 py-2.5 text-left text-[14px] leading-[22px] text-ink shadow-xs transition-colors hover:border-brand/40 hover:bg-brand-soft/40 disabled:opacity-50"
+                    >
+                      {s}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           )}
           {q.error && (
@@ -903,7 +934,7 @@ export const KeeperPanel = forwardRef<
             ) : (
               <button
                 type="button"
-                onClick={send}
+                onClick={() => send()}
                 disabled={(!text.trim() && !attached.length) || busy || sending || archived}
                 aria-label="发送"
                 className="inline-flex size-9 shrink-0 items-center justify-center rounded-xl bg-brand text-white transition-colors hover:bg-brand-hover disabled:opacity-40"

@@ -11,6 +11,8 @@ export interface TreeFile {
   studentId?: number;
   path: string;
   text: boolean;
+  /** 原件在档案区的编号：图片原件拿它显示小图 */
+  sourceId?: string;
   /** 老师交的原件：名字、类型、哪天交的 */
   source?: { name: string; kind: string; createdAt: number };
 }
@@ -57,7 +59,8 @@ export interface Change {
   authorName: string;
   kind: 'teacher' | 'upload' | 'keeper' | 'tidy' | 'revert';
   status: ChangeStatus;
-  files: { path: string; deleted: boolean; added: boolean }[];
+  /** from：挪了位置的，原来在哪 */
+  files: { path: string; deleted: boolean; added: boolean; from?: string }[];
   commit: string | null;
   runId: number | null;
   reverts: number | null;
@@ -206,7 +209,7 @@ export const treeQuery = (cid: number) =>
     queryFn: () => get<{ files: TreeFile[] }>(`/knowledge/${cid}/kb/tree`),
   });
 export const useTree = (cid: number) => useQuery(treeQuery(cid));
-const fileQuery = (cid: number, path: string | null) =>
+export const fileQuery = (cid: number, path: string | null) =>
   queryOptions({
     queryKey: ['kb-file', cid, path],
     queryFn: () => get<FileData>(`/knowledge/${cid}/kb/file?path=${encodeURIComponent(path!)}`),
@@ -246,7 +249,7 @@ export const useTaSessions = (enabled: boolean) =>
     queryFn: () => get<{ sessions: { id: number | null; title: string; createdAt: number; updatedAt: number }[]; current: number | null }>('/keeper/sessions'),
     enabled,
   });
-const changesQuery = (cid: number, status?: 'pending') =>
+export const changesQuery = (cid: number, status?: 'pending') =>
   queryOptions({
     queryKey: ['kb-changes', cid, status || 'all'],
     queryFn: () => get<{ changes: Change[] }>(`/knowledge/${cid}/kb/changes${status ? '?status=pending' : ''}`),

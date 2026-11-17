@@ -21,8 +21,8 @@ export function useStudents(id: number, enabled = true) {
     enabled,
   });
 }
-/** 最外层每个知识库那一格右上角的「⋯」：改名、删除（班级知识库另有名单和封存） */
-export function KnowledgeTools({ kb }: { kb: KnowledgeBase }) {
+/** 知识库名字旁边的「⋯」：改名、删除（班级知识库另有名单和封存）；在库里面删了，onDeleted 带回最外层 */
+export function KnowledgeTools({ kb, onDeleted }: { kb: KnowledgeBase; onDeleted?: () => void }) {
   const navigate = useNavigate();
   const qc = useQueryClient(),
     confirm = useConfirm(),
@@ -59,6 +59,7 @@ export function KnowledgeTools({ kb }: { kb: KnowledgeBase }) {
     try {
       // 删完留在最外层，那一格消失
       await api(`/knowledge/${kb.id}`, { method: 'DELETE' });
+      onDeleted?.();
       await qc.invalidateQueries({ queryKey: ['knowledge-bases'] });
       toast.success('已删除');
     } catch (e) {
