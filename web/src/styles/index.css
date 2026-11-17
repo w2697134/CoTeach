@@ -17,7 +17,7 @@
   --c-border-strong: #d2d6e2;
   --c-text: #0f172a;
   --c-text-2: #475569;
-  --c-text-3: #8a94a8;
+  --c-text-3: #687185;
   --c-primary: #4f46e5;
   --c-primary-hover: #4338ca;
   --c-primary-soft: #eef0ff;
@@ -83,7 +83,7 @@
   --c-border-strong: #313a50;
   --c-text: #e8ebf4;
   --c-text-2: #a6aec3;
-  --c-text-3: #6d768c;
+  --c-text-3: #8a93a8;
   --c-primary: #7b7ff5;
   --c-primary-hover: #9194fa;
   --c-primary-soft: rgba(123, 127, 245, 0.14);
@@ -309,6 +309,8 @@
   word-break: break-word;
   overflow-wrap: anywhere;
 }
+/* 跟助教对话里它说的话：字 15px，一行 44 个字左右 */
+.md.md-chat { font-size: 15px; max-width: 44em; }
 .md > :first-child { margin-top: 0; }
 .md > :last-child { margin-bottom: 0; }
 .md p { margin: 0.6em 0; }

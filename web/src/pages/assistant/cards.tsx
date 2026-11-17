@@ -64,7 +64,7 @@ export function ActionCard({ data, status }: { data: ActionData; status?: 'done'
           {undone ? <Undo2 className="size-3.5" /> : <Check className="size-3.5" />}
         </span>
         <div className="min-w-0 flex-1">
-          <p className={cn('break-words text-[14px] font-medium leading-snug', undone ? 'text-ink-3 line-through' : 'text-ink')}>{data.title}</p>
+          <p className={cn('break-words text-[15px] font-medium leading-snug', undone ? 'text-ink-3 line-through' : 'text-ink')}>{data.title}</p>
           {!undone && (data.lines || []).filter(Boolean).map((l, i) => <CardLine key={i} text={l} />)}
         </div>
         {undone && <Badge tone="gray">已撤回</Badge>}
@@ -134,12 +134,12 @@ export function ActionCard({ data, status }: { data: ActionData; status?: 'done'
 function CardLine({ text }: { text: string }) {
   const [open, setOpen] = useState(false);
   const long = text.length > 90 || text.includes('\n');
-  if (!long) return <p className="mt-0.5 whitespace-pre-wrap break-words text-[13px] leading-relaxed text-ink-3">{text}</p>;
+  if (!long) return <p className="mt-0.5 whitespace-pre-wrap break-words text-[14px] leading-relaxed text-ink-2">{text}</p>;
   if (open)
     return (
-      <div className="mt-1 rounded-lg bg-surface-2 px-3 py-2 text-[13.5px] leading-relaxed text-ink-2">
+      <div className="mt-1 rounded-lg bg-surface-2 px-3 py-2 text-[14px] leading-relaxed text-ink-2">
         <Markdown compact>{text}</Markdown>
-        <button type="button" className="mt-1 text-[12.5px] text-brand-ink hover:underline" onClick={() => setOpen(false)}>
+        <button type="button" className="mt-1 text-[13px] text-brand-ink hover:underline" onClick={() => setOpen(false)}>
           收起
         </button>
       </div>
@@ -149,9 +149,9 @@ function CardLine({ text }: { text: string }) {
     .replace(/^#+\s*/gm, '')
     .replace(/\s*\n\s*/g, ' ');
   return (
-    <p className="mt-0.5 text-[13px] leading-relaxed text-ink-3">
+    <p className="mt-0.5 text-[14px] leading-relaxed text-ink-2">
       <span className="line-clamp-2 break-words">{plain}</span>
-      <button type="button" className="text-[12.5px] text-brand-ink hover:underline" onClick={() => setOpen(true)}>
+      <button type="button" className="text-[13px] text-brand-ink hover:underline" onClick={() => setOpen(true)}>
         展开
       </button>
     </p>
@@ -163,10 +163,10 @@ function Question({ text, big }: { text: string; big: boolean }) {
   const [open, setOpen] = useState(false);
   const long = text.length > 80;
   return (
-    <div className={cn('break-words text-ink', big ? 'text-[15px] leading-relaxed' : 'text-[14px] font-medium leading-snug')}>
+    <div className={cn('break-words text-ink', big ? 'max-w-[44em] text-[15px] leading-[1.75]' : 'max-w-[44em] text-[15px] font-medium leading-snug')}>
       <p className={cn('whitespace-pre-wrap', long && !open && 'line-clamp-3')}>{text}</p>
       {long && (
-        <button type="button" className="text-[12.5px] font-normal text-brand-ink hover:underline" onClick={() => setOpen(!open)}>
+        <button type="button" className="text-[13px] font-normal text-brand-ink hover:underline" onClick={() => setOpen(!open)}>
           {open ? '收起' : '展开'}
         </button>
       )}
@@ -204,7 +204,7 @@ export function AskCard({ runId, data, live }: { runId: number; data: AskData; l
     const said = data.answered.filter((x) => x.a && x.a !== '（没选）');
     if (!said.length) return null;
     return (
-      <div className="space-y-0.5 text-[13px] leading-relaxed text-ink-3">
+      <div className="space-y-0.5 text-[14px] leading-relaxed text-ink-3">
         {said.map((x, i) => (
           <p key={i} className="flex items-start gap-1.5" title={x.q}>
             <Check className="mt-[3px] size-3.5 shrink-0 text-ok" />
@@ -245,7 +245,7 @@ export function AskCard({ runId, data, live }: { runId: number; data: AskData; l
         <div className="mb-2 flex items-center gap-2.5">
           <Avatar name={from.student} seed={from.sid ?? from.student} size={30} />
           <p className="min-w-0 flex-1 truncate leading-tight">
-            <span className="text-[14.5px] font-medium text-ink">{from.student}</span>
+            <span className="text-[15px] font-medium text-ink">{from.student}</span>
             <span className="ml-2 text-[13px] text-ink-3">{from.className}</span>
           </p>
           {!!from.classId && !!from.sid && (
@@ -256,10 +256,10 @@ export function AskCard({ runId, data, live }: { runId: number; data: AskData; l
         </div>
       )}
       {/* 学生自己的原话：下面的问题只写要老师定什么 */}
-      {from?.asked && <p className="mb-2 line-clamp-3 border-l-2 border-line-strong pl-2.5 text-[13.5px] leading-relaxed text-ink-3">{from.asked}</p>}
+      {from?.asked && <p className="mb-2 line-clamp-3 border-l-2 border-line-strong pl-2.5 text-[14px] leading-relaxed text-ink-2">{from.asked}</p>}
       {/* 助教自己提议分专门助手的：上面一行说是助教的提议，问题下面一行小字写提议的名字和管什么 */}
       {suggest && (
-        <p className="mb-1.5 flex items-center gap-1.5 text-[12.5px] text-ink-3">
+        <p className="mb-1.5 flex items-center gap-1.5 text-[13px] text-ink-3">
           <Users className="size-3.5 shrink-0" />
           助教的提议
         </p>
@@ -268,7 +268,7 @@ export function AskCard({ runId, data, live }: { runId: number; data: AskData; l
         <div key={i} className={i ? 'mt-3.5' : ''}>
           <Question text={q.question} big={!!from} />
           {suggest && i === 0 && (
-            <p className="mt-1 break-words text-[13px] leading-relaxed text-ink-3">
+            <p className="mt-1 break-words text-[14px] leading-relaxed text-ink-3">
               <span className="text-ink-2">{suggest.name}</span> · {suggest.duty}
             </p>
           )}
@@ -285,7 +285,7 @@ export function AskCard({ runId, data, live }: { runId: number; data: AskData; l
                       disabled={busy}
                       onClick={() => choose(i, o, q.multiple)}
                       className={cn(
-                        'flex w-full items-start gap-2.5 px-3 py-2 text-left text-[13.5px] leading-snug transition-colors disabled:opacity-60',
+                        'flex w-full items-start gap-2.5 px-3 py-2 text-left text-[14px] leading-snug transition-colors disabled:opacity-60',
                         k > 0 && 'border-t border-line',
                         on ? 'bg-brand-soft text-brand-ink' : 'text-ink-2 hover:bg-surface-2 hover:text-ink',
                       )}
@@ -307,7 +307,7 @@ export function AskCard({ runId, data, live }: { runId: number; data: AskData; l
                       disabled={busy}
                       onClick={() => choose(i, o, q.multiple)}
                       className={cn(
-                        'rounded-full border px-3 py-1 text-left text-[13px] leading-snug transition-colors disabled:opacity-60',
+                        'rounded-full border px-3 py-1 text-left text-[14px] leading-snug transition-colors disabled:opacity-60',
                         on ? 'border-brand bg-brand-soft text-brand-ink' : 'border-line-strong text-ink-2 hover:border-brand/50 hover:text-ink',
                       )}
                     >

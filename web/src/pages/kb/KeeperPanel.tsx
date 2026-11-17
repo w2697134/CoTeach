@@ -428,7 +428,7 @@ function TaRunBlock({
           {/* 助教说的话不套气泡，跟 ChatGPT、Claude 一样直接是字；只有要老师处理的卡片带框 */}
           {!running && run.reply && (
             <div className="max-w-full text-[15px] leading-relaxed text-ink">
-              <Markdown compact>{plainText(run.reply)}</Markdown>
+              <Markdown compact className="md-chat">{plainText(run.reply)}</Markdown>
             </div>
           )}
           {cards.map((e) => {
