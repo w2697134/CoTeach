@@ -219,7 +219,7 @@ export async function uploadItems(
  * 跟整理助手说一句话，可以带文件（像聊天发附件）：先登记，马上回来（对话里就出现这句话和带的文件），
  * 文件在后台分块上传；文件读完整理助手才开始看。
  */
-export async function sendMessage(message: string, kbId: number | null, file: string | null, picked: Picked[], session?: number | null) {
+export async function sendMessage(message: string, kbId: number | null, file: string | null, picked: Picked[], session?: number | null, place?: 'kb') {
   const r = await post<{
     runId?: number;
     intake?: Intake;
@@ -232,6 +232,8 @@ export async function sendMessage(message: string, kbId: number | null, file: st
     files: picked.map((p) => ({ name: p.path, size: p.file.size })),
     // 跟 CoT 助教的哪段会话说（不传是现在这段）
     ...(session !== undefined ? { session } : {}),
+    // 在知识库页右边说的：知识库页只摆这些
+    ...(place ? { place } : {}),
   });
   if (r.intake && r.uploads?.length)
     void uploadItems(r.intake.kbId, r.intake.id, r.uploads, picked, r.chunkSize || 0).catch((err) => toast.fromError(err));

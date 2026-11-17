@@ -12,7 +12,7 @@ export interface StepResult {
   reasoning?: string;
 }
 /** 谁在调：老师的助教（ta）、学生的学伴（stu）、替老师回学伴和写资料包的助教（helper）、批作业写讲评的助教（grader）、助教分出来的专门助手（specialist） */
-export type Agent = 'ta' | 'stu' | 'helper' | 'grader' | 'specialist';
+export type Agent = 'ta' | 'stu' | 'helper' | 'grader' | 'specialist' | 'prep';
 export type ModelStep = (o: {
   agent: Agent;
   messages: Msg[];
@@ -28,13 +28,13 @@ export type ModelStep = (o: {
  * 想不想、想多深。
  * DeepSeek 只有 low / high / max 三档，它把 medium 当 high 算，所以默认 high；各自的设置项可改（off 是不想）。
  */
-const THINK_KEY: Record<Agent, string> = { ta: 'ta_think', stu: 'stu_think', helper: 'helper_think', grader: 'grader_think', specialist: 'specialist_think' };
+const THINK_KEY: Record<Agent, string> = { ta: 'ta_think', stu: 'stu_think', helper: 'helper_think', grader: 'grader_think', specialist: 'specialist_think', prep: 'prep_think' };
 export const thinkOf = (agent: Agent) => getSetting<'off' | Effort>(THINK_KEY[agent], 'high');
 /**
  * 主模型（Gemini）多久没动静就换 DeepSeek：跟人对话的等一分钟，批作业、写讲评这种后台的活等五分钟。
  * Gemini 接口只有一个号、同时最多两个请求，还跟别的项目共用，忙的时候要排队。
  */
-const WAIT_MS: Record<Agent, number> = { ta: 60_000, stu: 60_000, helper: 90_000, grader: 300_000, specialist: 90_000 };
+const WAIT_MS: Record<Agent, number> = { ta: 60_000, stu: 60_000, helper: 90_000, grader: 300_000, specialist: 90_000, prep: 120_000 };
 
 const deepseekStep: ModelStep = async (o) => {
   let text = '';

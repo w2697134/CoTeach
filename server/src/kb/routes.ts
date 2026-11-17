@@ -827,9 +827,11 @@ function sessionParam(c: Context<AppEnv>, uid: number): number | null {
 keeperRoutes.get('/runs', (c) => {
   const u = teacher(c);
   const session = sessionParam(c, u.id);
+  // 知识库页右边（place=kb）：只摆在知识库页说的、挂在某个知识库上的；学生来问、布置作业这些只在助教页
+  const kbOnly = c.req.query('place') === 'kb' ? "AND (place='kb' OR kb_id IS NOT NULL) AND kind NOT IN ('student_ask','suggest')" : '';
   return c.json({
     runs: db
-      .all<any>("SELECT * FROM kb_runs WHERE teacher_id=? AND agent='ta' AND parent_id IS NULL AND session_id IS ? ORDER BY id DESC LIMIT 100", u.id, session)
+      .all<any>(`SELECT * FROM kb_runs WHERE teacher_id=? AND agent='ta' AND parent_id IS NULL AND session_id IS ? ${kbOnly} ORDER BY id DESC LIMIT 100`, u.id, session)
       .reverse()
       .map(threadRun),
     session,
@@ -864,13 +866,15 @@ keeperRoutes.post('/runs', async (c) => {
       kbId: z.number().int().positive().nullable().optional(),
       file: z.string().max(400).nullable().optional(),
       session: z.number().int().positive().nullable().optional(),
+      place: z.enum(['kb']).optional(),
     }),
   );
   const kbId = d.kbId ?? null;
   if (kbId !== null) ownKb(u, kbId);
+  const place = d.place ?? null;
   // 很长的一段（教案、讲稿、整章内容）直接贴过来：当成这句话带的一份文件交给助教
-  if (d.message.length > LONG_PASTE) return c.json(await taFileTurn(u, kbId, '', d.file ?? null, [], d.message, d.session));
-  return c.json({ runId: startTaTurn(u, { message: d.message, kbId, file: d.file ?? null, session: d.session }) });
+  if (d.message.length > LONG_PASTE) return c.json(await taFileTurn(u, kbId, '', d.file ?? null, [], d.message, d.session, place));
+  return c.json({ runId: startTaTurn(u, { message: d.message, kbId, file: d.file ?? null, session: d.session, place }) });
 });
 /** 这句话带文件：先登记这一轮和要传的文件，页面接着分块上传，读完交给助教 */
 async function taFileTurn(
@@ -881,8 +885,9 @@ async function taFileTurn(
   files: { name: string; size: number }[],
   pasted: string | null,
   session?: number | null,
+  place: string | null = null,
 ) {
-  const runId = openTaFileTurn(u, { message, kbId, file, session });
+  const runId = openTaFileTurn(u, { message, kbId, file, session, place });
   try {
     const created = createIntake(kbId ?? (await landingKb(u.id)), u, { files, text: pasted, runId });
     attachIntake(runId, created.intake.id);
@@ -933,19 +938,21 @@ keeperRoutes.post('/messages', async (c) => {
       file: z.string().max(400).nullable().optional(),
       files: z.array(z.object({ name: z.string().min(1).max(1000), size: z.number().int().min(0) })).max(1000).optional(),
       session: z.number().int().positive().nullable().optional(),
+      place: z.enum(['kb']).optional(),
     }),
   );
   const kbId = d.kbId ?? null;
   if (kbId !== null) ownKb(u, kbId);
+  const place = d.place ?? null;
   const files = d.files || [];
   let message = (d.message || '').trim();
   const pasted = message.length > LONG_PASTE ? message : null;
   if (pasted) message = '';
   if (!files.length && !pasted) {
     if (!message) throw bad('写点什么，或者带上文件');
-    return c.json({ runId: startTaTurn(u, { message, kbId, file: d.file ?? null, session: d.session }) });
+    return c.json({ runId: startTaTurn(u, { message, kbId, file: d.file ?? null, session: d.session, place }) });
   }
-  return c.json(await taFileTurn(u, kbId, message, d.file ?? null, files, pasted, d.session));
+  return c.json(await taFileTurn(u, kbId, message, d.file ?? null, files, pasted, d.session, place));
 });
 /** 让它停下：助教这一轮（或者一张没答的问题卡片），或者后台整理助手的一件活（排着队的直接取消） */
 keeperRoutes.post('/runs/:rid/cancel', (c) => {

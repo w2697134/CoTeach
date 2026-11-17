@@ -632,8 +632,10 @@ export const KeeperPanel = forwardRef<
   }
 >(function KeeperPanel({ kbId, file, onOpenChange, onOpenChanges, variant = 'panel' }, ref) {
   const page = variant === 'page';
+  // 知识库页右边那一栏只摆在知识库页说的事（学生来问、布置作业这些只在助教页）
+  const place = page ? undefined : ('kb' as const);
   const me = useAuth((s) => s.user);
-  const q = useKeeperRuns();
+  const q = useKeeperRuns(place);
   const live = useKeeperStream();
   const list = useKnowledgeBases().data?.knowledgeBases || [];
   const current = kbId === null ? null : list.find((k) => k.id === kbId);
@@ -649,8 +651,8 @@ export const KeeperPanel = forwardRef<
   const activeId = q.data?.activeRunId ?? null;
   const activeRun = runs.find((r) => r.status === 'running');
   const busy = !!activeId || !!activeRun;
-  // 学生通过学伴来问、在等老师回的：卡片可能在以前的会话里，顶上提一句
-  const students = q.data?.waitingStudents || 0;
+  // 学生通过学伴来问、在等老师回的：卡片可能在以前的会话里，顶上提一句（只在助教页）
+  const students = page ? q.data?.waitingStudents || 0 : 0;
   const status =
     statusLine(activeRun, pending, !!archived) ||
     (students ? `${students} 个学生在等你回` : '') ||
@@ -723,6 +725,7 @@ export const KeeperPanel = forwardRef<
         file ?? null,
         attached.map((a) => a.picked),
         q.data ? q.data.session : undefined,
+        place,
       );
       setText('');
       attached.forEach((a) => a.url && URL.revokeObjectURL(a.url));

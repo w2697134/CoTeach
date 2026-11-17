@@ -48,6 +48,7 @@ const Assistant = page(() => import('./pages/assistant/AssistantPage'), 'Assista
 const Buddy = page(() => import('./pages/cot/BuddyPage'), 'BuddyPage');
 const Mistakes = page(() => import('./pages/cot/MistakesPage'), 'MistakesPage');
 const Prep = page(() => import('./pages/prep/PrepPage'), 'PrepPage');
+const Lesson = page(() => import('./pages/prep/LessonPage'), 'LessonPage');
 const StudentChat = page(() => import('./pages/classes/StudentChat'), 'StudentChatPage');
 
 function S({ children }: { children: ReactNode }) {
@@ -159,6 +160,14 @@ export const router = createBrowserRouter([
         element: (
           <S>
             <TeacherOnly><Prep /></TeacherOnly>
+          </S>
+        ),
+      },
+      {
+        path: 'prep/:id',
+        element: (
+          <S>
+            <TeacherOnly><Lesson /></TeacherOnly>
           </S>
         ),
       },

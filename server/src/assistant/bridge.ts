@@ -30,6 +30,8 @@ export interface StudentAskCard {
   sid?: number;
   question: string;
   draft: string;
+  /** 学生自己的原话（卡片上摆在问题上面，问题只写要老师定什么；2026-11-17） */
+  asked?: string;
 }
 
 interface AskRow {
@@ -183,7 +185,7 @@ function escalate(askId: number, e: { question: string; options: string[]; draft
     created_at: t,
   });
   const sid = db.value<number>('SELECT id FROM class_students WHERE class_id=? AND user_id=?', ask.class_id, ask.student_id) ?? undefined;
-  const card: StudentAskCard = { askId, student, className: k.name, classId: k.id, sid, question: e.question || ask.question, draft: e.draft };
+  const card: StudentAskCard = { askId, student, className: k.name, classId: k.id, sid, question: e.question || ask.question, draft: e.draft, asked: askedAs(ask) };
   record({ teacherId: k.teacher_id, runId, kbId: null }, 'ask', {
     toolCallId: '',
     questions: [{ question: card.question, options: e.options.length ? e.options : ['可以', '不行'], multiple: false }],
@@ -219,7 +221,7 @@ ${ask.question}`,
   const question = r.escalation.question || ask.question;
   const sid = db.value<number>('SELECT id FROM class_students WHERE class_id=? AND user_id=?', ask.class_id, ask.student_id) ?? undefined;
   data.questions = [{ question, options: r.escalation.options.length ? r.escalation.options : ['可以', '不行'], multiple: false }];
-  data.from = { askId: ask.id, student, className: k.name, classId: k.id, sid, question, draft: r.escalation.draft };
+  data.from = { askId: ask.id, student, className: k.name, classId: k.id, sid, question, draft: r.escalation.draft, asked: askedAs(ask) };
   db.update('kb_events', ev.id, { data });
   publishRun(null, ask.card_run_id);
   return true;

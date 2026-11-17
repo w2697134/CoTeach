@@ -1,299 +1,189 @@
 import { useEffect, useState } from 'react';
-import { useSearchParams } from 'react-router';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Download, Loader2, Plus } from 'lucide-react';
+import { Link, useNavigate, useSearchParams } from 'react-router';
+import { useQueryClient } from '@tanstack/react-query';
+import { Loader2, Sparkles } from 'lucide-react';
 import { useCrumbs } from '../../components/layout/Crumbs';
-import { Markdown } from '../../components/Markdown';
-import { get, post } from '../../lib/api';
+import { post } from '../../lib/api';
 import { toast } from '../../lib/store';
-import { Button, Card, ErrorState, Input, Modal, Skeleton, Tabs, cn } from '../../components/ui';
+import { Button, ErrorState, Segmented, Select, Skeleton, Textarea, cn } from '../../components/ui';
 import { useClasses } from '../classes/data';
-import { EmptyArt, themeOf } from '../classes/look';
+import { EmptyArt } from '../classes/look';
 import { when } from '../classes/homework';
-
-interface PlanStep {
-  name: string;
-  minutes: number | null;
-  content: string;
-}
-interface PlanWrite {
-  title: string;
-  goals: string[];
-  focus: string;
-  hard: string;
-  review: string;
-  steps: PlanStep[];
-  practice: string;
-  homework: string;
-  sources: string[];
-}
-interface Plan {
-  id: number;
-  classId: number;
-  className: string;
-  topic: string | null;
-  status: 'writing' | 'ready' | 'error';
-  write: PlanWrite | null;
-  error: string | null;
-  createdAt: number;
-  updatedAt: number;
-}
-
-const usePlans = (classId: number | null) =>
-  useQuery({
-    queryKey: ['prep', classId],
-    enabled: !!classId,
-    queryFn: () => get<{ plans: Plan[] }>(`/prep?class=${classId}`),
-    refetchInterval: (q) => (q.state.data?.plans.some((p) => p.status === 'writing') ? 4000 : false),
-  });
+import { SlideThumb } from './Slides';
+import { doingNow, useLessons, type LessonCard } from './data';
 
 /**
- * 备课（2026-11-16，老师左侧栏）：上面挑班，「备下节课」（可以说这节讲什么）；助教照知识库里的教案、课件和这个班的学情写一份教案。
- * 最新的一份整篇摆出来，像一页教案；以前备的列在下面，点开看；能下载 Word。
+ * 备课（2026-11-17 重做）：上面说一句备哪节（挑班、多长），助教几手分头做出一整套；下面是备过的课，一节一张卡片，封面是课件第一页。
  */
 export function PrepPage() {
   useCrumbs([{ label: '备课' }]);
-  const qc = useQueryClient();
+  const navigate = useNavigate();
   const classes = (useClasses().data?.classes || []).filter((k) => !k.archived);
+  const q = useLessons();
   const [params, setParams] = useSearchParams();
-  const classId = Number(params.get('class')) || classes[0]?.id || null;
-  const plans = usePlans(classId);
-  const list = plans.data?.plans || [];
-  const shownId = Number(params.get('plan')) || list.find((p) => p.status !== 'error')?.id || list[0]?.id;
-  const shown = list.find((p) => p.id === shownId);
-  const [asking, setAsking] = useState(false);
-  const [topic, setTopic] = useState('');
-  const [busy, setBusy] = useState(false);
-  useEffect(() => setTopic(''), [asking]);
-  const start = async () => {
-    if (!classId) return;
-    setBusy(true);
-    try {
-      const r = await post<{ id: number }>('/prep', { classId, topic: topic.trim() || null });
-      setAsking(false);
-      setParams({ class: String(classId), plan: String(r.id) }, { replace: true });
-      await qc.invalidateQueries({ queryKey: ['prep', classId] });
-    } catch (e) {
-      toast.fromError(e);
-    } finally {
-      setBusy(false);
-    }
-  };
-  if (!classes.length)
-    return (
-      <Card padded={false}>
-        <EmptyArt src="/illustrations/classes/empty-classes.webp" title="还没有班级" />
-      </Card>
-    );
-  const theme = themeOf(classId || 0);
+  const only = Number(params.get('class')) || 0;
+  const all = q.data?.lessons || [];
+  // 只列备过课的班，没备过的班不占位置
+  const used = classes.filter((k) => all.some((l) => l.classId === k.id));
+  const shown = only ? all.filter((l) => l.classId === only) : all;
+
   return (
-    <div className="space-y-5">
-      <Tabs
-        variant="page"
-        value={String(classId)}
-        onChange={(v) => setParams({ class: v }, { replace: true })}
-        items={classes.map((k) => ({ value: String(k.id), label: k.name }))}
-        end={
-          <Button size="sm" variant="primary" icon={<Plus className="size-4" />} onClick={() => setAsking(true)}>
-            备下节课
-          </Button>
-        }
-      />
-      {plans.error ? (
-        <ErrorState error={plans.error} onRetry={() => plans.refetch()} />
-      ) : !plans.data ? (
-        <Skeleton className="h-72 rounded-lg" />
-      ) : !list.length ? (
-        <Card padded={false}>
-          <EmptyArt
-            src="/illustrations/entry-homework-v1.webp"
-            title="这个班还没备过课"
-            action={
-              <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setAsking(true)}>
-                备下节课
-              </Button>
-            }
-          />
-        </Card>
-      ) : (
-        <>
-          {shown && <PlanView p={shown} ink={theme.ink} />}
-          {list.length > 1 && (
-            <Card padded={false}>
-              <ul>
-                {list.map((p) => (
-                  <li key={p.id} className="border-b border-line last:border-0">
-                    <button
-                      type="button"
-                      onClick={() => setParams({ class: String(p.classId), plan: String(p.id) }, { replace: true })}
-                      className={cn('flex w-full items-center gap-3 px-5 py-3 text-left transition-colors hover:bg-surface-2 sm:px-6', p.id === shown?.id && 'bg-surface-2')}
-                    >
-                      <span className="min-w-0 flex-1 truncate text-[15px] text-ink">
-                        {p.write?.title || p.topic || (p.status === 'writing' ? '在备' : '没备成')}
-                      </span>
-                      <span className="shrink-0 text-[13px] text-ink-3">{when(p.createdAt)}</span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </Card>
+    <div className="mx-auto w-full max-w-6xl space-y-8 px-4 py-5 sm:px-6 sm:py-7">
+      <Composer classes={classes} defaultClass={only || all[0]?.classId || classes[0]?.id || 0} onStarted={(id) => navigate(`/prep/${id}`)} />
+      <section>
+        <div className="mb-4 flex items-center gap-3">
+          <h2 className="text-[17px] font-semibold text-ink">备好的课</h2>
+          {used.length > 1 && (
+            <Select
+              sizeVariant="sm"
+              className="ml-auto w-auto"
+              value={only}
+              onChange={(e) => setParams(Number(e.target.value) ? { class: e.target.value } : {})}
+              aria-label="哪个班"
+            >
+              <option value={0}>全部班级</option>
+              {used.map((k) => (
+                <option key={k.id} value={k.id}>
+                  {k.name}
+                </option>
+              ))}
+            </Select>
           )}
-        </>
-      )}
-      <Modal
-        open={asking}
-        onClose={() => !busy && setAsking(false)}
-        title="备下节课"
-        footer={
-          <>
-            <Button disabled={busy} onClick={() => setAsking(false)}>
-              取消
-            </Button>
-            <Button variant="primary" loading={busy} onClick={start}>
-              开始
-            </Button>
-          </>
-        }
-      >
-        <label className="block text-[14px] text-ink">
-          这节课讲什么
-          <Input
-            autoFocus
-            className="mt-1.5"
-            value={topic}
-            maxLength={200}
-            placeholder="可以不填，照授课计划和进度备下一节"
-            onChange={(e) => setTopic(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && !e.nativeEvent.isComposing && start()}
-          />
-        </label>
-      </Modal>
+        </div>
+        {q.isError ? (
+          <ErrorState error={q.error} onRetry={() => q.refetch()} />
+        ) : q.isLoading ? (
+          <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            {[0, 1, 2, 3].map((i) => (
+              <Skeleton key={i} className="aspect-[4/3] rounded-xl" />
+            ))}
+          </div>
+        ) : shown.length ? (
+          <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            {shown.map((l) => (
+              <LessonTile key={l.id} l={l} />
+            ))}
+          </div>
+        ) : (
+          <EmptyArt src="/agents/lesson.webp" title="还没有备过课" />
+        )}
+      </section>
     </div>
   );
 }
 
-function Section({ title, ink, children }: { title: string; ink: string; children: React.ReactNode }) {
+/** 顶上一块：插图在右边淡进底色，左边一个输入框，说这节讲什么、挑班、多长 */
+function Composer({ classes, defaultClass, onStarted }: { classes: { id: number; name: string }[]; defaultClass: number; onStarted: (id: number) => void }) {
+  const qc = useQueryClient();
+  const [text, setText] = useState('');
+  const [classId, setClassId] = useState(defaultClass);
+  const [minutes, setMinutes] = useState(90);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    if (!classId && defaultClass) setClassId(defaultClass);
+  }, [classId, defaultClass]);
+  const start = async () => {
+    if (!classId || busy) return;
+    setBusy(true);
+    try {
+      const r = await post<{ id: number }>('/prep', { classId, request: text.trim() || null, minutes });
+      qc.invalidateQueries({ queryKey: ['lessons'] });
+      onStarted(r.id);
+    } catch (e) {
+      toast.fromError(e);
+      setBusy(false);
+    }
+  };
   return (
-    <section className="mt-6">
-      <h3 className="mb-2 flex items-center gap-2 text-[15.5px] font-semibold text-ink">
-        <span className="h-4 w-1 rounded-full" style={{ backgroundColor: ink }} />
-        {title}
-      </h3>
-      {children}
-    </section>
+    <div
+      className="relative overflow-hidden rounded-2xl border border-line"
+      style={{ background: 'linear-gradient(100deg, var(--c-primary-soft) 0%, var(--c-surface) 78%)' }}
+    >
+      <img
+        src="/illustrations/prep-banner.webp"
+        alt=""
+        draggable={false}
+        className="pointer-events-none absolute inset-y-0 right-0 h-full w-auto max-w-none select-none max-lg:opacity-25"
+        style={{ maskImage: 'linear-gradient(to right, transparent, #000 42%)', WebkitMaskImage: 'linear-gradient(to right, transparent, #000 42%)' }}
+      />
+      <div className="relative px-4 py-6 sm:px-8 sm:py-9">
+        <div className="w-full max-w-[560px] rounded-xl bg-surface p-3 shadow-md ring-1 ring-line">
+          <Textarea
+            autoGrow
+            maxRows={5}
+            value={text}
+            maxLength={500}
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && (e.ctrlKey || e.metaKey) && start()}
+            placeholder="这节课讲什么？不写就按进度备下一节"
+            className="min-h-[64px] resize-none border-0 bg-transparent px-1.5 text-[15px] shadow-none focus-visible:ring-0"
+          />
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <Select sizeVariant="sm" className="w-auto max-w-[14rem]" value={classId} onChange={(e) => setClassId(Number(e.target.value))} aria-label="给哪个班备">
+              {!classes.length && <option value={0}>还没有班级</option>}
+              {classes.map((k) => (
+                <option key={k.id} value={k.id}>
+                  {k.name}
+                </option>
+              ))}
+            </Select>
+            <Segmented
+              size="sm"
+              value={minutes}
+              onChange={setMinutes}
+              options={[
+                { value: 45, label: '45 分钟' },
+                { value: 90, label: '90 分钟' },
+              ]}
+            />
+            <Button className="ml-auto" variant="primary" icon={<Sparkles className="size-4" />} loading={busy} disabled={!classId} onClick={start}>
+              备课
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 
-/** 教案里的字：它写了加粗、代码这类记号就照样显示出来（不露出 ** 和 ` 这些符号），一行一段 */
-const lines = (s: string) => (
-  <div className="break-words text-[14.5px] leading-relaxed text-ink-2 [&_p+p]:mt-1 [&_p]:my-0">
-    <Markdown compact>{s.replace(/\n/g, '\n\n')}</Markdown>
-  </div>
-);
-
-/** 一份教案摆成一页：课题、目标、重点难点、开头补讲（学情）、教学过程、练习、作业、用到的资料 */
-function PlanView({ p, ink }: { p: Plan; ink: string }) {
-  if (p.status === 'writing')
-    return (
-      <Card className="flex items-center justify-center gap-2.5 py-16 text-[15px] text-ink-2">
-        <Loader2 className="size-5 animate-spin" style={{ color: ink }} />
-        助教在备课{p.topic ? `：${p.topic}` : ''}
-      </Card>
-    );
-  if (p.status === 'error' || !p.write)
-    return (
-      <Card className="py-10 text-center text-[15px] text-ink-2">
-        没备成{p.error ? `：${p.error}` : ''}
-      </Card>
-    );
-  const w = p.write;
-  const download = () => {
-    const a = document.createElement('a');
-    a.href = `/api/prep/${p.id}/docx`;
-    a.click();
-  };
+/** 一节课一张卡片：封面是课件第一页；还在备的蒙一层，写着在做哪一手 */
+function LessonTile({ l }: { l: LessonCard }) {
+  const making = l.making || l.status === 'making';
   return (
-    <Card padded={false} className="px-6 py-6 sm:px-10 sm:py-8">
-      <div className="flex flex-wrap items-start gap-3">
-        <div className="min-w-0 flex-1">
-          <h2 className="break-words text-[22px] font-semibold leading-snug text-ink">{w.title}</h2>
-          <p className="mt-1 text-[13.5px] text-ink-3">
-            {p.className} · {when(p.createdAt)}
-          </p>
-        </div>
-        <Button size="sm" icon={<Download className="size-4" />} onClick={download}>
-          下载 Word
-        </Button>
+    <Link
+      to={`/prep/${l.id}`}
+      className="group flex flex-col overflow-hidden rounded-xl border border-line bg-surface shadow-xs transition-all hover:-translate-y-0.5 hover:shadow-md"
+    >
+      <div className="relative aspect-video overflow-hidden border-b border-line bg-surface-2">
+        {l.cover ? (
+          <SlideThumb slide={l.cover.slide} theme={l.cover.theme} />
+        ) : (
+          <div className="flex h-full items-center justify-center bg-gradient-to-br from-brand-soft to-surface-2 px-5 text-center text-[15px] font-semibold text-brand-ink">
+            {l.title || l.request || '下一节课'}
+          </div>
+        )}
+        {making && (
+          <div className="absolute inset-0 flex items-center justify-center bg-surface/70">
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-surface px-3 py-1 text-[13px] text-brand-ink shadow-sm ring-1 ring-line">
+              <Loader2 className="size-3.5 animate-spin" />
+              {doingNow(l.lanes)}
+            </span>
+          </div>
+        )}
       </div>
-      {w.goals.length > 0 && (
-        <Section title="教学目标" ink={ink}>
-          <ol className="list-decimal space-y-1 pl-5 text-[14.5px] leading-relaxed text-ink-2">
-            {w.goals.map((g, i) => (
-              <li key={i} className="break-words [&_p]:my-0">
-                <Markdown compact>{g}</Markdown>
-              </li>
-            ))}
-          </ol>
-        </Section>
-      )}
-      {(w.focus || w.hard) && (
-        <div className="grid gap-x-8 sm:grid-cols-2">
-          {w.focus && (
-            <Section title="重点" ink={ink}>
-              {lines(w.focus)}
-            </Section>
-          )}
-          {w.hard && (
-            <Section title="难点" ink={ink}>
-              {lines(w.hard)}
-            </Section>
-          )}
+      <div className="flex flex-1 flex-col p-3.5">
+        <p className="line-clamp-2 text-[15px] font-medium leading-snug text-ink">{l.title || l.request || '下一节课'}</p>
+        <p className="mt-1 text-[12.5px] text-ink-3">
+          {l.className} · {when(l.updatedAt)}
+        </p>
+        <div className="mt-auto flex flex-wrap items-center gap-x-3 gap-y-1 pt-2.5 text-[12.5px] text-ink-3">
+          {l.counts.slides > 0 && <span>课件 {l.counts.slides} 页</span>}
+          {l.counts.practice > 0 && <span>练习 {l.counts.practice}</span>}
+          {l.counts.homework > 0 && <span>作业 {l.counts.homework}</span>}
+          {l.assignmentId && <span className="text-ok">已发作业</span>}
+          {l.status === 'error' && !making && <span className={cn('text-bad')}>没备完</span>}
         </div>
-      )}
-      {w.review && (
-        <Section title="开头补讲" ink={ink}>
-          <div className="rounded-lg px-4 py-3" style={{ backgroundColor: `${ink}12` }}>
-            {lines(w.review)}
-          </div>
-        </Section>
-      )}
-      {w.steps.length > 0 && (
-        <Section title="教学过程" ink={ink}>
-          <ol className="space-y-0">
-            {w.steps.map((s, i) => (
-              <li key={i} className="relative border-l-2 border-line pb-4 pl-5 last:pb-0">
-                <span className="absolute -left-[7px] top-1.5 size-3 rounded-full border-2 bg-surface" style={{ borderColor: ink }} />
-                <p className="flex flex-wrap items-baseline gap-x-2">
-                  <span className="text-[15px] font-medium text-ink">{s.name}</span>
-                  {s.minutes && <span className="text-[13px] text-ink-3">{s.minutes} 分钟</span>}
-                </p>
-                <div className="mt-1">{lines(s.content)}</div>
-              </li>
-            ))}
-          </ol>
-        </Section>
-      )}
-      {w.practice && (
-        <Section title="课堂练习" ink={ink}>
-          {lines(w.practice)}
-        </Section>
-      )}
-      {w.homework && (
-        <Section title="课后作业" ink={ink}>
-          {lines(w.homework)}
-        </Section>
-      )}
-      {w.sources.length > 0 && (
-        <Section title="用到的资料" ink={ink}>
-          <div className="flex flex-wrap gap-1.5">
-            {w.sources.map((s) => (
-              <span key={s} className="rounded-full bg-surface-3 px-2.5 py-0.5 text-[12.5px] text-ink-3">
-                {s.replace(/\.md$/i, '')}
-              </span>
-            ))}
-          </div>
-        </Section>
-      )}
-    </Card>
+      </div>
+    </Link>
   );
 }

@@ -140,7 +140,7 @@ export interface AskData {
   answered?: { q: string; a: string }[] | null;
   skipped?: boolean;
   /** 学生通过学伴来问、助教要老师拍板的（2026-11-16）：谁、哪个班；classId、sid（班里名单那一行）用来点开他跟学伴的对话 */
-  from?: { student: string; className: string; draft?: string; classId?: number; sid?: number };
+  from?: { student: string; className: string; draft?: string; classId?: number; sid?: number; asked?: string };
 }
 
 /**
@@ -155,30 +155,26 @@ export function AskCard({ runId, data, live }: { runId: number; data: AskData; l
   const [texts, setTexts] = useState<string[]>(() => qs.map(() => ''));
   const [busy, setBusy] = useState(false);
   const from = data.from;
-  if (data.answered?.length)
+  // 答过的收成一行，只写答了什么（问的什么鼠标停上去看）
+  if (data.answered?.length) {
+    const said = data.answered.filter((x) => x.a && x.a !== '（没选）');
+    if (!said.length) return null;
     return (
       <div className="space-y-0.5 text-[13px] leading-relaxed text-ink-3">
-        {from && (
-          <p>
-            {from.className} · {from.student}
-          </p>
-        )}
-        {data.answered.map((x, i) => (
-          <p key={i} className="flex items-start gap-1.5">
+        {said.map((x, i) => (
+          <p key={i} className="flex items-start gap-1.5" title={x.q}>
             <Check className="mt-[3px] size-3.5 shrink-0 text-ok" />
-            <span className="min-w-0">
-              {x.q} <span className="text-ink-2">{x.a}</span>
+            <span className="line-clamp-2 min-w-0">
+              {from ? `已回${from.student}：` : '你答：'}
+              <span className="text-ink-2">{x.a}</span>
             </span>
           </p>
         ))}
       </div>
     );
-  if (!live)
-    return (
-      <div className="rounded-xl border border-line bg-surface-2 px-3.5 py-2.5 text-[13px] text-ink-3">
-        {qs.map((q) => q.question).join(' ')}
-      </div>
-    );
+  }
+  // 没答就过去了的（老师接着说了别的）：不再摆
+  if (!live) return null;
   const send = async (p: string[][], t: string[]) => {
     setBusy(true);
     try {
@@ -215,6 +211,8 @@ export function AskCard({ runId, data, live }: { runId: number; data: AskData; l
           )}
         </div>
       )}
+      {/* 学生自己的原话：下面的问题只写要老师定什么 */}
+      {from?.asked && <p className="mb-2 line-clamp-3 border-l-2 border-line-strong pl-2.5 text-[13.5px] leading-relaxed text-ink-3">{from.asked}</p>}
       {qs.map((q, i) => (
         <div key={i} className={i ? 'mt-3.5' : ''}>
           <p className={cn('whitespace-pre-wrap break-words text-ink', from ? 'text-[15px] leading-relaxed' : 'text-[14px] font-medium leading-snug')}>{q.question}</p>

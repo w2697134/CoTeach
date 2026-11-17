@@ -7,6 +7,7 @@ import { recoverRuns } from './kb/keeper.js';
 import { recoverIntakes } from './kb/intake/service.js';
 import { recoverStuRuns } from './assistant/buddy.js';
 import { recoverSpecialistRuns } from './assistant/specialists.js';
+import { recoverLessons } from './prep/make.js';
 import { backfillPacks, recoverPackJobs } from './assistant/pack-jobs.js';
 import { recoverGrades } from './grading/jobs.js';
 import { recoverRubrics } from './grading/rubric.js';
@@ -23,6 +24,7 @@ await bootstrap();
 // 学伴、替老师回学伴的助教做到一半的先标好（整理助手那边的 recoverRuns 会把所有在跑的标成中断，这里换成它们自己的说法）
 recoverStuRuns();
 recoverSpecialistRuns();
+recoverLessons();
 recoverRuns();
 recoverIntakes();
 recoverPackJobs();

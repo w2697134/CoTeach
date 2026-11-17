@@ -23,7 +23,7 @@ import { callApi } from '../assistant/api.js';
 import { startStuTurn } from '../assistant/buddy.js';
 import { rewriteCard } from '../assistant/bridge.js';
 import { writeInsights } from '../grading/insights.js';
-import { startPlan } from '../grading/prep.js';
+import { startLesson } from '../prep/make.js';
 import { packOnHomework } from '../assistant/pack-jobs.js';
 import { manifest, startingKb } from '../kb/repo.js';
 import { createChange, teacherAuthor } from '../kb/changes.js';
@@ -277,9 +277,9 @@ async function refreshDemo(classId: number, log: Log, steps: Step[] = STEPS) {
   }
   if (steps.includes('prep')) {
     const teacher = db.value<number>('SELECT teacher_id FROM classes WHERE id=?', classId)!;
-    const id = startPlan(classId, teacher, null);
-    for (let i = 0; i < 240 && db.value<string>('SELECT status FROM lesson_plans WHERE id=?', id) === 'writing'; i++) await wait(5000);
-    log(`备课：${db.value<string>('SELECT status FROM lesson_plans WHERE id=?', id)}`);
+    const id = startLesson(teacher, classId, null, 90);
+    for (let i = 0; i < 240 && db.value<string>('SELECT status FROM lessons WHERE id=?', id) === 'making'; i++) await wait(5000);
+    log(`备课：${db.value<string>('SELECT status FROM lessons WHERE id=?', id)}`);
   }
   log('演示班重来好了');
 }

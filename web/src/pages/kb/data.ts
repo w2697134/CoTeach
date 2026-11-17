@@ -225,15 +225,19 @@ export const useRuns = (cid: number) => useQuery(runsQuery(cid));
 export type SessionView = 'current' | number | null;
 export const useTaSession = create<{ view: SessionView; set: (v: SessionView) => void }>((set) => ({ view: 'current', set: (view) => set({ view }) }));
 /** 老师和 CoT 助教的一段会话：每一轮、干了什么、卡片 */
-export const keeperRunsQuery = (view: SessionView = 'current') =>
+/** place='kb'：知识库页右边那一栏，只要在知识库页说的、挂在知识库上的（学生来问、布置作业这些只在助教页） */
+export const keeperRunsQuery = (view: SessionView = 'current', place?: 'kb') =>
   queryOptions({
-    queryKey: ['keeper-runs', view],
-    queryFn: () =>
-      get<{ runs: Run[]; activeRunId: number | null; session: number | null; waitingStudents?: number }>(
-        `/keeper/runs${view === 'current' ? '' : view === null ? '?session=old' : `?session=${view}`}`,
-      ),
+    queryKey: ['keeper-runs', view, place ?? 'all'],
+    queryFn: () => {
+      const q = new URLSearchParams();
+      if (view !== 'current') q.set('session', view === null ? 'old' : String(view));
+      if (place) q.set('place', place);
+      const qs = q.toString();
+      return get<{ runs: Run[]; activeRunId: number | null; session: number | null; waitingStudents?: number }>(`/keeper/runs${qs ? `?${qs}` : ''}`);
+    },
   });
-export const useKeeperRuns = () => useQuery(keeperRunsQuery(useTaSession((s) => s.view)));
+export const useKeeperRuns = (place?: 'kb') => useQuery(keeperRunsQuery(useTaSession((s) => s.view), place));
 /** 会话列表：说过话的，新的在前，第一句话当标题 */
 export const useTaSessions = (enabled: boolean) =>
   useQuery({

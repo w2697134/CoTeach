@@ -681,3 +681,67 @@ CREATE TABLE specialists (
 CREATE INDEX idx_specialists_teacher ON specialists(teacher_id, retired_at);
 ALTER TABLE assignments ADD COLUMN specialist_id INTEGER REFERENCES specialists(id);
 `);
+
+// 在哪说的（2026-11-17）：老师在知识库页右边跟助教说的记 'kb'。知识库页只摆这些和挂在知识库上的，
+// 学生来问、布置作业这些只在助教页
+migrations.push(`
+ALTER TABLE kb_runs ADD COLUMN place TEXT;
+`);
+
+// 备课重做（2026-11-17）：一节课一份，学情、教案、课件、课堂练习、课后作业各存一栏（JSON），lanes 是助教几手各做到哪；
+// 每次改（老师在页面上改的、助教改的）留一版，撤回退到上一版；老师跟助教说着改的一句句记在 lesson_asks。
+// 以前备的教案（lesson_plans）搬过来，只有教案那一栏，页面上能补做课件和题目
+migrations.push(`
+CREATE TABLE lessons (
+  id INTEGER PRIMARY KEY,
+  teacher_id INTEGER NOT NULL REFERENCES users(id),
+  class_id INTEGER NOT NULL REFERENCES classes(id),
+  title TEXT,
+  request TEXT,
+  minutes INTEGER,
+  status TEXT NOT NULL,
+  brief TEXT,
+  plan TEXT,
+  deck TEXT,
+  practice TEXT,
+  homework TEXT,
+  lanes TEXT,
+  assignment_id INTEGER REFERENCES assignments(id),
+  error TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  deleted_at INTEGER
+);
+CREATE INDEX idx_lessons_teacher ON lessons(teacher_id, id);
+CREATE TABLE lesson_versions (
+  id INTEGER PRIMARY KEY,
+  lesson_id INTEGER NOT NULL REFERENCES lessons(id),
+  part TEXT NOT NULL,
+  data TEXT,
+  by TEXT NOT NULL,
+  note TEXT,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX idx_lesson_versions ON lesson_versions(lesson_id, part, id);
+CREATE TABLE lesson_asks (
+  id INTEGER PRIMARY KEY,
+  lesson_id INTEGER NOT NULL REFERENCES lessons(id),
+  teacher_id INTEGER NOT NULL REFERENCES users(id),
+  message TEXT NOT NULL,
+  focus TEXT,
+  status TEXT NOT NULL,
+  reply TEXT,
+  changed TEXT,
+  error TEXT,
+  created_at INTEGER NOT NULL,
+  finished_at INTEGER
+);
+CREATE INDEX idx_lesson_asks ON lesson_asks(lesson_id, id);
+INSERT INTO lessons (id, teacher_id, class_id, title, request, status, plan, lanes, error, created_at, updated_at)
+  SELECT id, teacher_id, class_id, json_extract(data, '$.title'), topic,
+    CASE WHEN status='ready' AND data IS NOT NULL THEN 'ready' ELSE 'error' END,
+    data, '{"plan":{"status":"done"}}', CASE WHEN status='ready' THEN NULL ELSE coalesce(error, '没写完') END, created_at, updated_at
+  FROM lesson_plans;
+INSERT INTO lesson_versions (lesson_id, part, data, by, created_at)
+  SELECT id, 'plan', data, 'ta', updated_at FROM lesson_plans WHERE status='ready' AND data IS NOT NULL;
+`);

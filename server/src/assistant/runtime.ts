@@ -98,7 +98,8 @@ function checkQuota(userId: number) {
   if (used >= limit) throw new HttpError(429, `CoT 助教今天已经回了 ${limit} 句，明天再来`, 'rate_limited');
 }
 
-function newRun(user: { id: number }, kbId: number | null, message: string, session: number | null) {
+/** place：在哪说的，知识库页右边说的是 'kb'（知识库页只摆这些） */
+function newRun(user: { id: number }, kbId: number | null, message: string, session: number | null, place: string | null = null) {
   if (busy.has(user.id)) throw conflict('CoT 助教正在回上一句，等它说完');
   checkQuota(user.id);
   // 还挂着没答的问题卡片：老师接着说了别的，那一问就算过去了（卡片上显示没选）。学生来问的卡片不算，一直等老师回
@@ -119,22 +120,29 @@ function newRun(user: { id: number }, kbId: number | null, message: string, sess
     status: 'running',
     request: message,
     session_id: session,
+    place,
     created_by: user.id,
     created_at: now(),
   });
 }
 
 /** 老师说了一句（没带文件）：开一轮 */
-export function startTaTurn(user: { id: number; name: string }, o: { message: string; kbId: number | null; file?: string | null; session?: number | null }): number {
+export function startTaTurn(
+  user: { id: number; name: string },
+  o: { message: string; kbId: number | null; file?: string | null; session?: number | null; place?: string | null },
+): number {
   const session = ownSession(user.id, o.session);
-  const runId = newRun(user, o.kbId, o.message, session);
+  const runId = newRun(user, o.kbId, o.message, session, o.place ?? null);
   launch(user, runId, { message: o.message, kbId: o.kbId, file: o.file ?? null, intakeId: null, session });
   return runId;
 }
 
 /** 老师说的这句带了文件：先占住，等文件收完读完（filesRead）再开始 */
-export function openTaFileTurn(user: { id: number; name: string }, o: { message: string; kbId: number | null; file?: string | null; session?: number | null }): number {
-  const runId = newRun(user, o.kbId, o.message, ownSession(user.id, o.session));
+export function openTaFileTurn(
+  user: { id: number; name: string },
+  o: { message: string; kbId: number | null; file?: string | null; session?: number | null; place?: string | null },
+): number {
+  const runId = newRun(user, o.kbId, o.message, ownSession(user.id, o.session), o.place ?? null);
   busy.set(user.id, { runId, ctrl: new AbortController(), waitingFiles: true });
   publishRun(o.kbId, runId);
   return runId;
@@ -179,7 +187,7 @@ export function answerAsk(user: { id: number; name: string }, askRunId: number, 
   const message = said.map((s) => s.a || '（没选）').join('；');
   // 学生来问的卡片：老师答的话交给助教，由它转告学生（还要带上是谁问的、问的什么、它原来拟的回复）
   const from = run.kind === 'student_ask' ? ask.from : undefined;
-  const runId = newRun(user, run.kb_id ?? null, message, run.session_id ?? null);
+  const runId = newRun(user, run.kb_id ?? null, message, run.session_id ?? null, run.place ?? null);
   db.update('kb_events', ev.id, { data: { ...ask, answered: said } });
   db.update('kb_runs', askRunId, { status: 'done', finished_at: run.finished_at || now() });
   // 这一轮是在卡片上答的：页面上不再摆老师的气泡，卡片收起来那一行已经写着答了什么
