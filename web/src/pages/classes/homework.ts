@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { api, get } from '../../lib/api';
+import { CHIP } from './tone';
 
 /** 学生在一份作业上的状态：未交（截止前）、缺交（过了截止）、已交、迟交、已批、已退回 */
 export type HwStatus = 'todo' | 'missing' | 'submitted' | 'late' | 'graded' | 'returned';
@@ -162,12 +163,12 @@ export const canPreview = (name: string) => /\.(png|jpe?g|gif|webp|pdf)$/i.test(
 export const isImage = (name: string) => /\.(png|jpe?g|gif|webp)$/i.test(name);
 
 export const STATUS: Record<HwStatus, { label: string; tone: string }> = {
-  todo: { label: '未交', tone: 'bg-surface-3 text-ink-3' },
-  missing: { label: '缺交', tone: 'bg-bad-soft text-bad' },
-  submitted: { label: '已交', tone: 'bg-info-soft text-info' },
-  late: { label: '迟交', tone: 'bg-warn-soft text-warn' },
-  graded: { label: '已批', tone: 'bg-ok-soft text-ok' },
-  returned: { label: '已退回', tone: 'bg-warn-soft text-warn' },
+  todo: { label: '未交', tone: CHIP.gray },
+  missing: { label: '缺交', tone: CHIP.bad },
+  submitted: { label: '已交', tone: CHIP.info },
+  late: { label: '迟交', tone: CHIP.warn },
+  graded: { label: '已批', tone: CHIP.ok },
+  returned: { label: '已退回', tone: CHIP.warn },
 };
 
 /** 分数写成「8.5」「10」 */
