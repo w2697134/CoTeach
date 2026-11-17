@@ -22,6 +22,8 @@ export type ModelStep = (o: {
   onText: (t: string) => void;
   /** 记在调用记录里的用途，不传是「谁:chat」 */
   purpose?: string;
+  /** 主模型等多久没动静就换备用模型，不传按 WAIT_MS（同一个智能体在后台办的事可以等久一点，比如助教看一眼要不要分专门助手） */
+  waitMs?: number;
 }) => Promise<StepResult>;
 
 /**
@@ -50,7 +52,7 @@ const deepseekStep: ModelStep = async (o) => {
     signal: o.signal,
     countQuota: false,
     think,
-    firstTokenMs: WAIT_MS[o.agent],
+    firstTokenMs: o.waitMs ?? WAIT_MS[o.agent],
     // 想的字也算在这个上限里：开着思考放宽（只按实际用的算钱）
     maxTokens: think === 'off' ? 4000 : 32000,
   })) {

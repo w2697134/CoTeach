@@ -10,6 +10,7 @@ import { publishRun } from '../kb/keeper.js';
 import { addNote } from './notes.js';
 import { runHelper } from './helper.js';
 import { putPack, teacherTitle } from './pack.js';
+import { suggestSoon } from './suggest.js';
 
 export const STU_THREAD = 'stu';
 /** 学生和学伴的一段会话跟模型说的话记在哪 */
@@ -282,6 +283,8 @@ export function replyStudent(teacherId: number, o: { student: string; reply: str
   db.update('student_asks', ask.id, { status: 'replied', reply, replied_at: now() });
   closeMerged(ask, reply);
   closeCard(ask, reply);
+  // 老师又回了一件学生来问的：过一会儿数一下要不要让助教看看分专门助手
+  suggestSoon(teacherId);
   return { ask, student: nameIn(ask.class_id, ask.student_id), className: classOf(ask.class_id)?.name || '' };
 }
 
@@ -293,6 +296,7 @@ export function afterTeacherAnswer(askId: number, words: string) {
   deliver(ask.student_id, { classId: ask.class_id, text, kind: 'reply', session: ask.stu_session, question: askedAs(ask) });
   db.update('student_asks', ask.id, { status: 'replied', reply: text, replied_at: now() });
   closeMerged(ask, text);
+  suggestSoon(ask.teacher_id);
 }
 
 /** 并进同一张卡片的那几问（同一句话、同一位老师）：一起算回了 */

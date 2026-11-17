@@ -745,3 +745,33 @@ INSERT INTO lessons (id, teacher_id, class_id, title, request, status, plan, lan
 INSERT INTO lesson_versions (lesson_id, part, data, by, created_at)
   SELECT id, 'plan', data, 'ta', updated_at FROM lesson_plans WHERE status='ready' AND data IS NOT NULL;
 `);
+
+// 助教自己提议分专门助手。
+// 程序数老师常做的事（改助教批的分、在卡片上回学生来问的、跟助教交代的事），数到了就让助教单独看一眼，值得分就弹卡片问老师。
+// 每看一次记一行：subjects 这次数到几（同一份作业改了几份 grade:作业编号、学生来问 asks、老师交代 chat，只记给它看了的），
+// due 是哪几样数到了才看的，digest 是给它看的摘要，reply 是它说的话；提了就记名字、管什么、做法、问老师的话、要交给它批的作业和卡片。
+// status：looking 在看；none 看了不提；waiting 卡片在等老师；accepted 分出来；declined 先不用（同一件事不再提）；answered 老师答的不是这两个；
+// expired 以前那段会话里的卡片一直没答、又提了新的，换掉了；error 没看成。
+migrations.push(`
+CREATE TABLE specialist_suggestions (
+  id INTEGER PRIMARY KEY,
+  teacher_id INTEGER NOT NULL REFERENCES users(id),
+  status TEXT NOT NULL,
+  subjects TEXT NOT NULL DEFAULT '{}',
+  due TEXT NOT NULL DEFAULT '',
+  digest TEXT,
+  reply TEXT,
+  name TEXT,
+  duty TEXT,
+  guide TEXT,
+  question TEXT,
+  homework_id INTEGER REFERENCES assignments(id),
+  card_run_id INTEGER REFERENCES kb_runs(id),
+  specialist_id INTEGER REFERENCES specialists(id),
+  answer TEXT,
+  error TEXT,
+  created_at INTEGER NOT NULL,
+  answered_at INTEGER
+);
+CREATE INDEX idx_specialist_suggestions_teacher ON specialist_suggestions(teacher_id, status, id);
+`);

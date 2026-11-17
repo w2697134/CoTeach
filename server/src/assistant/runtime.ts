@@ -20,6 +20,7 @@ import { append, compact, dangling, requestMessages } from './thread.js';
 import { ASK_TOOL, runTaTool, TOOL_SPECS, type TaContext } from './tools.js';
 import { afterTeacherAnswer, pendingAsksLine, type StudentAskCard } from './bridge.js';
 import { rosterLine } from './specialists.js';
+import { answerSuggestion, pendingSuggestionLine, suggestSoon } from './suggest.js';
 
 export { setModelStep, type ModelStep, type StepResult } from './model.js';
 
@@ -94,7 +95,8 @@ function checkQuota(userId: number) {
   if (!limit || db.get('SELECT id FROM users WHERE id=? AND is_super=1', userId)) return;
   const since = new Date();
   since.setHours(0, 0, 0, 0);
-  const used = db.value<number>("SELECT count(*) FROM kb_runs WHERE teacher_id=? AND agent='ta' AND created_at>=?", userId, since.getTime()) || 0;
+  // 助教提议分专门助手的卡片不是老师说的话，不算
+  const used = db.value<number>("SELECT count(*) FROM kb_runs WHERE teacher_id=? AND agent='ta' AND kind<>'suggest' AND created_at>=?", userId, since.getTime()) || 0;
   if (used >= limit) throw new HttpError(429, `CoT 助教今天已经回了 ${limit} 句，明天再来`, 'rate_limited');
 }
 
@@ -102,9 +104,9 @@ function checkQuota(userId: number) {
 function newRun(user: { id: number }, kbId: number | null, message: string, session: number | null, place: string | null = null) {
   if (busy.has(user.id)) throw conflict('CoT 助教正在回上一句，等它说完');
   checkQuota(user.id);
-  // 还挂着没答的问题卡片：老师接着说了别的，那一问就算过去了（卡片上显示没选）。学生来问的卡片不算，一直等老师回
+  // 还挂着没答的问题卡片：老师接着说了别的，那一问就算过去了（卡片上显示没选）。学生来问的、助教提议分专门助手的卡片不算，一直等老师回
   for (const w of db.all<{ id: number; kb_id: number | null }>(
-    "SELECT id, kb_id FROM kb_runs WHERE teacher_id=? AND agent='ta' AND status='waiting' AND kind<>'student_ask'",
+    "SELECT id, kb_id FROM kb_runs WHERE teacher_id=? AND agent='ta' AND status='waiting' AND kind NOT IN ('student_ask','suggest')",
     user.id,
   )) {
     const ev = db.get<{ id: number; data: string }>("SELECT id, data FROM kb_events WHERE run_id=? AND type='ask' ORDER BY id DESC LIMIT 1", w.id);
@@ -176,7 +178,10 @@ export function answerAsk(user: { id: number; name: string }, askRunId: number, 
   if (run.status !== 'waiting') throw conflict('这个问题已经答过了');
   const ev = db.get<{ id: number; data: string }>("SELECT id, data FROM kb_events WHERE run_id=? AND type='ask' ORDER BY id DESC LIMIT 1", askRunId);
   if (!ev) throw notFound('没有这次提问');
-  const ask = j<{ toolCallId: string; questions: { question: string; options: string[] }[]; from?: StudentAskCard }>(ev.data, { toolCallId: '', questions: [] });
+  const ask = j<{ toolCallId: string; questions: { question: string; options: string[] }[]; from?: StudentAskCard; suggest?: { id: number } }>(ev.data, {
+    toolCallId: '',
+    questions: [],
+  });
   const said = ask.questions.map((q, i) => {
     const a = answers[i] || {};
     const words = [...(a.picks || []).filter(Boolean), ...(a.text?.trim() ? [a.text.trim()] : [])];
@@ -189,6 +194,8 @@ export function answerAsk(user: { id: number; name: string }, askRunId: number, 
   const from = run.kind === 'student_ask' ? ask.from : undefined;
   const runId = newRun(user, run.kb_id ?? null, message, run.session_id ?? null, run.place ?? null);
   db.update('kb_events', ev.id, { data: { ...ask, answered: said } });
+  // 助教提议分专门助手的卡片：记下老师怎么答的；给助教的话带上它提的是什么（看一眼那次不在它跟老师的对话里）
+  const proposal = run.kind === 'suggest' && ask.suggest ? answerSuggestion(ask.suggest.id, message) : null;
   db.update('kb_runs', askRunId, { status: 'done', finished_at: run.finished_at || now() });
   // 这一轮是在卡片上答的：页面上不再摆老师的气泡，卡片收起来那一行已经写着答了什么
   record({ teacherId: user.id, runId, kbId: run.kb_id ?? null }, 'answer', { askRunId });
@@ -204,7 +211,9 @@ export function answerAsk(user: { id: number; name: string }, askRunId: number, 
           studentAsk: from.askId,
           modelMessage: `（${from.className}的${from.student}来问：${from.question}${from.draft ? `。你拟的回复：${from.draft}` : ''}）\n老师在卡片上答：${message}`,
         }
-      : { answers: new Map([[ask.toolCallId, `老师答：\n${reply}`]]) }),
+      : proposal
+        ? { modelMessage: proposal }
+        : { answers: new Map([[ask.toolCallId, `老师答：\n${reply}`]]) }),
   });
   return runId;
 }
@@ -251,6 +260,8 @@ function launch(user: { id: number; name: string }, runId: number, turn: Turn) {
       publishRun(turn.kbId, runId);
       // 老师在学生来问的卡片上答了，助教却没转告（出错、停下、忘了）：照老师的原话转给学生
       if (turn.studentAsk) afterTeacherAnswer(turn.studentAsk, turn.message);
+      // 老师交代的事又多了一件：过一会儿数一下，常做的事够数了让助教看一眼要不要分专门助手
+      suggestSoon(user.id);
     });
 }
 
@@ -324,6 +335,7 @@ async function execute(user: { id: number; name: string }, ref: RunRef, turn: Tu
     files: turn.intakeId ? filesBlock(turn.intakeId) : null,
     asks: pendingAsksLine(user.id),
     specialists: rosterLine(user.id),
+    suggestion: pendingSuggestionLine(user.id),
   });
   const said = (turn.modelMessage ?? turn.message).trim();
   append(user.id, key, ref.runId, { role: 'user', content: `${block}\n${said || '（老师只发了文件，没写话）'}` });

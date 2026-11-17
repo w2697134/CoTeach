@@ -148,6 +148,8 @@ gradingRoutes.post('/:id/same', async (c) => {
       noteTeacherChange({ ...a, specialist_id: db.value<number>('SELECT specialist_id FROM assignments WHERE id=?', a.id) ?? null }, `${n} 个学生`, [
         { title: it.title, from: was.got, to: d.got, why: d.why?.trim() || undefined },
       ]);
+    // 一起改了几份：过一会儿数一下要不要让助教看看分专门助手来批
+    (await import('../assistant/suggest.js')).suggestSoon(a.teacher_id);
   }
   return c.json({ changed: n });
 });
