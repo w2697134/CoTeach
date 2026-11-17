@@ -90,6 +90,7 @@ pnpm test
 | `CT_AGY_URL` | 可选：Gemini 接口（OpenAI 写法），设了就当默认模型，DeepSeek 当备用 |
 | `CT_DATA_DIR` | 可选：数据放哪，默认 `server/data` |
 | `CT_PORT` | 可选：后端端口，默认 18660 |
+| `CT_LOGIN_ONLY` | 可选：只让这几个账号登录（用户名，逗号分开），管理员总能进；设了就关掉注册。比赛期间线上用它只开放评委账号 |
 
 第一次启动会建超级管理员 `root`，密码写在 `server/data/root-password.txt`，在「管理」里能开关老师注册、看模型调用。
 
