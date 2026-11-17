@@ -12,7 +12,7 @@ import { DeckPane, Present } from './DeckPane';
 import { Lanes } from './Lanes';
 import { PlanView } from './PlanView';
 import { QuestionsView } from './QuestionsView';
-import { doingNow, useLesson, type Brief, type Lesson, type Part, type Plan, type Question } from './data';
+import { LANES, doingNow, useLesson, type Brief, type LaneKey, type Lesson, type Part, type Plan, type Question } from './data';
 
 type Tab = 'deck' | 'plan' | 'practice' | 'homework' | 'brief';
 
@@ -106,14 +106,16 @@ function Workspace({ l }: { l: Lesson }) {
     setTab(t);
     setFocusOff(false);
   };
-  const lanesShown = making || showLanes || Object.values(l.lanes).some((x) => x?.status === 'error');
+  const failed = LANES.map((x) => x.key).filter((k) => l.lanes[k]?.status === 'error');
+  const lanesShown = making || showLanes || failed.length > 0;
   const meta = [l.className, l.minutes ? `${l.minutes} 分钟` : '', when(l.updatedAt)].filter(Boolean).join(' · ');
   const missing = !making && l.plan && (!l.deck || !l.practice);
 
   return (
     <div className="mx-auto w-full max-w-[1440px] px-4 py-5 sm:px-6">
       {/* 课题和要做的事 */}
-      <div className="flex flex-wrap items-start gap-x-4 gap-y-3">
+      {/* 手机上按钮放到课题下面一行（并排会把课题挤成一个字一行） */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:gap-4">
         <div className="min-w-0 flex-1">
           <h1 className="text-[22px] font-semibold leading-snug text-ink sm:text-[24px]">{l.title || l.request || '下一节课'}</h1>
           <p className="mt-1 text-[13.5px] text-ink-3">
@@ -179,7 +181,14 @@ function Workspace({ l }: { l: Lesson }) {
       </div>
 
       {lanesShown && <Lanes lanes={l.lanes} className="mt-4" />}
-      {!making && l.error && <p className="mt-3 text-[13.5px] text-bad">{l.error}</p>}
+      {!making && failed.length > 0 && (
+        <div className="mt-3 flex flex-wrap items-center gap-3 rounded-xl border border-bad/25 bg-bad/5 px-4 py-2.5">
+          <p className="text-[14px] text-ink">{failed.map((k) => `「${LANES.find((x) => x.key === k)!.name}」`).join('、')}没做成</p>
+          <Button size="sm" variant="secondary" icon={<RotateCcw className="size-4" />} onClick={() => fill(retryLanes(failed))}>
+            重来
+          </Button>
+        </div>
+      )}
       {missing && (
         <div className="mt-4 flex flex-wrap items-center gap-3 rounded-xl border border-line bg-surface-2 px-4 py-3">
           <p className="text-[14px] text-ink-2">这节课还没有{[!l.deck && '课件', !l.practice && '题目'].filter(Boolean).join('和')}</p>
@@ -256,6 +265,12 @@ function Workspace({ l }: { l: Lesson }) {
       <PublishModal open={publishing} lesson={l} onClose={() => setPublishing(false)} onDone={refresh} />
     </div>
   );
+}
+
+/** 重来没做成的几手：教案没写成，后面的都要跟着重做；别的只重做那一手，再核对一遍 */
+function retryLanes(failed: LaneKey[]): LaneKey[] {
+  if (failed.includes('plan')) return [...new Set<LaneKey>([...failed, 'plan', 'deck', 'questions', 'check'])];
+  return [...new Set<LaneKey>([...failed, 'check'])];
 }
 
 function PartBar({ canUndo, onUndo }: { canUndo: boolean; onUndo: () => void }) {

@@ -7,6 +7,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { Check, Copy, Download, QrCode, Undo2 } from 'lucide-react';
+import { Markdown } from '../../components/Markdown';
 import { post } from '../../lib/api';
 import { toast } from '../../lib/store';
 import { Avatar, Badge, Button, IconButton, Input, Modal, cn } from '../../components/ui';
@@ -64,12 +65,7 @@ export function ActionCard({ data, status }: { data: ActionData; status?: 'done'
         </span>
         <div className="min-w-0 flex-1">
           <p className={cn('break-words text-[14px] font-medium leading-snug', undone ? 'text-ink-3 line-through' : 'text-ink')}>{data.title}</p>
-          {!undone &&
-            (data.lines || []).filter(Boolean).map((l, i) => (
-              <p key={i} className="mt-0.5 whitespace-pre-wrap break-words text-[13px] leading-relaxed text-ink-3">
-                {l}
-              </p>
-            ))}
+          {!undone && (data.lines || []).filter(Boolean).map((l, i) => <CardLine key={i} text={l} />)}
         </div>
         {undone && <Badge tone="gray">已撤回</Badge>}
       </div>
@@ -131,6 +127,34 @@ export function ActionCard({ data, status }: { data: ActionData; status?: 'done'
         </Modal>
       )}
     </div>
+  );
+}
+
+/** 卡片上的一行：短的照写；长的（资料包里写的一整段说明）收成两行，去掉 Markdown 记号，点「展开」再看全文 */
+function CardLine({ text }: { text: string }) {
+  const [open, setOpen] = useState(false);
+  const long = text.length > 90 || text.includes('\n');
+  if (!long) return <p className="mt-0.5 whitespace-pre-wrap break-words text-[13px] leading-relaxed text-ink-3">{text}</p>;
+  if (open)
+    return (
+      <div className="mt-1 rounded-lg bg-surface-2 px-3 py-2 text-[13.5px] leading-relaxed text-ink-2">
+        <Markdown compact>{text}</Markdown>
+        <button type="button" className="mt-1 text-[12.5px] text-brand-ink hover:underline" onClick={() => setOpen(false)}>
+          收起
+        </button>
+      </div>
+    );
+  const plain = text
+    .replace(/\*\*|__|`/g, '')
+    .replace(/^#+\s*/gm, '')
+    .replace(/\s*\n\s*/g, ' ');
+  return (
+    <p className="mt-0.5 text-[13px] leading-relaxed text-ink-3">
+      <span className="line-clamp-2 break-words">{plain}</span>
+      <button type="button" className="text-[12.5px] text-brand-ink hover:underline" onClick={() => setOpen(true)}>
+        展开
+      </button>
+    </p>
   );
 }
 

@@ -44,8 +44,20 @@ interface Knobs {
   effort: boolean;
 }
 
+/**
+ * 开着思考带工具时，前面带工具调用的每一步都要有思考（DeepSeek 不然报 400「reasoning_content … must be passed back」）。
+ * 前面那几步是 Gemini 办的（它不给思考），中途换成 DeepSeek 接着办时就缺：补一句占位（2026-11-17 备课、助教尺子碰上）。
+ */
+export function wireMessages(messages: ChatParams['messages'], thinking: boolean) {
+  return messages.map((m) => {
+    const w = toWire(m);
+    if (thinking && w.role === 'assistant' && w.tool_calls && !w.reasoning_content) w.reasoning_content = '（这一步是别的模型办的，没有留下思考）';
+    return w;
+  });
+}
+
 function buildBody(conn: ProviderConn, p: ChatParams, k: Knobs) {
-  const body: Record<string, unknown> = { model: p.model, messages: p.messages.map(toWire), stream: true };
+  const body: Record<string, unknown> = { model: p.model, messages: wireMessages(p.messages, !!(k.thinking && p.thinking)), stream: true };
   if (k.streamOptions) body.stream_options = { include_usage: true };
   if (k.temperature && p.temperature !== undefined) body.temperature = p.temperature;
   if (k.maxTokensField && p.maxTokens) body[k.maxTokensField] = p.maxTokens;
@@ -65,7 +77,8 @@ function adjustKnobs(k: Knobs, errBody: string): Knobs | null {
   if (k.maxTokensField && (s.includes('max_tokens') || s.includes('max_completion_tokens'))) return { ...k, maxTokensField: null };
   if (k.temperature && s.includes('temperature')) return { ...k, temperature: false };
   if (k.streamOptions && (s.includes('stream_options') || s.includes('include_usage'))) return { ...k, streamOptions: false };
-  if (k.thinking && s.includes('thinking')) return { ...k, thinking: false };
+  // 「思考里的 reasoning_content 要传回来」不是不认 thinking 这个参数，不能关掉 thinking 重来
+  if (k.thinking && s.includes('thinking') && !s.includes('reasoning_content')) return { ...k, thinking: false };
   if (k.effort && s.includes('reasoning_effort')) return { ...k, effort: false };
   return null;
 }

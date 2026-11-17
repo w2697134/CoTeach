@@ -5,6 +5,48 @@ import { Button, IconButton, Input, Textarea, cn } from '../../components/ui';
 import type { Plan, PlanStep } from './data';
 
 /**
+ * 一段里挤在一起的「1) … 2) … 3) …」拆成一条一条（要从 1 起、挨着往下数的才算，代码里的「5)」不算）；
+ * 开头的【讲授+提问】这种摘出来当小标签。只改显示，存的还是原文。
+ */
+export function splitSteps(text: string): { tag: string | null; head: string; items: string[] } {
+  let t = text.trim();
+  const m = t.match(/^【([^】]{1,12})】\s*/);
+  const tag = m ? m[1] : null;
+  if (m) t = t.slice(m[0].length);
+  const marks: { at: number; len: number }[] = [];
+  const re = /(^|[：:；;。，,\s])([1-9])[)）]\s*/g;
+  let want = 1;
+  for (let x = re.exec(t); x; x = re.exec(t)) {
+    if (Number(x[2]) !== want) continue;
+    marks.push({ at: x.index + x[1].length, len: x[0].length - x[1].length });
+    want++;
+  }
+  if (marks.length < 2) return { tag, head: t, items: [] };
+  const head = t.slice(0, marks[0].at).trim();
+  const items = marks.map((k, i) => t.slice(k.at + k.len, i + 1 < marks.length ? marks[i + 1].at : undefined).trim().replace(/[；;，,]$/, ''));
+  return { tag, head, items };
+}
+
+function StepText({ text }: { text: string }) {
+  const { tag, head, items } = splitSteps(text);
+  return (
+    <>
+      {tag && <span className="mb-1 mr-1.5 inline-block rounded-md bg-surface-3 px-1.5 py-0.5 text-[12px] font-medium text-ink-2">{tag}</span>}
+      {head && <Markdown compact>{head}</Markdown>}
+      {items.length > 0 && (
+        <ol className="mt-1 list-decimal space-y-1 pl-5 marker:text-ink-3">
+          {items.map((x, i) => (
+            <li key={i}>
+              <Markdown compact>{x}</Markdown>
+            </li>
+          ))}
+        </ol>
+      )}
+    </>
+  );
+}
+
+/**
  * 教案：排成一页文档（像 Word 里的教案），老师点「编辑」就地改，存一版（能撤回）。
  */
 export function PlanView({ plan, meta, onSave }: { plan: Plan; meta: string; onSave: (p: Plan) => Promise<void> }) {
@@ -75,7 +117,7 @@ export function PlanView({ plan, meta, onSave }: { plan: Plan; meta: string; onS
                 <div className="min-w-0 flex-1">
                   <p className="text-[15.5px] font-semibold text-ink">{s.name}</p>
                   <div className="mt-1 text-[14.5px] leading-relaxed text-ink-2">
-                    <Markdown compact>{s.content}</Markdown>
+                    <StepText text={s.content} />
                   </div>
                 </div>
               </li>

@@ -243,6 +243,18 @@ export const TOOL_SPECS: ToolSpec[] = [
     parameters: obj({ class: str('班名'), days: { type: 'number', description: '最近几天，默认 7' } }, ['class']),
   },
   {
+    name: 'prep_lesson',
+    description: '给一个班备一节课：在后台做出教案、课件、课堂练习和课后作业，做好放在「备课」里，老师在那里看、改、放映、发作业。',
+    parameters: obj(
+      {
+        class: str('班名'),
+        topic: str('这节讲什么、老师有什么要求；老师没说就不传，按进度备下一节'),
+        minutes: { type: 'number', description: '这节课多少分钟；老师没说就不传' },
+      },
+      ['class'],
+    ),
+  },
+  {
     name: 'new_specialist',
     description:
       '分出一个专门助手：同一类活反复出现、每次要照同一套做法办时用。它的对话一直留着，以后这类活交给它（ask_specialist），越办越熟。已经有管这类活的，就交给那一个，不再分新的。',
@@ -404,6 +416,16 @@ const handlers: Record<string, Handler> = {
     return lines.join('\n');
   },
 
+  async prep_lesson(ctx, a) {
+    const k = findClass(ctx.user.id, String(a.class ?? ''));
+    const topic = text(a.topic)?.trim() || null;
+    const minutes = num(a.minutes);
+    const { startLesson } = await import('../prep/make.js');
+    const id = startLesson(ctx.user.id, k.id, topic, minutes && minutes >= 10 && minutes <= 300 ? Math.round(minutes) : null);
+    recordAction(ctx.ref, 'prep.start', { title: `在给「${k.name}」备课`, lines: [topic || '按进度备下一节'], links: [{ label: '去看', to: `/prep/${id}` }] }, null);
+    return `开始备了，在后台做，教案、课件、练习和作业做好都在「备课」里`;
+  },
+
   async create_class(ctx, a) {
     const name = String(a.name ?? '').trim();
     const r = await callApi<{ id: number }>(ctx.user.id, 'POST', '/classes', { name });
@@ -468,14 +490,11 @@ const handlers: Record<string, Handler> = {
     if (!names.length) throw bad('发给哪个班没说，问老师');
     const ks = names.map((n) => findClass(uid, n)).filter((k, i, all) => all.findIndex((x) => x.id === k.id) === i);
     const title = String(a.title ?? '').trim();
-    const used: string[] = [];
-    const points = num(a.points) ?? (used.push('满分 100'), 100);
+    const points = num(a.points) ?? 100;
     let dueAt: number | null;
-    if (a.due === undefined || a.due === null || String(a.due).trim() === '') {
-      dueAt = weekLater();
-      used.push(`截止 ${showTime(dueAt)}（一周后）`);
-    } else dueAt = due(a.due, '截止时间');
-    const allowLate = bool(a.allow_late) ?? (used.push('截止后还能交（标迟交）'), true);
+    if (a.due === undefined || a.due === null || String(a.due).trim() === '') dueAt = weekLater();
+    else dueAt = due(a.due, '截止时间');
+    const allowLate = bool(a.allow_late) ?? true;
     const publishAt = a.publish_at ? due(a.publish_at, '发布时间') : null;
     if (publishAt !== null && publishAt <= Date.now()) throw bad('定时发布的时间已经过了');
     const fileIds: number[] = [];
@@ -521,9 +540,7 @@ const handlers: Record<string, Handler> = {
       },
       { kind: 'homework.create', ids: r.ids },
     );
-    return `布置好了「${title}」，发给 ${ks.map((k) => `「${k.name}」`).join('、')}；${facts.join('，')}${fileNames.length ? `；附件 ${fileNames.join('、')}` : ''}。${
-      used.length ? `老师没说、按常规定的：${used.join('、')}。` : ''
-    }`;
+    return `布置好了「${title}」，发给 ${ks.map((k) => `「${k.name}」`).join('、')}；${facts.join('，')}${fileNames.length ? `；附件 ${fileNames.join('、')}` : ''}。`;
   },
 
   async update_homework(ctx, a) {

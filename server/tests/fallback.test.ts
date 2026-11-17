@@ -53,3 +53,18 @@ test('助教这种带工具的调用：Gemini 接口出错（头已经到了，�
     ds.server.close();
   }
 });
+
+test('换成 DeepSeek 接着办：前面别的模型办的带工具那几步补上思考占位，开着思考它才不报 400', async () => {
+  const { wireMessages } = await import('../src/llm/adapters/openai.js');
+  const msgs = [
+    { role: 'user' as const, content: '备课' },
+    { role: 'assistant' as const, content: '', toolCalls: [{ id: 'c1', name: 'search_kb', args: { query: '字典' }, raw: '' }] },
+    { role: 'tool' as const, toolCallId: 'c1', content: '找到了' },
+    { role: 'assistant' as const, content: '', toolCalls: [{ id: 'c2', name: 'read_kb', args: {}, raw: '' }], reasoning: '先读讲义' },
+  ];
+  const on = wireMessages(msgs as any, true);
+  assert.ok(on[1].reasoning_content, '缺思考的那一步要补上');
+  assert.equal(on[3].reasoning_content, '先读讲义');
+  const off = wireMessages(msgs as any, false);
+  assert.equal(off[1].reasoning_content, undefined);
+});

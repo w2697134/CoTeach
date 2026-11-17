@@ -14,6 +14,8 @@ const { db } = await import('../src/db/index.js');
 const { createApp } = await import('../src/app.js');
 const model = await import('../src/assistant/model.js');
 const L = await import('../src/prep/lessons.js');
+// 课件样式定好了才做成幻灯片：测试里当它定好了
+(await import('../src/prep/kit.js')).setSlideKitGuide('课件样式（测试）');
 const app = createApp();
 
 test('备课：教案要有课题和教学过程；分钟数不像样的不要，空的环节去掉', () => {
@@ -53,6 +55,7 @@ test('备课：课件版式不认识的当要点页；选择题答案字母换�
   assert.throws(() => L.cleanSlide({ layout: 'points' }), /空的/);
   assert.deepEqual(L.answerIndexes('AC', 3), [0, 2]);
   assert.deepEqual(L.answerIndexes([1, '1', 9], 3), [1]);
+  assert.deepEqual(L.cleanQuestion({ type: 'single', stem: '选', options: ['A. [1, 2]', '(B) "2501"', 'C、{1}', '-1'], answer: 'B' }, false).options, ['[1, 2]', '"2501"', '{1}', '-1']);
 });
 
 test('备课：题目选择题要两个以上选项，判断题答案只认对错，作业每题有分', () => {
@@ -147,6 +150,15 @@ model.setModelStep(async (o) => {
           });
     case 'prep:check':
       return { text: '核对过了，答案和代码都对。', toolCalls: [] };
+    case 'prep:design': {
+      if (afterTool) return { text: '好了', toolCalls: [] };
+      // 这一批是哪几页：看给它的话里的「第N页：」
+      const ask = String(last.content);
+      const pages = [...ask.matchAll(/第(\d+)页：/g)].map((m) => Number(m[1]));
+      return call('save_pages', {
+        pages: pages.map((n) => ({ page: n, html: `<h1 class="title">第${n}页</h1><script>alert(1)</script><p onclick="x()">内容</p><img src="https://evil.example/x.png">` })),
+      });
+    }
     case 'prep:ask': {
       const s = askReply.shift();
       if (!s) return { text: '改好了', toolCalls: [] };
@@ -187,6 +199,9 @@ test('备课：一句话备一节，几手都做完；页面上改、撤回、�
   );
   assert.deepEqual(got.counts, { slides: 3, practice: 1, homework: 2 });
   assert.deepEqual(got.deck.slides[2].quiz.answer, [1]);
+  // 做成了幻灯片：每页都有 html，脚本、事件、外部图片去掉了
+  assert.ok(got.deck.slides.every((s: any) => s.html?.includes('class="title"')));
+  assert.doesNotMatch(got.deck.slides[0].html, /script|onclick|evil\.example/);
   assert.equal(got.cover.slide.layout, 'cover');
   // 别的老师看不到
   assert.equal((await req(`/prep/${id}`, undefined, 'other')).status, 404);
@@ -212,6 +227,8 @@ test('备课：一句话备一节，几手都做完；页面上改、撤回、�
   const after = (await req(`/prep/${id}`)).json.lesson;
   assert.equal(after.deck.slides[1].title, 'get 带默认值');
   assert.equal(after.deck.slides[1].id, got.deck.slides[1].id);
+  assert.match(after.deck.slides[1].html, /第2页/, '改了内容的那一页补做了样子');
+  const deckVersions = after.versions.deck.count;
   assert.deepEqual(after.asks.map((a: any) => [a.status, a.reply, a.changed]), [['done', '把第 2 页标题改成了「get 带默认值」。', ['deck']]]);
   // 老师说的话带着正看的那一页
   const said = db.value<string>("SELECT content FROM agent_messages WHERE thread=? AND role='user' ORDER BY id LIMIT 1", `lesson:${id}`) || '';

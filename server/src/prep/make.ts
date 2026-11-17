@@ -17,9 +17,11 @@ import { nowLine } from '../assistant/time.js';
 import { append, compact, requestMessages, stored, threadRow, toMsg } from '../assistant/thread.js';
 import { classRow, finishRun, numArg, obj, startRun, str, toNum, userName } from '../grading/common.js';
 import { insightsOf, writeInsights } from '../grading/insights.js';
+import { SLIDE_KIT_GUIDE, SLIDE_KIT_READY, cleanSlideHtml } from './kit.js';
 import {
   LAYOUTS,
   QTYPES,
+  amendPart,
   briefOf,
   cleanDeck,
   cleanPlan,
@@ -115,6 +117,12 @@ const SAVE_QUESTIONS: ToolSpec = {
   ),
 };
 
+const SAVE_PAGES: ToolSpec = {
+  name: 'save_pages',
+  description: '存做好的几页，同一页再存就换成新的。',
+  parameters: obj({ pages: { type: 'array', items: obj({ page: numArg('第几页'), html: str('这一页的 HTML') }, ['page', 'html']) } }, ['pages']),
+};
+
 const KIND = { type: 'string', enum: ['practice', 'homework'], description: 'practice 课堂练习，homework 课后作业' };
 const EDIT_TOOLS: ToolSpec[] = [
   {
@@ -173,7 +181,7 @@ const letter = (n: number) => String.fromCharCode(65 + n);
 function deckText(d: Deck) {
   return d.slides
     .map((s, i) => {
-      const { id: _id, quiz, ...rest } = s;
+      const { id: _id, quiz, html: _html, ...rest } = s;
       const out: any = { ...rest };
       if (quiz) out.quiz = { ...quiz, answer: quiz.answer.map(letter).join('') };
       return `第${i + 1}页：${JSON.stringify(out)}`;
@@ -449,8 +457,120 @@ function laneDeck(id: number, teacher: string, signal: AbortSignal) {
     const old = j<Deck | null>(lessonRow(id)?.deck ?? null, null);
     if (old?.theme) d.theme = old.theme;
     savePart(id, 'deck', d, 'ta');
-    return `${d.slides.length} 页`;
+    const n = d.slides.length;
+    if (!SLIDE_KIT_READY) return `${n} 页`;
+    setLane(id, 'deck', { status: 'doing', note: `${n} 页，在做成幻灯片` });
+    // 做成幻灯片并进刚存的那一版：撤回不会退到没样子的课件
+    const made = await designPages(
+      id,
+      teacher,
+      d.slides.map((_, i) => i),
+      signal,
+      (k) => setLane(id, 'deck', { status: 'doing', note: `${n} 页，做好 ${k} 页` }),
+      true,
+    );
+    return made < n ? `${n} 页（${n - made} 页没做成幻灯片）` : `${n} 页`;
   });
+}
+
+const designPrompt = (teacherName: string) =>
+  `你是${teacherTitle(teacherName)}的 CoT 助教，把这节课的课件做成上课放的幻灯片：每一页写成一段 HTML，照下面这套课件样式。
+
+${SLIDE_KIT_GUIDE}`;
+
+/** 一页给「做成幻灯片」看的内容（不带 id、讲稿、旧的 html） */
+function pageContent(s: Deck['slides'][number]) {
+  const { id: _id, html: _html, notes: _notes, quiz, ...rest } = s;
+  return JSON.stringify(quiz ? { ...rest, quiz: { ...quiz, answer: quiz.answer.map(letter).join('') } } : rest);
+}
+
+/** 同一时间跑几件（Gemini 接口两个名额） */
+async function pool<T>(items: T[], n: number, work: (x: T) => Promise<void>) {
+  const queue = [...items];
+  await Promise.all(Array.from({ length: Math.min(n, queue.length) }, async () => {
+    for (let x = queue.shift(); x !== undefined; x = queue.shift()) await work(x);
+  }));
+}
+
+/**
+ * 把课件的几页做成幻灯片（一次五页，两次一起做）：内容已经定了，这一手只管样子。
+ * 做成的那几页存进课件；没做成的还按内容和版式显示。返回做成了几页。
+ */
+export async function designPages(
+  id: number,
+  teacher: string,
+  pages: number[],
+  signal: AbortSignal,
+  onDone?: (k: number) => void,
+  /** true：并进刚才那一版（说着改、核对改了内容以后补做样子，撤回一次就都回去） */
+  amend = false,
+): Promise<number> {
+  const r = lessonRow(id);
+  if (!r) return 0;
+  const d = j<Deck | null>(r.deck, null);
+  if (!d || !pages.length) return 0;
+  const plan = j<Plan | null>(r.plan, null);
+  const titles = d.slides.map((s, i) => `${i + 1}. ${s.title}`).join('\n');
+  const html = new Map<number, string>();
+  const batches: number[][] = [];
+  const sorted = [...new Set(pages)].filter((i) => i >= 0 && i < d.slides.length).sort((a, b) => a - b);
+  for (let i = 0; i < sorted.length; i += 5) batches.push(sorted.slice(i, i + 5));
+  await pool(batches, 2, async (batch) => {
+    try {
+      await loop({
+        teacherId: r.teacher_id,
+        key: `prep:${id}:design:${batch[0]}:${now()}`,
+        system: designPrompt(teacher),
+        first: [
+          `「${classRow(r.class_id)?.name}」${plan?.title ? `《${plan.title}》` : ''}的课件一共 ${d.slides.length} 页：`,
+          titles,
+          `这次做第 ${batch.map((i) => i + 1).join('、')} 页，每页的内容：`,
+          ...batch.map((i) => `第${i + 1}页：${pageContent(d.slides[i])}`),
+          '做好用 save_pages 存。',
+        ].join('\n\n'),
+        tools: [SAVE_PAGES],
+        purpose: 'prep:design',
+        maxSteps: 3,
+        signal,
+        nudge: '用 save_pages 把这几页存下来。',
+        done: () => batch.every((i) => html.has(i)),
+        run: (call) => {
+          if (call.name !== 'save_pages') return `没有「${call.name}」这个工具`;
+          const got: number[] = [];
+          for (const x of Array.isArray(call.args?.pages) ? call.args.pages : []) {
+            const i = Math.round(toNum((x as any)?.page)) - 1;
+            const h = cleanSlideHtml((x as any)?.html);
+            if (batch.includes(i) && h) {
+              html.set(i, h);
+              got.push(i + 1);
+            }
+          }
+          const left = batch.filter((i) => !html.has(i)).map((i) => i + 1);
+          return got.length ? `存好了第 ${got.join('、')} 页${left.length ? `；还差第 ${left.join('、')} 页` : ''}` : '一页都没存上：page 写第几页，html 写这一页的 HTML';
+        },
+      });
+    } catch (err) {
+      if (signal.aborted) throw err;
+      console.error('[prep] design', id, batch, (err as Error).message);
+    }
+    onDone?.(html.size);
+  });
+  if (!html.size) return 0;
+  // 存进最新的课件（这一手做的时候课件没别人改：备课时不让改，说着改的那一句做完才做这一步）
+  const latest = j<Deck | null>(lessonRow(id)?.deck ?? null, null);
+  if (!latest) return 0;
+  latest.slides = latest.slides.map((s, i) => (html.has(i) ? { ...s, html: html.get(i) } : s));
+  if (amend) amendPart(id, 'deck', latest);
+  else savePart(id, 'deck', latest, 'ta', '做成幻灯片');
+  return html.size;
+}
+
+/** 课件里已经做成幻灯片、又被改了内容的几页（改内容时样子就去掉了）：补做样子 */
+async function redesignChanged(id: number, teacher: string, signal: AbortSignal) {
+  const d = j<Deck | null>(lessonRow(id)?.deck ?? null, null);
+  if (!d || !d.slides.some((s) => s.html)) return;
+  const missing = d.slides.flatMap((s, i) => (s.html ? [] : [i]));
+  if (missing.length) await designPages(id, teacher, missing, signal, undefined, true);
 }
 
 const questionsPrompt = (teacherName: string) =>
@@ -526,6 +646,7 @@ function laneCheck(id: number, teacher: string, signal: AbortSignal) {
         return `改好了：${what}`;
       },
     });
+    await redesignChanged(id, teacher, signal);
     return fixed.length ? `改了 ${fixed.length} 处：${fixed.join('；')}` : text.replace(/\s+/g, ' ').trim() || '没发现问题';
   });
 }
@@ -706,6 +827,7 @@ async function runAsk(askId: number) {
         append(ask.teacher_id, key, null, { role: 'tool', toolCallId: call.id, content: out });
       }
     }
+    if (changed.has('deck')) await redesignChanged(id, teacher, signal);
     db.update('lesson_asks', askId, {
       status: 'done',
       reply: reply || (said.length ? said.join('；') : '没改'),
@@ -735,8 +857,13 @@ export function asksOf(lessonId: number) {
     }));
 }
 
-/** 服务重启：还在备的、还在改的算没做完 */
+/** 服务重启：还在备的、还在改的算没做完（做到一半、还没做的那几手标成没做成，页面上能重来） */
 export function recoverLessons() {
+  for (const r of db.all<{ id: number; lanes: string | null }>("SELECT id, lanes FROM lessons WHERE status='making'")) {
+    const lanes = j<Record<string, { status: string; note?: string }>>(r.lanes, {});
+    for (const k of Object.keys(lanes)) if (lanes[k].status === 'doing' || lanes[k].status === 'wait') lanes[k] = { status: 'error', note: '服务中断，没做完' };
+    db.update('lessons', r.id, { lanes: JSON.stringify(lanes) });
+  }
   db.run("UPDATE lessons SET status=CASE WHEN plan IS NULL THEN 'error' ELSE 'ready' END, error='服务中断，没做完' WHERE status='making'");
   db.run("UPDATE lesson_asks SET status='error', error='服务中断，没改完', finished_at=? WHERE status='running'", now());
 }

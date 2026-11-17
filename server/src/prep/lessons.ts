@@ -7,6 +7,7 @@ import { db, j, now } from '../db/index.js';
 import { bad, notFound } from '../lib/http.js';
 import { classRow, toNum, type RubricItem } from '../grading/common.js';
 import { insightsOf, type InsightPoint } from '../grading/insights.js';
+import { cleanSlideHtml } from './kit.js';
 
 /* ---------------- 教案 ---------------- */
 
@@ -73,6 +74,8 @@ export interface Slide {
   table?: { head: string[]; rows: string[][] };
   quote?: { text: string; by?: string };
   notes?: string;
+  /** 做成幻灯片的这一页（模型照课件样式写的 HTML，画布 1280×720）；没有就按上面的内容和版式显示 */
+  html?: string;
 }
 export interface Deck {
   theme: string;
@@ -80,6 +83,9 @@ export interface Deck {
 }
 
 const newId = () => Math.random().toString(36).slice(2, 10);
+/** 选项前面它自己写的「A.」「(B)」「C、」去掉（页面上另外标字母） */
+export const bareOption = (s: string) => s.replace(/^\s*[（(]?[A-Ha-h][)）.．、:：]\s*/, '');
+const options = (v: unknown) => list(v, 6, 300).map(bareOption).filter(Boolean);
 
 /** 选择题答案：模型写字母（B、AC），页面存序号（0 起） */
 export function answerIndexes(v: unknown, count: number): number[] {
@@ -113,8 +119,8 @@ export function cleanSlide(raw: any): Slide {
     .filter((x: { head: string }) => x.head);
   if (steps.length) s.steps = steps;
   if (raw?.quiz?.question) {
-    const options = list(raw.quiz.options, 6, 160);
-    s.quiz = { question: text(raw.quiz.question, 400), options, answer: answerIndexes(raw.quiz.answer, options.length) };
+    const opts = options(raw.quiz.options);
+    s.quiz = { question: text(raw.quiz.question, 400), options: opts, answer: answerIndexes(raw.quiz.answer, opts.length) };
     const ex = text(raw.quiz.explain, 500);
     if (ex) s.quiz.explain = ex;
   }
@@ -128,7 +134,9 @@ export function cleanSlide(raw: any): Slide {
   if (raw?.quote?.text) s.quote = { text: text(raw.quote.text, 300), ...(text(raw.quote.by, 60) ? { by: text(raw.quote.by, 60) } : {}) };
   const notes = text(raw?.notes, 2000);
   if (notes) s.notes = notes;
-  if (!s.title && !s.points && !s.code && !s.quiz) throw new Error('这一页是空的');
+  const html = raw?.html ? cleanSlideHtml(raw.html) : '';
+  if (html) s.html = html;
+  if (!s.title && !s.points && !s.code && !s.quiz && !s.html) throw new Error('这一页是空的');
   return s;
 }
 
@@ -166,7 +174,7 @@ export function cleanQuestion(raw: any, withPoints: boolean): Question {
     .slice(0, 3000);
   if (code) q.code = code;
   if (type === 'single' || type === 'multi') {
-    q.options = list(raw?.options, 6, 300);
+    q.options = options(raw?.options);
     if (q.options.length < 2) throw new Error(`「${q.stem.slice(0, 20)}」选项不够`);
     q.choice = answerIndexes(raw?.choice ?? raw?.answer, q.options.length);
     q.answer = q.choice.map((n) => String.fromCharCode(65 + n)).join('');
@@ -259,6 +267,15 @@ export function savePart(id: number, part: Part, data: unknown, by: 'teacher' | 
   if (part === 'plan') patch.title = (data as Plan).title;
   db.update('lessons', id, patch);
   db.insert('lesson_versions', { lesson_id: id, part, data: json, by, note: note ?? null, created_at: now() });
+}
+
+/** 并进最近那一版（同一次改动里后补的东西，撤回一次就一起回去） */
+export function amendPart(id: number, part: Part, data: unknown) {
+  const json = JSON.stringify(data);
+  db.update('lessons', id, { [part]: json, updated_at: now() });
+  const last = db.value<number>('SELECT max(id) FROM lesson_versions WHERE lesson_id=? AND part=?', id, part);
+  if (last) db.update('lesson_versions', last, { data: json });
+  else db.insert('lesson_versions', { lesson_id: id, part, data: json, by: 'ta', created_at: now() });
 }
 
 /** 撤回：退到这一份的上一版（没有上一版就不动） */

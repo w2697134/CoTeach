@@ -5,6 +5,8 @@ import { Button, IconButton, Input, Select, Textarea, cn, useConfirm } from '../
 import { QTYPE_NAME, type QType, type Question } from './data';
 
 const letter = (n: number) => String.fromCharCode(65 + n);
+/** 以前存下的选项前面带着「A.」的，显示时去掉（页面上另外标字母） */
+const bare = (s: string) => s.replace(/^\s*[（(]?[A-Ha-h][)）.．、:：]\s*/, '');
 const isChoice = (t: QType) => t === 'single' || t === 'multi';
 const blank = (homework: boolean): Question => ({ id: '', type: 'single', stem: '', options: ['', ''], answer: '', choice: [0], ...(homework ? { points: 10 } : {}) });
 
@@ -138,7 +140,7 @@ function QuestionCard({ q, n, homework, active, onClick, actions }: { q: Questio
               )}
             >
               <span className={cn('font-semibold', choice.has(i) ? 'text-ok' : 'text-ink-3')}>{letter(i)}</span>
-              <span className="min-w-0 flex-1">{o}</span>
+              <span className="min-w-0 flex-1">{bare(o)}</span>
               {choice.has(i) && <Check className="mt-0.5 size-4 shrink-0 text-ok" />}
             </li>
           ))}

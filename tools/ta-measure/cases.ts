@@ -48,6 +48,8 @@ const newLiveHw = (o: CheckInput) => newHw(o).filter((h) => !h.deleted);
 
 /* 专门助手（2026-11-17）：该分的分出来，不该分的不分，已经有管这类活的就交给它 */
 const NEW_SPEC = /^新增 助手\d+/;
+const NEW_LESSON = /^新增 课\d+/;
+const newLessons = (o: CheckInput) => [...o.after.lessons].filter(([id]) => !o.before.lessons.has(id)).map(([, r]) => r);
 const newSpecs = (o: CheckInput) => [...o.after.specialists].filter(([id]) => !o.before.specialists.has(id)).map(([, r]) => r);
 const PROJECT = (w: World) => addSpecialist(w, '项目答疑', '回答学生关于期末项目的问题', '照知识库里的期末项目说明答，说明里没有的告诉学生要问老师');
 
@@ -644,6 +646,44 @@ export const CASES: Case[] = [
     turns: [{ say: '给全班发个通知，明天停课' }, { answer: ['算了'] }],
     allow: [],
     check: () => null,
+  },
+  {
+    id: 'q01',
+    cat: '清楚',
+    turns: [{ say: '帮我给计科2505 Python 备下节课' }],
+    ask: false,
+    allow: [NEW_LESSON],
+    check: (o) => {
+      const l = newLessons(o);
+      if (l.length !== 1) return `备了 ${l.length} 节`;
+      return fail(l[0].class === '计科2505 Python', `备到了「${l[0].class}」`);
+    },
+  },
+  {
+    id: 'q02',
+    cat: '清楚',
+    turns: [{ say: '下节课讲字典的常用操作，给计科2506 Python 备一下，45 分钟' }],
+    ask: false,
+    allow: [NEW_LESSON],
+    check: (o) => {
+      const l = newLessons(o);
+      if (l.length !== 1) return `备了 ${l.length} 节`;
+      if (l[0].class !== '计科2506 Python') return `备到了「${l[0].class}」`;
+      if (!has(l[0].request, '字典')) return `讲什么没带上：${l[0].request}`;
+      return fail(l[0].minutes === 45, `分钟数是 ${l[0].minutes}`);
+    },
+  },
+  {
+    id: 'q03',
+    cat: '该问',
+    turns: [{ say: '帮我备一下下节课' }, { answer: ['计科2505 Python'] }],
+    ask: true,
+    allow: [NEW_LESSON],
+    check: (o) => {
+      const l = newLessons(o);
+      if (l.length !== 1) return `备了 ${l.length} 节`;
+      return fail(l[0].class === '计科2505 Python', `备到了「${l[0].class}」`);
+    },
   },
   {
     id: 'x02',

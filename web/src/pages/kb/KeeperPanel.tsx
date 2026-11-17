@@ -425,8 +425,9 @@ function TaRunBlock({
               )}
             </div>
           )}
+          {/* 助教说的话不套气泡，跟 ChatGPT、Claude 一样直接是字；只有要老师处理的卡片带框 */}
           {!running && run.reply && (
-            <div className="w-fit max-w-full rounded-2xl rounded-tl-md bg-surface-2 px-3.5 py-2.5">
+            <div className="max-w-full text-[15px] leading-relaxed text-ink">
               <Markdown compact>{plainText(run.reply)}</Markdown>
             </div>
           )}

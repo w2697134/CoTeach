@@ -7,6 +7,7 @@ import { conflict, notFound } from '../lib/http.js';
 import { publish, record, type RunRef } from '../kb/agent/events.js';
 
 export type ActionKind =
+  | 'prep.start'
   | 'class.create'
   | 'class.update'
   | 'class.delete'

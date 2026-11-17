@@ -158,6 +158,8 @@ export interface Snapshot {
   subs: Rows;
   /** 助教分出来的专门助手（2026-11-17 加：不该分的时候分了，算办错） */
   specialists: Rows;
+  /** 备的课（2026-11-17 加：备课能在对话里开始了，不该备的时候备了算办错） */
+  lessons: Rows;
 }
 export function snapshot(w: World): Snapshot {
   const cn = new Map(db.all<{ id: number; name: string }>('SELECT id, name FROM classes WHERE teacher_id=?', w.teacher).map((k) => [k.id, k.name]));
@@ -197,7 +199,12 @@ export function snapshot(w: World): Snapshot {
       .all<any>('SELECT * FROM specialists WHERE teacher_id=?', w.teacher)
       .map((s) => [`助手${s.id}`, { id: s.id, name: s.name, duty: s.duty, guide: s.guide, retired: !!s.retired_at }]),
   );
-  return { classes, homework, subs, specialists };
+  const lessons: Rows = new Map(
+    db
+      .all<any>('SELECT * FROM lessons WHERE teacher_id=?', w.teacher)
+      .map((l) => [`课${l.id}`, { class: cn.get(l.class_id), request: l.request, minutes: l.minutes }]),
+  );
+  return { classes, homework, subs, specialists, lessons };
 }
 
 /** 尺子上要事先有一个专门助手的句子用 */
@@ -209,7 +216,7 @@ export function addSpecialist(w: World, name: string, duty: string, guide: strin
 /** 两次快照之间的变化，一条一行：「新增 作业31 {…}」「作业12.due_at: A → B」 */
 export function diff(a: Snapshot, b: Snapshot): string[] {
   const out: string[] = [];
-  for (const key of ['classes', 'homework', 'subs', 'specialists'] as const) {
+  for (const key of ['classes', 'homework', 'subs', 'specialists', 'lessons'] as const) {
     for (const [id, row] of b[key]) {
       const old = a[key].get(id);
       if (!old) {

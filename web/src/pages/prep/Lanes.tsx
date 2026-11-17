@@ -7,7 +7,7 @@ import { LANES, type Lane, type LaneKey } from './data';
  */
 export function Lanes({ lanes, className }: { lanes: Partial<Record<LaneKey, Lane>>; className?: string }) {
   return (
-    <ol className={cn('grid gap-2 sm:grid-cols-5', className)}>
+    <ol className={cn('grid grid-cols-5 gap-1.5 sm:gap-2', className)}>
       {LANES.map((l, i) => {
         const s = lanes[l.key];
         const status = s?.status ?? 'wait';
@@ -15,7 +15,7 @@ export function Lanes({ lanes, className }: { lanes: Partial<Record<LaneKey, Lan
           <li
             key={l.key}
             className={cn(
-              'relative flex gap-2.5 rounded-xl border px-3 py-2.5 transition-colors',
+              'relative flex flex-col items-center gap-1 rounded-xl border px-1 py-2 text-center transition-colors sm:flex-row sm:items-start sm:gap-2.5 sm:px-3 sm:py-2.5 sm:text-left',
               status === 'doing' ? 'border-brand/40 bg-brand-soft/60' : status === 'error' ? 'border-bad/30 bg-bad/5' : 'border-line bg-surface',
             )}
           >
@@ -36,11 +36,21 @@ export function Lanes({ lanes, className }: { lanes: Partial<Record<LaneKey, Lan
               )}
             </span>
             <div className="min-w-0">
-              <p className={cn('text-[14px] font-medium', status === 'wait' ? 'text-ink-3' : 'text-ink')}>
-                <span className="mr-1 text-ink-3">{i + 1}</span>
+              <p className={cn('text-[12.5px] font-medium leading-tight sm:text-[14px]', status === 'wait' ? 'text-ink-3' : 'text-ink')}>
+                <span className="mr-1 hidden text-ink-3 sm:inline">{i + 1}</span>
                 {l.name}
               </p>
-              {s?.note && <p className={cn('mt-0.5 line-clamp-2 text-[12.5px] leading-snug', status === 'error' ? 'text-bad' : 'text-ink-3')}>{s.note}</p>}
+              {status === 'error' ? (
+                <p className="mt-0.5 text-[12px] leading-snug text-bad sm:text-[12.5px]" title={s?.note}>
+                  没做成
+                </p>
+              ) : (
+                s?.note && (
+                  <div className="hidden sm:block">
+                    <p className="mt-0.5 line-clamp-2 text-[12.5px] leading-snug text-ink-3">{s.note}</p>
+                  </div>
+                )
+              )}
             </div>
           </li>
         );

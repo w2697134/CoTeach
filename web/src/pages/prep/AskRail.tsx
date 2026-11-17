@@ -12,6 +12,14 @@ export interface Focus {
   number?: number;
 }
 const FOCUS_NAME: Record<string, string> = { ...PART_NAME, brief: '学情' };
+/** 还没说过话时摆几句能直接点的（点了填进输入框，不直接发） */
+const SUGGEST: Record<string, string[]> = {
+  deck: ['这一页换个例子', '这一页后面加一页课堂提问', '整套课件再精简一些'],
+  plan: ['教学过程压到 45 分钟', '开头补讲再短一点'],
+  practice: ['再出两道', '这道题换个说法'],
+  homework: ['再出一道编程题', '这道题的给分说细一点'],
+  brief: [],
+};
 export const focusLabel = (f: Focus | null) => (f ? `${FOCUS_NAME[f.part]}${f.page ? ` · 第 ${f.page} 页` : ''}${f.number ? ` · 第 ${f.number} 题` : ''}` : '');
 
 /**
@@ -62,6 +70,20 @@ export function AskRail({ lesson, focus, onClearFocus, className }: { lesson: Le
         {lesson.asking && <span className="ml-auto text-[12.5px] text-brand-ink">在改…</span>}
       </div>
       <div ref={list} className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-4">
+        {!lesson.asks.length && !lesson.making && (SUGGEST[focus?.part ?? 'plan'] || []).length > 0 && (
+          <div className="flex flex-col items-start gap-1.5 pt-1">
+            {(SUGGEST[focus?.part ?? 'plan'] || []).map((t) => (
+              <button
+                key={t}
+                type="button"
+                onClick={() => setText(t)}
+                className="rounded-full border border-line-strong px-3 py-1 text-[13px] text-ink-2 transition-colors hover:border-brand/50 hover:text-ink"
+              >
+                {t}
+              </button>
+            ))}
+          </div>
+        )}
         {lesson.asks.map((a) => (
           <div key={a.id} className="space-y-2">
             <div className="ml-auto w-fit max-w-[88%] whitespace-pre-wrap rounded-2xl rounded-tr-md bg-brand px-3.5 py-2 text-[14px] leading-relaxed text-white">{a.message}</div>
