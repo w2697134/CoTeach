@@ -455,7 +455,7 @@ function ChatPane({ id, item }: { id: number; item: ChatItem | undefined }) {
         ) : !d.messages.length ? (
           <div className="flex h-full flex-col items-center justify-center text-center">
             {group ? <GroupAvatar classId={d.chat.classId!} name={title} size={56} /> : <Avatar name={title} seed={title} size={56} />}
-            <p className="mt-3 text-[15px] text-ink-2">{group ? `${title}的课程群，${students} 个学生和老师在里面` : `跟${title}的私聊`}</p>
+            <p className="mt-3 text-[15px] text-ink-2">{group ? `${title}的课程群，${students ? `老师和 ${students} 个学生都在里面` : '学生还没加进来'}` : `跟${title}的私聊`}</p>
           </div>
         ) : (
           <div ref={content} className="mx-auto max-w-[860px] space-y-4">
@@ -471,7 +471,7 @@ function ChatPane({ id, item }: { id: number; item: ChatItem | undefined }) {
           </div>
         )}
       </div>
-      {d && (d.chat.archived ? <p className="border-t border-line bg-surface px-4 py-3 text-center text-[14px] text-ink-3">这门课已经归档了</p> : <Composer chatId={id} classId={group && teacher ? d.chat.classId : null} onSent={refresh} />)}
+      {d && (d.chat.archived ? <p className="shrink-0 px-4 pb-4 pt-1 text-center text-[14px] text-ink-3">这门课已经归档了</p> : <Composer chatId={id} classId={group && teacher ? d.chat.classId : null} onSent={refresh} />)}
     </>
   );
 }
@@ -616,47 +616,12 @@ function Composer({ chatId, classId, onSent }: { chatId: number; classId: number
       toast.fromError(e);
     }
   };
-  const tool = 'inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-[14px] text-ink-2 transition-colors hover:bg-surface-3 hover:text-ink';
+  const tool = 'inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg px-2 text-[14px] text-ink-3 transition-colors hover:bg-surface-3 hover:text-ink';
+  // 跟 CoT 助教的输入框一个样子：一个圆角框，上面打字，
+  // 底下一行左边是文件、通知、签到、选人，右边是发送；框浮在会话底下，跟消息一样宽
   return (
-    <div className="shrink-0 border-t border-line bg-surface px-3 pb-3 pt-2 sm:px-4">
-      <div className="mb-1.5 flex flex-wrap items-center gap-0.5">
-        <button type="button" className={tool} onClick={() => fileInput.current?.click()}>
-          <Paperclip className="size-4" />
-          文件
-        </button>
-        {classId && (
-          <>
-            <button type="button" className={tool} onClick={() => setNotice(true)}>
-              <Megaphone className="size-4" />
-              通知
-            </button>
-            <Popover
-              width={260}
-              trigger={({ toggle }) => (
-                <button type="button" className={tool} onClick={toggle}>
-                  <CircleCheck className="size-4" />
-                  签到
-                </button>
-              )}
-            >
-              {(close) => (
-                <div className="space-y-3 p-3">
-                  <p className="text-[14px] font-medium text-ink">签到开多久</p>
-                  <Segmented<number> size="sm" value={minutes} onChange={setMinutes} options={[3, 5, 10, 15].map((v) => ({ value: v, label: `${v} 分钟` }))} />
-                  <Button block variant="primary" onClick={() => (close(), run(() => post('/messages/checkins', { classId, minutes })))}>
-                    发起签到
-                  </Button>
-                </div>
-              )}
-            </Popover>
-            <button type="button" className={tool} onClick={() => run(() => post('/messages/picks', { classId }))}>
-              <Dices className="size-4" />
-              选人
-            </button>
-          </>
-        )}
-      </div>
-      <div className="flex items-end gap-2">
+    <div className="shrink-0 px-3 pb-3 pt-1 sm:px-6 sm:pb-4">
+      <div className="mx-auto max-w-[860px] rounded-2xl border border-line bg-surface shadow-xs transition-colors focus-within:border-brand/50">
         <Textarea
           autoGrow
           rows={1}
@@ -665,11 +630,57 @@ function Composer({ chatId, classId, onSent }: { chatId: number; classId: number
           placeholder="发消息"
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && (e.preventDefault(), send())}
-          className="min-h-[40px] flex-1 resize-none"
+          className="min-h-0 resize-none border-0 bg-transparent px-3.5 pb-1 pt-3 text-[15px] shadow-none! hover:border-0 focus:ring-0"
         />
-        <Button variant="primary" className="size-10 shrink-0 rounded-full p-0" loading={sending} disabled={!text.trim()} onClick={send} aria-label="发送">
-          {!sending && <ArrowUp className="size-4" />}
-        </Button>
+        <div className="flex items-center gap-1 px-1.5 pb-1.5">
+          <div className="no-scrollbar flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto">
+            <button type="button" className={tool} onClick={() => fileInput.current?.click()}>
+              <Paperclip className="size-4" />
+              文件
+            </button>
+            {classId && (
+              <>
+                <button type="button" className={tool} onClick={() => setNotice(true)}>
+                  <Megaphone className="size-4" />
+                  通知
+                </button>
+                <Popover
+                  align="start"
+                  width={260}
+                  trigger={({ toggle }) => (
+                    <button type="button" className={tool} onClick={toggle}>
+                      <CircleCheck className="size-4" />
+                      签到
+                    </button>
+                  )}
+                >
+                  {(close) => (
+                    <div className="space-y-3 p-3">
+                      <p className="text-[14px] font-medium text-ink">签到开多久</p>
+                      <Segmented<number> size="sm" value={minutes} onChange={setMinutes} options={[3, 5, 10, 15].map((v) => ({ value: v, label: `${v} 分钟` }))} />
+                      <Button block variant="primary" onClick={() => (close(), run(() => post('/messages/checkins', { classId, minutes })))}>
+                        发起签到
+                      </Button>
+                    </div>
+                  )}
+                </Popover>
+                <button type="button" className={tool} onClick={() => run(() => post('/messages/picks', { classId }))}>
+                  <Dices className="size-4" />
+                  选人
+                </button>
+              </>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={send}
+            disabled={!text.trim() || sending}
+            aria-label="发送"
+            className="inline-flex size-9 shrink-0 items-center justify-center rounded-xl bg-brand text-white transition-colors hover:bg-brand-hover disabled:opacity-40"
+          >
+            <ArrowUp className="size-4" />
+          </button>
+        </div>
       </div>
       <input ref={fileInput} type="file" multiple className="hidden" onChange={(e) => sendFiles(e.target.files)} />
       {classId && <NewNotice open={notice} onClose={() => setNotice(false)} classId={classId} onSent={onSent} />}

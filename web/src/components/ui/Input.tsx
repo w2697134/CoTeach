@@ -68,14 +68,20 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaHTMLAttributes<H
       const el = inner.current;
       if (!el || !autoGrow) return;
       el.style.height = 'auto';
-      const lh = parseFloat(getComputedStyle(el).lineHeight) || 22;
-      el.style.height = Math.min(el.scrollHeight, lh * maxRows + 20) + 'px';
+      const cs = getComputedStyle(el);
+      // 高度要把上下边框算进去（scrollHeight 不含边框）：以前少算 2px，字没满也冒出一根带上下箭头的滚动条（Windows 上看得到）
+      const border = parseFloat(cs.borderTopWidth) + parseFloat(cs.borderBottomWidth);
+      const lh = parseFloat(cs.lineHeight) || 22;
+      const max = lh * maxRows + parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom) + border;
+      const want = el.scrollHeight + border;
+      el.style.height = Math.min(want, max) + 'px';
+      el.style.overflowY = want > max + 1 ? 'auto' : 'hidden';
     };
     useEffect(resize, [rest.value, autoGrow]);
     return (
       <textarea
         ref={inner}
-        className={cn(base, 'px-3 py-2 text-sm leading-relaxed', autoGrow && 'resize-none overflow-y-auto', className)}
+        className={cn(base, 'px-3 py-2 text-sm leading-relaxed', autoGrow && 'resize-none overflow-y-hidden', className)}
         onInput={e => {
           resize();
           onInput?.(e);
