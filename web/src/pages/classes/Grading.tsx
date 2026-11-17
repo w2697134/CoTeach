@@ -3,8 +3,10 @@ import { useQueryClient } from '@tanstack/react-query';
 import { Bot, Check, ChevronDown, FileText, Loader2, Plus, Sparkles, Trash2 } from 'lucide-react';
 import { api, post } from '../../lib/api';
 import { toast } from '../../lib/store';
-import { Button, Card, IconButton, Input, Modal, Textarea, cn, useConfirm } from '../../components/ui';
+import { AgentAvatar, Button, Card, IconButton, Input, Modal, Textarea, cn, useConfirm } from '../../components/ui';
+import { TA } from '../kb/data';
 import { num, type GradeItem, type HomeworkDetail, type Mark, type RubricItem } from './homework';
+import { CHIP, INK } from './tone';
 
 /* ---------------- 批改稿：交上来的文字，划出批注 ---------------- */
 
@@ -22,11 +24,11 @@ const looksLikeCode = (text: string) => {
 };
 
 const TONE = {
-  wrong: { mark: 'bg-bad-soft decoration-bad/70', chip: 'bg-bad text-white' },
-  good: { mark: 'bg-ok-soft decoration-ok/70', chip: 'bg-ok text-white' },
+  wrong: { mark: 'bg-bad-soft decoration-[#ef4444]/70', chip: 'bg-[#dc2626] text-white' },
+  good: { mark: 'bg-ok-soft decoration-[#10b981]/70', chip: 'bg-[#047857] text-white' },
 };
 
-/** 批改稿：原文照排，批注的地方底色加波浪线，后面一个小号码，跟下面的批注对上 */
+/** 批改稿：原文照排，批注的地方底色加波浪线，后面一个小号码，跟旁边的批注对上 */
 export function MarkedText({ text, marks, active, onPick }: { text: string; marks: Mark[]; active?: number | null; onPick?: (n: number) => void }) {
   const list = numbered(marks);
   const parts = useMemo(() => {
@@ -46,8 +48,8 @@ export function MarkedText({ text, marks, active, onPick }: { text: string; mark
   return (
     <div
       className={cn(
-        'whitespace-pre-wrap break-words rounded-lg border border-line bg-surface-2/60 px-4 py-3.5 leading-[1.9] text-ink',
-        code ? 'font-mono text-[13.5px] [tab-size:4]' : 'text-[15px]',
+        'whitespace-pre-wrap break-words rounded-lg border border-line bg-surface-2/60 px-4 py-3.5 leading-[1.95] text-ink',
+        code ? 'font-mono text-[14px] [tab-size:4]' : 'text-[15px]',
       )}
     >
       {parts.map((p, i) =>
@@ -64,8 +66,9 @@ export function MarkedText({ text, marks, active, onPick }: { text: string; mark
               {p.text}
             </mark>
             <sup
+              onClick={() => onPick?.(p.m!.n)}
               className={cn(
-                'ml-0.5 inline-flex size-[17px] -translate-y-0.5 items-center justify-center rounded-full font-sans text-[10.5px] font-semibold not-italic',
+                'ml-0.5 inline-flex size-5 -translate-y-0.5 cursor-pointer items-center justify-center rounded-full font-sans text-[13px] font-semibold not-italic leading-none',
                 TONE[p.m.kind].chip,
               )}
             >
@@ -80,21 +83,21 @@ export function MarkedText({ text, marks, active, onPick }: { text: string; mark
   );
 }
 
-/** 批注列表：号码、划的原文、说了什么 */
+/** 批注列表：号码、划的原文、说了什么（一行四十几个字） */
 export function MarkList({ marks, active, onPick }: { marks: Mark[]; active?: number | null; onPick?: (n: number) => void }) {
   const list = numbered(marks);
   if (!list.length) return null;
   return (
-    <ol className="space-y-2">
+    <ol className="space-y-1.5">
       {list.map((m) => (
         <li
           key={m.n}
           onClick={() => onPick?.(m.n)}
-          className={cn('flex cursor-default gap-2.5 rounded-lg px-2 py-1.5 transition-colors', active === m.n ? 'bg-brand-soft/60' : 'hover:bg-surface-2')}
+          className={cn('flex max-w-[46em] cursor-default gap-3 rounded-lg px-2 py-2 transition-colors', active === m.n ? 'bg-brand-soft/70' : 'hover:bg-surface-2')}
         >
-          <span className={cn('mt-[3px] inline-flex size-[18px] shrink-0 items-center justify-center rounded-full text-[11px] font-semibold', TONE[m.kind].chip)}>{m.n}</span>
-          <div className="min-w-0 text-[14.5px] leading-relaxed">
-            {m.start < 0 && <span className="mr-1.5 rounded bg-surface-3 px-1.5 py-0.5 font-mono text-[12.5px] text-ink-2">{m.quote.slice(0, 60)}</span>}
+          <span className={cn('mt-0.5 inline-flex size-[22px] shrink-0 items-center justify-center rounded-full text-[13px] font-semibold', TONE[m.kind].chip)}>{m.n}</span>
+          <div className="min-w-0 text-[15px] leading-relaxed">
+            {m.start < 0 && <span className="mr-1.5 rounded bg-surface-3 px-1.5 py-0.5 font-mono text-[13px] text-ink-2">{m.quote.slice(0, 60)}</span>}
             <span className="text-ink">{m.note}</span>
           </div>
         </li>
@@ -105,25 +108,25 @@ export function MarkList({ marks, active, onPick }: { marks: Mark[]; active?: nu
 
 /* ---------------- 每项得分 ---------------- */
 
-const barTone = (got: number, max: number) => (got >= max ? 'bg-ok' : got <= 0 ? 'bg-bad' : 'bg-warn');
+const barColor = (got: number, max: number) => (got >= max ? '#10b981' : got <= 0 ? '#ef4444' : '#f59e0b');
 
 /** 每项得分（只看）：名字、几分、一根条、为什么 */
 export function ItemBars({ items }: { items: GradeItem[] }) {
   if (!items.length) return null;
   return (
-    <ul className="space-y-3">
+    <ul className="space-y-4">
       {items.map((it, i) => (
         <li key={i} className="space-y-1.5">
           <div className="flex items-baseline gap-3">
-            <span className="min-w-0 flex-1 text-[14.5px] font-medium text-ink">{it.title}</span>
-            <span className="shrink-0 text-[14px] tabular-nums text-ink-3">
-              <span className="font-semibold text-ink">{num(it.got)}</span> / {num(it.max)}
+            <span className="min-w-0 flex-1 text-[15px] font-medium text-ink">{it.title}</span>
+            <span className={cn('shrink-0 text-[14px] tabular-nums text-ink-2', it.got < it.max && 'font-medium')}>
+              <span className={cn('text-[16px] font-semibold', it.got >= it.max ? INK.ok : it.got <= 0 ? INK.bad : 'text-ink')}>{num(it.got)}</span> / {num(it.max)}
             </span>
           </div>
           <div className="h-1.5 overflow-hidden rounded-full bg-surface-3">
-            <div className={cn('h-full rounded-full', barTone(it.got, it.max))} style={{ width: `${it.max ? Math.max(2, (it.got / it.max) * 100) : 0}%` }} />
+            <div className="h-full rounded-full" style={{ width: `${it.max ? Math.max(2, (it.got / it.max) * 100) : 0}%`, backgroundColor: barColor(it.got, it.max) }} />
           </div>
-          {it.why && <p className="text-[13.5px] leading-relaxed text-ink-3">{it.why}</p>}
+          {it.why && <p className="max-w-[44em] text-[14px] leading-relaxed text-ink-2">{it.why}</p>}
         </li>
       ))}
     </ul>
@@ -137,26 +140,26 @@ export function ItemEditor({ items, base, onChange }: { items: GradeItem[]; base
       {items.map((it, i) => {
         const changed = base && base[i] && Math.abs(base[i].got - it.got) > 0.01;
         return (
-          <li key={i} className="space-y-1 px-3.5 py-2.5">
+          <li key={i} className={cn('space-y-1.5 px-3.5 py-3', changed && 'bg-brand-soft/40')}>
             <div className="flex items-center gap-3">
-              <span className="min-w-0 flex-1 text-[14.5px] font-medium text-ink">{it.title}</span>
-              {changed && <span className="shrink-0 text-[12.5px] text-ink-3 line-through">{num(base![i].got)}</span>}
+              <span className="min-w-0 flex-1 text-[15px] font-medium leading-snug text-ink">{it.title}</span>
+              {changed && <span className="shrink-0 text-[13px] text-ink-2 line-through">{num(base![i].got)}</span>}
               <Input
                 type="number"
                 inputMode="decimal"
                 min={0}
                 max={it.max}
                 step="0.5"
-                className="w-20 text-right"
+                className="w-[72px] text-right"
                 value={String(it.got)}
                 onChange={(e) => {
                   const v = Number(e.target.value);
                   onChange(items.map((x, k) => (k === i ? { ...x, got: Number.isFinite(v) ? Math.min(x.max, Math.max(0, v)) : 0 } : x)));
                 }}
               />
-              <span className="w-10 shrink-0 text-[14px] tabular-nums text-ink-3">/ {num(it.max)}</span>
+              <span className="w-10 shrink-0 text-[14px] tabular-nums text-ink-2">/ {num(it.max)}</span>
             </div>
-            {it.why && <p className="text-[13px] leading-relaxed text-ink-3">{it.why}</p>}
+            {it.why && <p className="text-[14px] leading-relaxed text-ink-2">{it.why}</p>}
           </li>
         );
       })}
@@ -170,14 +173,14 @@ export const sumItems = (items: GradeItem[]) => Math.round(items.reduce((n, x) =
 export function GradedBy({ by }: { by?: 'ai' | 'teacher' | null }) {
   if (!by) return null;
   return by === 'ai' ? (
-    <span className="inline-flex items-center gap-1 rounded-full bg-brand-soft px-2 py-0.5 text-[12.5px] font-medium text-brand-ink">
-      <Bot className="size-3.5" />
-      CoT 助教批改
+    <span className="inline-flex items-center gap-1 rounded-full bg-brand-soft px-2.5 py-0.5 text-[13px] font-medium text-brand-ink">
+      <Bot className="size-4" />
+      CoT 助教批的
     </span>
   ) : (
-    <span className="inline-flex items-center gap-1 rounded-full bg-surface-3 px-2 py-0.5 text-[12.5px] font-medium text-ink-2">
-      <Check className="size-3.5" />
-      老师批改
+    <span className="inline-flex items-center gap-1 rounded-full bg-surface-3 px-2.5 py-0.5 text-[13px] font-medium text-ink-2">
+      <Check className="size-4" />
+      老师批的
     </span>
   );
 }
@@ -225,23 +228,26 @@ export function RubricCard({ h }: { h: HomeworkDetail }) {
   };
   return (
     <Card padded={false}>
-      <button type="button" onClick={() => setOpen(!open)} className="flex w-full items-center gap-3 px-5 py-4 text-left sm:px-6">
-        <h2 className="text-[17px] font-semibold text-ink">评分标准</h2>
+      <button type="button" onClick={() => setOpen(!open)} aria-expanded={open} className="flex w-full items-center gap-3 px-5 py-4 text-left sm:px-6">
+        <h2 className="shrink-0 text-[16px] font-semibold text-ink">评分标准</h2>
         {drafting ? (
-          <span className="inline-flex items-center gap-1.5 text-[13.5px] text-brand-ink">
-            <Loader2 className="size-3.5 animate-spin" />
-            助教在拟
+          <span className="inline-flex min-w-0 flex-1 items-center gap-1.5 text-[14px] text-brand-ink">
+            <Loader2 className="size-4 animate-spin" />
+            助教在照知识库拟
           </span>
         ) : r?.items.length ? (
-          <span className="text-[13.5px] text-ink-3">
-            {r.items.length} 项 · {r.source === 'teacher' ? '老师改过' : '助教拟的'}
+          <span className="min-w-0 flex-1 truncate text-[14px] text-ink-2">
+            {r.items.length} 项：{r.items.map((x) => `${x.title.replace(/^.*?[：:]\s*/, '')} ${num(x.points)}`).join('、')}
           </span>
         ) : r?.status === 'error' ? (
-          <span className="text-[13.5px] text-bad">没拟出来</span>
+          <span className={cn('min-w-0 flex-1 text-[14px]', INK.bad)}>没拟出来</span>
         ) : (
-          <span className="text-[13.5px] text-ink-3">还没有</span>
+          <span className="min-w-0 flex-1 text-[14px] text-ink-2">还没有</span>
         )}
-        <ChevronDown className={cn('ml-auto size-[18px] text-ink-3 transition-transform', open && 'rotate-180')} />
+        <span className="inline-flex shrink-0 items-center gap-1 text-[14px] text-ink-2">
+          <span className="max-sm:hidden">{r?.items.length ? (r.source === 'teacher' ? '你改过' : '助教拟的') : ''}</span>
+          <ChevronDown className={cn('size-[18px] text-ink-3 transition-transform', open && 'rotate-180')} />
+        </span>
       </button>
       {open && (
         <div className="space-y-4 border-t border-line px-5 pb-5 pt-4 sm:px-6">
@@ -260,7 +266,7 @@ export function RubricCard({ h }: { h: HomeworkDetail }) {
                         value={String(x.points)}
                         onChange={(e) => setEditing(editing.map((y, k) => (k === i ? { ...y, points: Number(e.target.value) } : y)))}
                       />
-                      <span className="shrink-0 text-[14px] text-ink-3">分</span>
+                      <span className="shrink-0 text-[14px] text-ink-2">分</span>
                       <IconButton label="删掉这一项" size="sm" disabled={editing.length <= 1} onClick={() => setEditing(editing.filter((_, k) => k !== i))}>
                         <Trash2 className="size-4" />
                       </IconButton>
@@ -270,7 +276,7 @@ export function RubricCard({ h }: { h: HomeworkDetail }) {
                       autoGrow
                       maxRows={10}
                       placeholder="参考答案"
-                      className="font-mono text-[13px]"
+                      className="font-mono text-[14px]"
                       value={x.answer}
                       onChange={(e) => setEditing(editing.map((y, k) => (k === i ? { ...y, answer: e.target.value } : y)))}
                     />
@@ -281,7 +287,7 @@ export function RubricCard({ h }: { h: HomeworkDetail }) {
                 <Button size="sm" icon={<Plus className="size-4" />} onClick={() => setEditing([...editing, blank()])}>
                   加一项
                 </Button>
-                <span className={cn('text-[14px]', Math.abs(sum - h.points) > 0.01 ? 'text-bad' : 'text-ink-3')}>
+                <span className={cn('text-[14px]', Math.abs(sum - h.points) > 0.01 ? INK.bad : 'text-ink-2')}>
                   加起来 {num(sum)} 分，满分 {num(h.points)} 分
                 </span>
                 <div className="ml-auto flex gap-2">
@@ -294,16 +300,16 @@ export function RubricCard({ h }: { h: HomeworkDetail }) {
                 </div>
               </div>
               {error && (
-                <p role="alert" className="text-[14px] text-bad">
+                <p role="alert" className={cn('text-[14px]', INK.bad)}>
                   {error}
                 </p>
               )}
             </>
           ) : (
             <>
-              {r?.status === 'error' && <p className="rounded-lg bg-bad-soft px-3.5 py-2.5 text-[14px] text-bad">{r.error || '没拟出来'}</p>}
+              {r?.status === 'error' && <p className={cn('rounded-lg px-3.5 py-2.5 text-[14px]', CHIP.bad)}>{r.error || '没拟出来'}</p>}
               {r?.items.length ? (
-                <ol className="space-y-3">
+                <ol className="grid gap-3 lg:grid-cols-2">
                   {r.items.map((x, i) => (
                     <li key={i} className="rounded-lg bg-surface-2 px-4 py-3">
                       <div className="flex items-baseline gap-3">
@@ -315,7 +321,7 @@ export function RubricCard({ h }: { h: HomeworkDetail }) {
                       {x.criteria && <p className="mt-1.5 whitespace-pre-wrap text-[14px] leading-relaxed text-ink-2">{x.criteria}</p>}
                       {x.answer && (
                         <details className="mt-2">
-                          <summary className="cursor-pointer select-none text-[13.5px] text-ink-3 hover:text-ink-2">参考答案</summary>
+                          <summary className="cursor-pointer select-none text-[14px] text-ink-2 hover:text-ink">参考答案</summary>
                           <pre className="mt-1.5 whitespace-pre-wrap break-words rounded-md bg-surface px-3 py-2 font-mono text-[13px] leading-relaxed text-ink">{x.answer}</pre>
                         </details>
                       )}
@@ -323,7 +329,7 @@ export function RubricCard({ h }: { h: HomeworkDetail }) {
                   ))}
                 </ol>
               ) : (
-                !drafting && <p className="text-[14px] text-ink-3">还没有评分标准</p>
+                !drafting && <p className="text-[14px] text-ink-2">还没有评分标准</p>
               )}
               {!h.archived && !drafting && (
                 <div className="flex gap-2">
@@ -343,12 +349,43 @@ export function RubricCard({ h }: { h: HomeworkDetail }) {
   );
 }
 
-/* ---------------- 助教批改那一条（老师的学生列表上方） ---------------- */
+/* ---------------- 助教批改那一条（老师的学生作业上方） ---------------- */
 
 type Student = NonNullable<HomeworkDetail['students']>[number];
 const isIn = (s: Student) => !!s.status && s.status !== 'todo' && s.status !== 'missing';
 
-/** 助教批了几份、正在批几份、几份要老师看、几份等发布；按钮：让助教批、发布、讲评 */
+/** 分数分成五段，一段一根竖条：不到 60 的红，别的用主色。批改进行中条会一根根长起来 */
+export function Spread({ scores, points, className }: { scores: number[]; points: number; className?: string }) {
+  const edges = [0.6, 0.7, 0.8, 0.9];
+  const labels = ['<60', '60+', '70+', '80+', '90+'];
+  const counts = [0, 0, 0, 0, 0];
+  for (const s of scores) {
+    const r = points ? s / points : 0;
+    counts[edges.filter((e) => r >= e).length]++;
+  }
+  const max = Math.max(1, ...counts);
+  return (
+    <div className={cn('flex items-end gap-1.5', className)} aria-label="分数分布">
+      {counts.map((n, i) => (
+        <div key={i} className="flex w-9 flex-col items-center gap-1" title={`${labels[i]}：${n} 人`}>
+          <span className="text-[13px] font-medium tabular-nums text-ink-2">{n}</span>
+          <div className="flex h-12 w-full items-end">
+            <div
+              className={cn('w-full rounded-t-[3px] transition-[height] duration-700', i === 0 ? 'bg-[#ef4444]/80' : 'bg-brand/80')}
+              style={{ height: `${n ? Math.max(6, (n / max) * 100) : 2}%` }}
+            />
+          </div>
+          <span className="text-[13px] tabular-nums text-ink-3">{labels[i]}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * 助教这边做到哪了：在批的时候一根进度条，批好一份长一截；批好了写平均分，旁边一组小竖条看分数怎么分布。
+ * 按钮：让助教批、发给学生（看过再发的）、讲评。
+ */
 export function AiBar({ h, onReview }: { h: HomeworkDetail; onReview: () => void }) {
   const qc = useQueryClient();
   const [busy, setBusy] = useState<'grade' | 'release' | null>(null);
@@ -360,7 +397,8 @@ export function AiBar({ h, onReview }: { h: HomeworkDetail; onReview: () => void
   const failed = all.filter((s) => s.score === null && s.ai?.status === 'error').length;
   const waiting = all.filter((s) => s.score === null && s.status !== 'returned' && (!s.ai || s.ai.status === 'error')).length;
   const running = h.grading || 0;
-  const graded = all.filter((s) => s.score !== null).length;
+  const gradedList = all.filter((s) => s.score !== null);
+  const graded = gradedList.length;
   // 还没有批过的、也没在批的：这一条不显示
   if (!running && !graded && !drafts && !flagged && !failed && !(waiting && h.aiMode !== 'off')) return null;
   const refresh = async () => {
@@ -372,7 +410,7 @@ export function AiBar({ h, onReview }: { h: HomeworkDetail; onReview: () => void
     try {
       const r = await post<{ queued: number }>(`/homework/${h.id}/ai-grade`, {});
       await refresh();
-      toast.success(r.queued ? `助教开始批 ${r.queued} 份` : '没有要批的');
+      toast.success(r.queued ? `助教开始批这 ${r.queued} 份` : '没有要批的');
     } catch (e) {
       toast.fromError(e);
     } finally {
@@ -391,32 +429,34 @@ export function AiBar({ h, onReview }: { h: HomeworkDetail; onReview: () => void
       setBusy(null);
     }
   };
-  const facts = [
-    running ? null : byAi ? `助教批了 ${byAi} 份` : null,
-    byTeacher ? `你批了 ${byTeacher} 份` : null,
-    drafts ? `${drafts} 份等你发` : null,
-    flagged ? `${flagged} 份要你看` : null,
-    failed ? `${failed} 份没批成` : null,
-  ].filter(Boolean);
+  const avg = graded ? gradedList.reduce((n, s) => n + (s.score || 0), 0) / graded : null;
+  const done = graded + drafts + flagged + failed;
+  const headline = running
+    ? `助教在批，批好 ${done} 份，还剩 ${running} 份`
+    : graded
+      ? `${byAi ? `助教批好 ${byAi} 份` : ''}${byAi && byTeacher ? '，' : ''}${byTeacher ? `你批了 ${byTeacher} 份` : ''}，平均 ${num(avg!)} 分`
+      : drafts || flagged
+        ? `助教批好 ${drafts + flagged} 份，还没发给学生`
+        : `交上来 ${waiting} 份，还没批`;
+  const sub = [flagged && `${flagged} 份拿不准，等你看`, drafts && `${drafts} 份等你看过再发`, failed && `${failed} 份没批成`].filter(Boolean).join('，');
   return (
-    <div className="flex flex-wrap items-center gap-x-4 gap-y-2.5 border-b border-line bg-brand-soft/35 px-5 py-3 sm:px-6">
-      <span className="inline-flex size-8 shrink-0 items-center justify-center rounded-full bg-brand text-white">
-        <Bot className="size-[18px]" />
-      </span>
-      <div className="min-w-0 flex-1 text-[14px] text-ink">
+    <div className="flex flex-wrap items-center gap-x-5 gap-y-3 border-b border-line bg-brand-soft/40 px-5 py-4 sm:px-6">
+      <AgentAvatar agent={TA} size={44} status={running ? 'running' : null} />
+      <div className="min-w-[200px] flex-1">
+        <p className="text-[16px] font-semibold text-ink">{headline}</p>
         {running ? (
-          <span className="inline-flex items-center gap-1.5 font-medium text-brand-ink">
-            <Loader2 className="size-4 animate-spin" />
-            CoT 助教正在批，还有 {running} 份
-          </span>
+          <div className="mt-2 h-2 max-w-sm overflow-hidden rounded-full bg-surface">
+            <div className="h-full rounded-full bg-brand transition-[width] duration-700" style={{ width: `${Math.round((done / Math.max(1, done + running)) * 100)}%` }} />
+          </div>
         ) : (
-          <span className="font-medium">{facts.length ? facts.join(' · ') : `${waiting} 份还没批`}</span>
+          sub && <p className={cn('mt-0.5 text-[14px]', flagged ? INK.warn : 'text-ink-2')}>{sub}</p>
         )}
       </div>
-      <div className="flex flex-wrap gap-2">
-        {waiting > 0 && !running && !h.archived && (
+      {graded >= 3 && <Spread scores={gradedList.map((s) => s.score!)} points={h.points} className="max-sm:w-full max-sm:justify-center" />}
+      <div className="flex flex-wrap gap-2 max-sm:order-last">
+        {waiting > 0 && !running && !h.archived && h.aiMode !== 'off' && (
           <Button size="sm" variant="soft" icon={<Sparkles className="size-4" />} loading={busy === 'grade'} onClick={grade}>
-            让助教批 {waiting} 份
+            让助教批这 {waiting} 份
           </Button>
         )}
         {drafts > 0 && !h.archived && (
@@ -434,32 +474,31 @@ export function AiBar({ h, onReview }: { h: HomeworkDetail; onReview: () => void
   );
 }
 
-/** 学生列表一行右边：分数（谁批的）、助教在批、等发布、要你看、没批成 */
+/** 学生那一格右边：分数（不到六成红的）、助教在批、等你看、助教拟的分、没批成、等你批 */
 export function AiCell({ s, points }: { s: Student; points: number }) {
   if (s.score !== null && s.status === 'graded')
     return (
-      <span className="flex items-center gap-2">
-        {s.gradedBy === 'ai' && <Bot className="size-4 text-brand" aria-label="助教批的" />}
-        <span className="text-[14px] tabular-nums text-ink-3">
-          <span className={cn('text-[15px] font-semibold', s.score / points >= 0.6 ? 'text-ok' : 'text-bad')}>{num(s.score)}</span>/{num(points)}
-        </span>
+      <span className="shrink-0 text-right leading-none">
+        <span className={cn('text-[24px] font-semibold tabular-nums', s.score / points < 0.6 ? INK.bad : 'text-ink')}>{num(s.score)}</span>
+        {s.gradedBy === 'teacher' && <span className="mt-1 block text-[13px] text-ink-2">你批的</span>}
       </span>
     );
   const ai = s.ai;
-  if (ai && (ai.status === 'queued' || ai.status === 'running') && s.status !== 'returned')
-    return (
-      <span className="inline-flex items-center gap-1.5 rounded-full bg-brand-soft px-2.5 py-0.5 text-[12.5px] text-brand-ink">
-        <Loader2 className="size-3 animate-spin" />
-        助教在批
-      </span>
+  const chip = (tone: string, children: React.ReactNode) => <span className={cn('inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[13px]', tone)}>{children}</span>;
+  if (s.status === 'returned') return chip(CHIP.warn, '退回重交');
+  if (s.status === 'missing') return chip(CHIP.bad, '没交');
+  if (s.status === 'todo') return chip(CHIP.gray, '还没交');
+  if (ai && (ai.status === 'queued' || ai.status === 'running'))
+    return chip(
+      CHIP.brand,
+      <>
+        <Loader2 className="size-3.5 animate-spin" />
+        在批
+      </>,
     );
-  if (ai && ai.status === 'done' && s.status !== 'returned')
-    return ai.flag ? (
-      <span className="rounded-full bg-warn-soft px-2.5 py-0.5 text-[12.5px] text-warn">要你看</span>
-    ) : (
-      <span className="rounded-full bg-brand-soft px-2.5 py-0.5 text-[12.5px] text-brand-ink">助教拟 {ai.score === null ? '—' : num(ai.score)}</span>
-    );
-  if (ai && ai.status === 'error' && s.status !== 'returned') return <span className="rounded-full bg-bad-soft px-2.5 py-0.5 text-[12.5px] text-bad">没批成</span>;
+  if (ai && ai.status === 'done') return ai.flag ? chip(CHIP.warn, '等你看') : chip(CHIP.brand, `助教拟 ${ai.score === null ? '—' : num(ai.score)}`);
+  if (ai && ai.status === 'error') return chip(CHIP.bad, '没批成');
+  if (s.status === 'submitted' || s.status === 'late') return chip(CHIP.info, '等你批');
   return null;
 }
 
@@ -513,7 +552,7 @@ export function SameDialog({ hwId, ask, onClose }: { hwId: number; ask: SameAsk 
         </>
       }
     >
-      <ul className="max-h-[50vh] space-y-1.5 overflow-y-auto px-6 pb-2">
+      <ul className="max-h-[50vh] space-y-1.5 overflow-y-auto pb-2">
         {ask?.students.map((s) => (
           <li key={s.sid}>
             <label className="flex cursor-pointer gap-3 rounded-lg px-2 py-2 hover:bg-surface-2">
@@ -524,8 +563,8 @@ export function SameDialog({ hwId, ask, onClose }: { hwId: number; ask: SameAsk 
                 onChange={(e) => setPicked(e.target.checked ? [...chosen, s.sid] : chosen.filter((x) => x !== s.sid))}
               />
               <span className="min-w-0">
-                <span className="text-[14.5px] font-medium text-ink">{s.name}</span>
-                {s.why && <span className="mt-0.5 block text-[13.5px] leading-relaxed text-ink-3">{s.why}</span>}
+                <span className="text-[15px] font-medium text-ink">{s.name}</span>
+                {s.why && <span className="mt-0.5 block text-[14px] leading-relaxed text-ink-2">{s.why}</span>}
               </span>
             </label>
           </li>
