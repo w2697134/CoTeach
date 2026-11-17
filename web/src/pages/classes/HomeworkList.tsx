@@ -214,7 +214,13 @@ export function HomeworkList({
   // 老师：最近发出去的 6 份把每个学生的情况也取来。跟作业页同一份数据，点进去不用再等
   const recent = student ? [] : list.filter((h) => h.publishAt <= now).slice(0, 6);
   const details = useQueries({
-    queries: recent.map((h) => ({ queryKey: ['homework', h.id], queryFn: () => get<HomeworkDetail>(`/homework/${h.id}`), staleTime: 15_000 })),
+    queries: recent.map((h) => ({
+      queryKey: ['homework', h.id],
+      queryFn: () => get<HomeworkDetail>(`/homework/${h.id}`),
+      staleTime: 15_000,
+      // 助教在批的那份隔三秒再取一次：小方块一个个亮起来
+      refetchInterval: (q: { state: { data?: HomeworkDetail } }) => (q.state.data?.grading ? 3000 : false),
+    })),
   });
   const detail = new Map(recent.map((h, i) => [h.id, details[i]?.data]));
   // 学生：错题本那份数据（跟错题本页同一份），批好的作业写丢分最多的那一项
