@@ -1,24 +1,27 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useBlocker, useSearchParams } from 'react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { BookOpen, Download, FileText, FolderInput, History, MoreHorizontal, MoveRight, Pencil, Save, Trash2, X } from 'lucide-react';
+import { BookOpen, Download, FileText, FolderInput, History, Lock, MoreHorizontal, MoveRight, Pencil, Save, Trash2, X } from 'lucide-react';
 import { api, download, get } from '../../lib/api';
 import { fromNow, fmtSize } from '../../lib/format';
 import { toast } from '../../lib/store';
 import { Markdown } from '../../components/Markdown';
 import { Alert, Button, Empty, Input, MenuItem, Modal, Popover, Skeleton, Textarea, cn, useConfirm } from '../../components/ui';
-import { PLAIN_NAMES, plainText, fileTitle, fileDir, rehypePlainNames, useFile, useCourse, useKnowledgeBases, type CommitInfo } from './data';
+import { KEEPER, PLAIN_NAMES, TA, plainText, fileTitle, fileDir, rehypePlainNames, useFile, useCourse, useKnowledgeBases, type CommitInfo, type TreeFile } from './data';
 import { kbTarget, rehypeKbLinks, splitTitle, withoutFrontMatter } from './presentation';
 import { LocationField } from './LocationField';
-import { Crumbs, MaterialIcon } from './Files';
-import { BackButton } from './Changes';
+import { MaterialIcon } from './Files';
+import { Sentence } from './Activity';
+import { isOriginal, mentionedOriginals, nameOf, type Origins, type Piece } from './insight';
 import { copyText } from '../../lib/clipboard';
 
+/** 老师这边只认一个助教：整理助手在后台写的，署名写 CoT 助教 */
+const signed = (name: string) => (name === KEEPER.name ? TA.name : name);
 function WhoLine({ c }: { c: CommitInfo }) {
   return (
     <span className="truncate">
-      {c.author}
-      {c.committer && c.committer !== c.author ? ` · ${c.committer}确认` : ''} · {fromNow(c.time)}
+      {signed(c.author)}
+      {c.committer && c.committer !== c.author ? ` · ${signed(c.committer)}确认` : ''} · {fromNow(c.time)}
     </span>
   );
 }
@@ -47,7 +50,7 @@ function FileHistory({ cid, path, onOpenChange }: { cid: number; path: string; o
             type="button"
             disabled={!c.changeId}
             onClick={() => c.changeId && onOpenChange(c.changeId)}
-            className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-[13.5px] enabled:hover:bg-surface-3"
+            className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-[14px] enabled:hover:bg-surface-3"
           >
             <span className="min-w-0 flex-1 truncate text-ink">{plainText(c.title)}</span>
             <span className="shrink-0 text-ink-3">
@@ -62,34 +65,33 @@ function FileHistory({ cid, path, onOpenChange }: { cid: number; path: string; o
 
 const fmtDay = (t: number) => new Date(t).toLocaleDateString('zh-CN', { month: 'long', day: 'numeric' });
 
-/** 中间翻开的那一页：笔记像文档一样排好；资料显示原件转出来的文字，可以下载原件 */
+/**
+ * 中间翻开的那一页：笔记像文档一样排好；资料显示原件转出来的文字，可以下载原件。
+ * 标题下面写着这篇笔记是从哪份原件整理来的、这份原件整理成了哪篇笔记，点了翻过去。
+ * 回去靠顶栏的位置（知识库 › 王建国的知识库 › 第7章），这里不再放「返回」。
+ */
 export function FileViewer({
   cid,
-  kbName,
   path,
-  paths,
+  files,
+  origins,
   onSelect,
-  onBack,
-  onTop,
   onOpenDir,
   onOpenChange,
   pendingHere,
 }: {
   cid: number;
-  kbName: string;
   path: string | null;
-  /** 知识库里所有的位置：正文提到的就能点开 */
-  paths: string[];
+  /** 知识库里所有的文件：正文提到的就能点开，原件和笔记能互相找到 */
+  files: TreeFile[];
+  origins: Origins;
   onSelect: (path: string) => void;
-  /** 合上这一页，回到刚才看的那一格文件夹 */
-  onBack: () => void;
-  /** 回到最外层，所有知识库摆在一起的那页 */
-  onTop: () => void;
-  /** 回到某个文件夹（上面那条路径点的） */
+  /** 移除、挪走以后回到它原来所在的文件夹 */
   onOpenDir: (path: string) => void;
   onOpenChange: (id: number) => void;
   pendingHere: number | null;
 }) {
+  const paths = useMemo(() => files.map((f) => f.path), [files]);
   const q = useFile(cid, path);
   // 链接组件只建一次，用到的最新值从这里取，免得每次刷新都重排整篇文档
   const live = useRef({ onSelect, path, known: new Set(paths) });
@@ -268,13 +270,26 @@ export function FileViewer({
   // 资料的标题用原件名字；正文开头的大标题和它一样就不再显示一遍
   const title = material ? fileTitle(f?.source?.name || path) : split?.title || fileTitle(path);
   const body = split && (!material || split.title === title) ? split.body : shown;
+  // 这篇笔记从哪份原件来（正文「出处」写到的优先），这份原件整理成了哪几篇
+  const byPath = new Map(files.map((x) => [x.path, x]));
+  const said = f?.text && !material ? mentionedOriginals(f.text, files.filter(isOriginal)) : [];
+  const relatedPaths = !f ? [] : material ? origins.to.get(path) || [] : said.length ? said : origins.from.get(path) || [];
+  const related: Piece[] = relatedPaths
+    .filter((p) => p !== path)
+    .slice(0, 3)
+    .map((p) => ({ path: byPath.has(p) ? p : null, name: byPath.has(p) ? nameOf(byPath.get(p)!) : fileTitle(p) }));
 
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex h-12 shrink-0 items-center gap-2 border-b border-line px-3 sm:px-4">
-        <BackButton label="返回" onClick={onBack} />
-        <span aria-hidden className="h-4 w-px shrink-0 bg-line" />
-        <Crumbs kb={kbName} dir={fileDir(path)} onTop={onTop} onOpenDir={onOpenDir} className="text-[13px]" />
+        <span className="flex min-w-0 flex-1 items-center gap-1.5 truncate px-1 text-[14px] text-ink-3">
+          {material && (
+            <>
+              <Lock className="size-3.5 shrink-0" />
+              原件，只能看
+            </>
+          )}
+        </span>
         {f && !editing && (
           <div className="flex shrink-0 items-center gap-1">
             {f.source && (
@@ -368,7 +383,7 @@ export function FileViewer({
         <button
           type="button"
           onClick={() => onOpenChange(pendingHere)}
-          className="flex shrink-0 items-center gap-2 border-b border-brand/15 bg-brand-soft/70 px-5 py-2 text-left text-[13.5px] text-brand-ink hover:bg-brand-soft"
+          className="flex shrink-0 items-center gap-2 border-b border-brand/15 bg-brand-soft/70 px-5 py-2 text-left text-[14px] text-brand-ink hover:bg-brand-soft"
         >
           <span className="size-1.5 shrink-0 rounded-full bg-brand" />
           <span className="min-w-0 flex-1">这一页有改动等你确认</span>
@@ -414,7 +429,7 @@ export function FileViewer({
           />
         ) : (
           <article className="mx-auto w-full max-w-[760px] px-6 pb-16 pt-8 sm:px-10">
-            <h1 className="flex items-start gap-3 text-[26px] font-semibold leading-snug tracking-tight text-ink">
+            <h1 className="flex items-start gap-3 text-[24px] font-semibold leading-snug tracking-tight text-ink">
               {material && <MaterialIcon file={f} className="mt-[7px] size-6" />}
               <span className="min-w-0 break-words">{title}</span>
             </h1>
@@ -438,18 +453,30 @@ export function FileViewer({
             {f.student && (
               <p className="mt-3 inline-flex rounded-lg bg-brand-soft/60 px-3 py-1.5 text-[13px] text-brand-ink">{f.student.name}的个人记录</p>
             )}
+            {related.length > 0 && (
+              <p className="mt-3 max-w-[44em] text-[14px] leading-6 text-ink-2">
+                <Sentence pieces={[material ? '整理成' : '来自', ...related]} onOpenFile={onSelect} />
+              </p>
+            )}
+            {material && f.source?.kind === 'image' && (
+              <img
+                src={`/api/knowledge/${cid}/sources/${encodeURIComponent(f.source.id)}/raw`}
+                alt={title}
+                className="mt-6 max-h-[480px] w-auto max-w-full rounded-xl border border-line object-contain"
+              />
+            )}
             <div className="mt-6">
               {f.text === null ? (
                 <div className="flex flex-col items-center gap-3 rounded-2xl border border-dashed border-line py-14 text-ink-3">
                   <FileText className="size-8" />
-                  <span className="text-[13.5px]">这一份没有转成文字，可以下载原件查看</span>
+                  <span className="text-[14px]">这一份没有转成文字，可以下载原件查看</span>
                 </div>
               ) : isMd ? (
                 <Markdown className="md-doc" plugins={plugins} extraComponents={anchors}>
                   {body}
                 </Markdown>
               ) : (
-                <pre className="whitespace-pre-wrap break-words text-[14.5px] leading-[1.85] text-ink">{f.text}</pre>
+                <pre className="whitespace-pre-wrap break-words text-[15px] leading-[1.85] text-ink">{f.text}</pre>
               )}
             </div>
           </article>
@@ -512,7 +539,7 @@ export function FileViewer({
               aria-checked={transferTo === k.id}
               onClick={() => setTransferTo(k.id)}
               className={cn(
-                'flex w-full items-center gap-2.5 rounded-lg border px-3 py-2.5 text-left text-[14.5px] transition-colors',
+                'flex w-full items-center gap-2.5 rounded-lg border px-3 py-2.5 text-left text-[15px] transition-colors',
                 transferTo === k.id ? 'border-brand bg-brand-soft text-brand-ink' : 'border-line text-ink hover:bg-surface-2',
               )}
             >

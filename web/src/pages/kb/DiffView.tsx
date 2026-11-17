@@ -50,7 +50,7 @@ const FOLD = { 'ct-fold': Fold };
 function Tracked({ path, before, after }: { path: string; before: string; after: string }) {
   const t = useMemo(() => buildTracked(asMarkdown(path, before), asMarkdown(path, after)), [path, before, after]);
   const plugins = useMemo(() => [[rehypeTracked, t], rehypePlainNames] as any, [t]);
-  if (!t.marks.length) return <p className="text-[13.5px] text-ink-3">{before === after ? '内容没变' : '文字没变，只改了格式'}</p>;
+  if (!t.marks.length) return <p className="text-[14px] text-ink-3">{before === after ? '内容没变' : '文字没变，只改了格式'}</p>;
   return (
     <Markdown compact plugins={plugins} extraComponents={FOLD}>
       {t.source}
@@ -64,8 +64,8 @@ export function FileDiffView({ diff, defaultOpen = true }: { diff: FileDiff; def
   const s = STATUS[diff.status];
   const dir = fileDir(diff.path);
   let body: ReactNode;
-  if (diff.sourceChanged && !diff.binary && diff.before === diff.after) body = <p className="text-[13.5px] text-ink-3">原文件已更新，文字内容未变</p>;
-  else if (diff.binary) body = <p className="text-[13.5px] text-ink-3">原文件</p>;
+  if (diff.sourceChanged && !diff.binary && diff.before === diff.after) body = <p className="text-[14px] text-ink-3">原文件已更新，文字内容未变</p>;
+  else if (diff.binary) body = <p className="text-[14px] text-ink-3">原文件</p>;
   else if (diff.status === 'added')
     body = (
       <Markdown compact plugins={PLAIN_NAMES}>
@@ -75,7 +75,7 @@ export function FileDiffView({ diff, defaultOpen = true }: { diff: FileDiff; def
   else if (diff.status === 'deleted')
     body = (
       <>
-        <p className="mb-3 text-[13.5px] text-ink-3">已移除</p>
+        <p className="mb-3 text-[14px] text-ink-3">已移除</p>
         <div className="opacity-60">
           <Markdown compact plugins={PLAIN_NAMES}>
             {asMarkdown(diff.path, diff.before ?? '')}
@@ -96,7 +96,7 @@ export function FileDiffView({ diff, defaultOpen = true }: { diff: FileDiff; def
       </button>
       {open && (
         <div className="max-h-[560px] overflow-y-auto px-5 py-4">
-          {diff.from && <p className="mb-3 text-[13.5px] text-ink-3">原位置：{plainPath(diff.from)}</p>}
+          {diff.from && <p className="mb-3 text-[14px] text-ink-3">原位置：{plainPath(diff.from)}</p>}
           {body}
           {diff.truncated && <p className="mt-3 text-[13px] text-ink-3">内容太长，只显示了前面一部分</p>}
         </div>
