@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Navigate, useNavigate, useParams } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { motion } from 'motion/react';
-import { ChevronRight, Plus, UserRound } from 'lucide-react';
+import { ChevronRight, Plus, UserPlus, UserRound } from 'lucide-react';
 import { useCrumbs } from '../../components/layout/Crumbs';
 import { post } from '../../lib/api';
 import { useAuth } from '../../lib/store';
@@ -11,6 +11,7 @@ import { useClasses, type ClassItem } from './data';
 import { JoinModal } from './Join';
 import { EmptyArt, themeBackground, themeOf } from './look';
 import { ClassTools } from './Tools';
+import { CHIP, INK } from './tone';
 
 const stop = (e: React.SyntheticEvent) => e.stopPropagation();
 /** 小头像只写一个字（姓），两个字挤 */
@@ -53,14 +54,14 @@ function ClassCard({ item, student }: { item: ClassItem; student: boolean }) {
           )}
         </div>
         {(item.archived || (!student && item.code)) && (
-          <p className="absolute bottom-3 left-4 text-[12.5px] text-white/85">
+          <p className="absolute bottom-3 left-4 text-[13px] text-white">
             {item.archived ? (
               '已归档'
             ) : item.joinOpen === false ? (
               '已停止加入'
             ) : (
               <>
-                加课码 <span className="ml-0.5 font-mono text-[13.5px] font-semibold tracking-[0.08em] text-white">{item.code}</span>
+                加课码 <span className="ml-0.5 font-mono text-[14px] font-semibold tracking-[0.08em] text-white">{item.code}</span>
               </>
             )}
           </p>
@@ -72,27 +73,47 @@ function ClassCard({ item, student }: { item: ClassItem; student: boolean }) {
           {student ? '学' : '教'}
         </span>
       </div>
-      {!student && (
-        <div className="flex-1 px-4 pb-1 pt-4">
-          <p className="text-[12.5px] text-ink-3">学生</p>
-          {faces.length > 0 ? (
-            <div className="mt-2 flex -space-x-1.5">
-              {faces.map((s) => (
-                <Avatar key={s.id} name={surname(s.name)} seed={s.id} size={26} ring />
-              ))}
-            </div>
+      {/* 中间一块：老师看前几个学生的头像；没人的班直接给「邀请学生」；学生看还有几份没交 */}
+      <div className="flex-1 px-4 pb-1 pt-5">
+        {student ? (
+          item.todo ? (
+            <p className={cn('text-[14px] font-medium', INK.warn)}>{item.todo} 份作业还没交</p>
           ) : (
-            <p className="mt-1.5 text-[13px] text-ink-3">还没有学生</p>
-          )}
-        </div>
-      )}
-      <div className={`flex items-center gap-2 px-4 pb-3.5 ${student ? 'pt-6' : 'pt-3'}`}>
+            <p className="text-[14px] text-ink-2">作业都交了</p>
+          )
+        ) : faces.length > 0 ? (
+          <div className="flex -space-x-1.5">
+            {faces.map((s) => (
+              <Avatar key={s.id} name={surname(s.name)} seed={s.id} size={28} ring />
+            ))}
+            {count > faces.length && (
+              <span className="inline-flex h-7 min-w-7 items-center justify-center rounded-full bg-surface-3 px-1.5 text-[13px] font-medium text-ink-2 ring-2 ring-surface">
+                +{count - faces.length}
+              </span>
+            )}
+          </div>
+        ) : item.archived ? (
+          <p className="text-[14px] text-ink-2">没有学生</p>
+        ) : (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              navigate(`/classes/${item.id}?tab=people`);
+            }}
+            className="inline-flex items-center gap-1.5 rounded-md text-[14px] font-medium text-brand-ink hover:underline"
+          >
+            <UserPlus className="size-4" />
+            邀请学生
+          </button>
+        )}
+      </div>
+      <div className="flex items-center gap-2 px-4 pb-3.5 pt-3">
         <Avatar name={surname(teacher)} size={26} />
-        <span className="min-w-0 truncate text-[13.5px] text-ink">{teacher}</span>
-        {student && !!item.todo && <span className="ml-auto shrink-0 rounded-full bg-warn-soft px-2 py-0.5 text-[12.5px] text-warn">{item.todo} 份待交</span>}
-        {!student && !!item.pending && <span className="ml-auto shrink-0 rounded-full bg-info-soft px-2 py-0.5 text-[12.5px] text-info">{item.pending} 份待批</span>}
-        <span className={cn('flex shrink-0 items-center gap-1 text-[13px] text-ink-3', !(student ? item.todo : item.pending) && 'ml-auto')}>
-          <UserRound className="size-3.5" />
+        <span className="min-w-0 truncate text-[14px] text-ink">{teacher}</span>
+        {!student && !!item.pending && <span className={cn('ml-auto shrink-0 rounded-full px-2 py-0.5 text-[13px] font-medium', CHIP.info)}>{item.pending} 份等你批</span>}
+        <span className={cn('flex shrink-0 items-center gap-1 text-[14px] text-ink-2', !(!student && item.pending) && 'ml-auto')}>
+          <UserRound className="size-4" />
           {count}
         </span>
       </div>
