@@ -28,8 +28,8 @@ export function StudentChatPage() {
       <div className="mb-6 flex items-center gap-3">
         <Avatar name={q.data.name} seed={csid} size={40} />
         <div className="min-w-0 leading-tight">
-          <p className="truncate text-[17px] font-semibold text-ink">{q.data.name}</p>
-          <p className="mt-0.5 text-[13px] tabular-nums text-ink-3">{q.data.studentNo}</p>
+          <p className="truncate text-[18px] font-semibold text-ink">{q.data.name}</p>
+          <p className="mt-0.5 text-[14px] tabular-nums text-ink-2">{q.data.studentNo} · 跟学伴说的</p>
         </div>
       </div>
       {!q.data.runs.length ? (

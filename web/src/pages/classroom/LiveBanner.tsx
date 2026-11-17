@@ -30,9 +30,9 @@ export function LiveBanner({ className }: { className?: string }) {
             <span className="block truncate text-[15px] font-semibold">
               {teacherTitle(l.teacher)}正在上课：{l.title}
             </span>
-            <span className="block truncate text-[12.5px] text-white/80">{l.className}</span>
+            <span className="block truncate text-[14px] text-white/90">{l.className}</span>
           </span>
-          <span className="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-white/20 py-1 pl-3 pr-2 text-[13.5px] font-medium transition-colors group-hover:bg-white/30">
+          <span className="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-white/20 py-1 pl-3 pr-2 text-[14px] font-medium transition-colors group-hover:bg-white/30">
             进课堂
             <ChevronRight className="size-4" />
           </span>

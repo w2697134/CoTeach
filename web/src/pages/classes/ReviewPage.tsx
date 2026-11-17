@@ -1,12 +1,14 @@
 import { useState } from 'react';
 import { useParams } from 'react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Bot, Check, Copy, Download, Loader2, RefreshCw, Send, Sparkles } from 'lucide-react';
+import { Check, ChevronDown, Copy, Download, Loader2, RefreshCw, Send, Sparkles } from 'lucide-react';
 import { useCrumbs } from '../../components/layout/Crumbs';
 import { get, post } from '../../lib/api';
 import { toast } from '../../lib/store';
-import { Button, Card, ErrorState, Skeleton, cn } from '../../components/ui';
+import { AgentAvatar, Button, Card, ErrorState, Skeleton, cn } from '../../components/ui';
+import { TA } from '../kb/data';
 import { num } from './homework';
+import { CHIP, INK, scoreInk } from './tone';
 
 interface ReviewStats {
   total: number;
@@ -49,18 +51,18 @@ function Buckets({ buckets }: { buckets: ReviewStats['buckets'] }) {
   const max = Math.max(1, ...buckets.map((b) => b.n));
   const shown = [...buckets].reverse();
   return (
-    <div className="flex h-44 items-end gap-3 px-1">
+    <div className="flex h-40 items-end gap-2.5">
       {shown.map((b) => (
         <div key={b.label} className="flex min-w-0 flex-1 flex-col items-center gap-1.5">
-          <span className="text-[13px] font-medium tabular-nums text-ink-2">{b.n}</span>
-          <div className="flex h-28 w-full items-end">
+          <span className="text-[14px] font-medium tabular-nums text-ink">{b.n}</span>
+          <div className="flex h-24 w-full items-end">
             <div
-              className={cn('w-full rounded-t-[4px]', b.label === '不及格' ? 'bg-bad/75' : 'bg-brand/80')}
+              className={cn('w-full rounded-t-[4px]', b.label === '不及格' ? 'bg-[#ef4444]/80' : 'bg-brand/80')}
               style={{ height: `${b.n ? Math.max(4, (b.n / max) * 100) : 0}%` }}
               title={`${b.label}：${b.n} 人`}
             />
           </div>
-          <span className="truncate text-[12.5px] text-ink-3">{b.label}</span>
+          <span className="truncate text-[13px] text-ink-2">{b.label}</span>
         </div>
       ))}
     </div>
@@ -77,17 +79,14 @@ function ItemRates({ items }: { items: ReviewStats['items'] }) {
           <li key={i} className="space-y-1.5">
             <div className="flex items-baseline gap-3 text-[14px]">
               <span className="min-w-0 flex-1 truncate text-ink" title={it.title}>
-                {it.title}
+                {it.title.replace(/^.*?[：:]\s*/, '') || it.title}
               </span>
-              <span className="shrink-0 tabular-nums text-ink-3">
-                平均 {it.avg === null ? '—' : num(it.avg)} / {num(it.points)}
-                {rate !== null && <span className="ml-2 font-semibold text-ink">{rate}%</span>}
-              </span>
+              {rate !== null && <span className={cn('shrink-0 font-semibold tabular-nums', rate < 60 ? INK.bad : 'text-ink')}>{rate}%</span>}
             </div>
             <div className="h-2 overflow-hidden rounded-full bg-surface-3">
               <div
-                className={cn('h-full rounded-full', rate === null ? '' : rate >= 85 ? 'bg-ok' : rate >= 60 ? 'bg-warn' : 'bg-bad')}
-                style={{ width: `${rate ?? 0}%` }}
+                className="h-full rounded-full"
+                style={{ width: `${rate ?? 0}%`, backgroundColor: rate === null ? undefined : rate >= 85 ? '#10b981' : rate >= 60 ? '#f59e0b' : '#ef4444' }}
               />
             </div>
           </li>
@@ -97,8 +96,54 @@ function ItemRates({ items }: { items: ReviewStats['items'] }) {
   );
 }
 
+/** 一类常见问题：标题、几个人、谁（长的先露两行）、学生写的样子、为什么会错、怎么讲 */
+function ErrorItem({ e, n }: { e: ReviewWrite['errors'][number]; n: number }) {
+  const [all, setAll] = useState(false);
+  const many = e.students.length > 10;
+  return (
+    <li className="border-t border-line pt-6 first:border-0 first:pt-0">
+      <div className="flex items-start gap-3">
+        <span className={cn('mt-0.5 inline-flex size-7 shrink-0 items-center justify-center rounded-full text-[14px] font-semibold', CHIP.bad)}>{n}</span>
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+            <h3 className="min-w-0 flex-1 text-[16px] font-semibold leading-snug text-ink">{e.title}</h3>
+            <span className="shrink-0 text-[14px] text-ink-2">{e.students.length} 人</span>
+          </div>
+          {e.students.length > 0 && (
+            <p className="mt-1.5 text-[14px] leading-relaxed text-ink-2">
+              {all || !many ? e.students.join('、') : `${e.students.slice(0, 10).join('、')}……`}
+              {many && (
+                <button type="button" onClick={() => setAll(!all)} className="ml-1.5 inline-flex items-center gap-0.5 text-brand-ink hover:underline">
+                  <ChevronDown className={cn('size-3.5 transition-transform', all && 'rotate-180')} />
+                  {all ? '收起' : '全部'}
+                </button>
+              )}
+            </p>
+          )}
+          {e.example && (
+            <pre className="mt-3 whitespace-pre-wrap break-words rounded-lg border border-line bg-surface-2 px-4 py-3 font-mono text-[14px] leading-relaxed text-ink">{e.example}</pre>
+          )}
+          {e.why && (
+            <p className="mt-3 text-[15px] leading-relaxed text-ink">
+              <span className="mr-1.5 font-semibold text-ink-2">为什么会错</span>
+              {e.why}
+            </p>
+          )}
+          {e.teach && (
+            <p className="mt-2.5 rounded-lg bg-brand-soft/60 px-4 py-3 text-[15px] leading-relaxed text-ink">
+              <span className="mr-1.5 font-semibold text-brand-ink">课上这么讲</span>
+              {e.teach}
+            </p>
+          )}
+        </div>
+      </div>
+    </li>
+  );
+}
+
 /**
- * 一份作业的讲评（老师）：程序算的数（交了几个、平均分、分数段、各项得分率、没交的、很像的），助教写的（常见问题、做得好的、下节课）。
+ * 一份作业的讲评（老师）：左边是一篇讲评稿（一行四十几个字）：开头一段、常见问题（谁错了、学生写的样子、为什么、怎么讲）、
+ * 下节课、做得好的；右边是程序算的数（交了几个、平均、分数段、各项得分率、没交的、很像的）。
  * 能下载 Word；「发给学生」后学生在作业页看到不带名字的那一版，学伴也知道。
  */
 export function ReviewPage() {
@@ -135,7 +180,7 @@ export function ReviewPage() {
     try {
       await post(`/homework/${id}/review/share`, { on });
       await qc.invalidateQueries({ queryKey: ['homework'] });
-      toast.success(on ? '学生能在作业页看到讲评了' : '学生那边收回了');
+      toast.success(on ? '发了，学生在作业页能看到（不带名字）' : '学生那边收回了');
     } catch (e) {
       toast.fromError(e);
     } finally {
@@ -153,8 +198,11 @@ export function ReviewPage() {
     <div className="space-y-5">
       <div className="flex flex-wrap items-center gap-3">
         <div className="min-w-0">
-          <h1 className="truncate text-[24px] font-semibold tracking-tight text-ink">「{d.title}」讲评</h1>
-          <p className="mt-0.5 text-[14px] text-ink-3">{d.className}</p>
+          <h1 className="text-balance text-[24px] font-semibold tracking-tight text-ink">「{d.title}」讲评</h1>
+          <p className="mt-1 text-[14px] text-ink-2">
+            {d.className}
+            {r?.sharedAt ? <span className={cn('ml-2 rounded-full px-2 py-0.5 text-[13px]', CHIP.ok)}>学生看得到了</span> : null}
+          </p>
         </div>
         {ready && (
           <div className="ml-auto flex flex-wrap gap-2">
@@ -179,11 +227,9 @@ export function ReviewPage() {
 
       {!r || (r.status === 'error' && !ready) ? (
         <Card className="flex flex-col items-center gap-4 py-12 text-center">
-          <span className="inline-flex size-14 items-center justify-center rounded-2xl bg-brand-soft text-brand">
-            <Bot className="size-7" />
-          </span>
-          {r?.status === 'error' && <p className="text-[14px] text-bad">{r.error || '没写成'}</p>}
-          <p className="text-[15px] text-ink-2">{d.graded ? `批好了 ${d.graded} 份` : '还没有批好的作业'}</p>
+          <AgentAvatar agent={TA} size={64} />
+          {r?.status === 'error' && <p className={cn('text-[14px]', INK.bad)}>{r.error || '上次没写成'}</p>}
+          <p className="text-[16px] text-ink-2">{d.graded ? `批好了 ${d.graded} 份` : '还没有批好的作业'}</p>
           {d.graded > 0 && (
             <Button variant="primary" icon={<Sparkles className="size-4" />} loading={busy === 'write'} onClick={write}>
               让助教写讲评
@@ -191,139 +237,112 @@ export function ReviewPage() {
           )}
         </Card>
       ) : r.status === 'writing' ? (
-        <Card className="flex items-center gap-3 bg-brand-soft/40 py-6">
-          <span className="inline-flex size-10 shrink-0 items-center justify-center rounded-full bg-brand text-white">
-            <Bot className="size-5" />
-          </span>
-          <div>
-            <p className="flex items-center gap-1.5 text-[15px] font-medium text-ink">
-              CoT 助教在写讲评
-              <Loader2 className="size-4 animate-spin text-brand" />
-            </p>
-            <p className="text-[13.5px] text-ink-3">一般一分钟以内</p>
-          </div>
+        <Card className="flex items-center gap-4 bg-brand-soft/40 py-6">
+          <AgentAvatar agent={TA} size={48} status="running" />
+          <p className="flex items-center gap-2 text-[16px] font-medium text-ink">
+            助教在翻这 {d.graded} 份批改写讲评，一分钟左右
+            <Loader2 className="size-4 animate-spin text-brand" />
+          </p>
         </Card>
       ) : (
         ready && (
           <>
             {newer > 0 && (
-              <p className="flex flex-wrap items-center gap-2 rounded-lg bg-info-soft px-4 py-2.5 text-[14px] text-info">
+              <p className={cn('flex flex-wrap items-center gap-2 rounded-lg px-4 py-2.5 text-[15px]', CHIP.info)}>
                 写完以后又批了 {newer} 份
-                <button type="button" onClick={write} className="font-medium underline underline-offset-2">
+                <button type="button" onClick={write} className="font-semibold underline underline-offset-2">
                   重写
                 </button>
               </p>
             )}
-            <Card className="space-y-4">
-              {w!.summary && <p className="text-[16px] leading-relaxed text-ink">{w!.summary}</p>}
-              <div className="flex flex-wrap gap-x-6 gap-y-2 text-[14px] text-ink-3">
-                <span>
-                  交了 <b className="font-semibold text-ink">{s!.submitted}</b>/{s!.total} 人
-                </span>
-                <span>
-                  平均 <b className="font-semibold text-ink">{s!.avg === null ? '—' : num(s!.avg)}</b>/{num(s!.points)}
-                </span>
-                <span>
-                  最高 <b className="font-semibold text-ink">{s!.max === null ? '—' : num(s!.max)}</b>
-                </span>
-                <span>
-                  最低 <b className="font-semibold text-ink">{s!.min === null ? '—' : num(s!.min)}</b>
-                </span>
-              </div>
-            </Card>
-            <div className="grid gap-5 md:grid-cols-2">
-              <Card className="space-y-3">
-                <h2 className="text-[16px] font-semibold text-ink">分数分布</h2>
-                <Buckets buckets={s!.buckets} />
+            <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_340px]">
+              <Card className="min-w-0 space-y-8 px-6 py-7 sm:px-9 sm:py-8">
+                {w!.summary && <p className="max-w-[44em] text-[16px] leading-[1.85] text-ink">{w!.summary}</p>}
+                {w!.errors.length > 0 && (
+                  <section>
+                    <h2 className="mb-4 text-[18px] font-semibold text-ink">常见问题</h2>
+                    <ol className="max-w-[46em] space-y-6">
+                      {w!.errors.map((e, i) => (
+                        <ErrorItem key={i} e={e} n={i + 1} />
+                      ))}
+                    </ol>
+                  </section>
+                )}
+                {w!.next && (
+                  <section>
+                    <h2 className="mb-2.5 text-[18px] font-semibold text-ink">下节课</h2>
+                    <p className="max-w-[44em] whitespace-pre-wrap text-[15px] leading-[1.85] text-ink">{w!.next}</p>
+                  </section>
+                )}
+                {w!.good.length > 0 && (
+                  <section>
+                    <h2 className="mb-3 text-[18px] font-semibold text-ink">做得好的</h2>
+                    <ul className="max-w-[44em] space-y-3">
+                      {w!.good.map((g, i) => (
+                        <li key={i} className="text-[15px] leading-relaxed text-ink">
+                          <span className="mr-1.5 font-semibold text-brand-ink">{g.student}</span>
+                          {g.why}
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                )}
               </Card>
-              {s!.items.length > 0 && (
+              <div className="space-y-5 lg:sticky lg:top-20">
                 <Card className="space-y-4">
-                  <h2 className="text-[16px] font-semibold text-ink">各项得分</h2>
-                  <ItemRates items={s!.items} />
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+                    <Num label="交了" value={`${s!.submitted}`} unit={`/ ${s!.total} 人`} />
+                    <Num label="平均" value={s!.avg === null ? '—' : num(s!.avg)} unit={`/ ${num(s!.points)}`} tone={s!.avg !== null ? scoreInk(s!.avg, s!.points) : undefined} />
+                    <Num label="最高" value={s!.max === null ? '—' : num(s!.max)} />
+                    <Num label="最低" value={s!.min === null ? '—' : num(s!.min)} tone={s!.min !== null ? scoreInk(s!.min, s!.points) : undefined} />
+                  </div>
+                  <Buckets buckets={s!.buckets} />
                 </Card>
-              )}
-            </div>
-            {w!.errors.length > 0 && (
-              <Card className="space-y-4">
-                <h2 className="text-[16px] font-semibold text-ink">常见问题</h2>
-                <ol className="space-y-4">
-                  {w!.errors.map((e, i) => (
-                    <li key={i} className="space-y-2.5 rounded-xl border border-line p-4">
-                      <div className="flex flex-wrap items-baseline gap-2">
-                        <span className="inline-flex size-6 shrink-0 items-center justify-center rounded-full bg-bad-soft text-[13px] font-semibold text-bad">{i + 1}</span>
-                        <span className="min-w-0 flex-1 text-[15.5px] font-semibold text-ink">{e.title}</span>
-                        <span className="shrink-0 rounded-full bg-surface-3 px-2.5 py-0.5 text-[13px] text-ink-2">{e.students.length} 人</span>
-                      </div>
-                      {e.students.length > 0 && <p className="text-[13.5px] leading-relaxed text-ink-3">{e.students.join('、')}</p>}
-                      {e.example && (
-                        <pre className="whitespace-pre-wrap break-words rounded-lg bg-bad-soft/50 px-3.5 py-2.5 font-mono text-[13px] leading-relaxed text-ink">{e.example}</pre>
-                      )}
-                      {e.why && (
-                        <p className="text-[14.5px] leading-relaxed text-ink">
-                          <span className="font-medium text-ink-2">为什么会错：</span>
-                          {e.why}
-                        </p>
-                      )}
-                      {e.teach && (
-                        <p className="text-[14.5px] leading-relaxed text-ink">
-                          <span className="font-medium text-brand-ink">怎么讲：</span>
-                          {e.teach}
-                        </p>
-                      )}
-                    </li>
-                  ))}
-                </ol>
-              </Card>
-            )}
-            <div className="grid gap-5 md:grid-cols-2">
-              {w!.next && (
-                <Card className="space-y-2.5">
-                  <h2 className="text-[16px] font-semibold text-ink">下节课</h2>
-                  <p className="whitespace-pre-wrap text-[14.5px] leading-relaxed text-ink">{w!.next}</p>
-                </Card>
-              )}
-              {w!.good.length > 0 && (
-                <Card className="space-y-3">
-                  <h2 className="text-[16px] font-semibold text-ink">做得好的</h2>
-                  <ul className="space-y-2.5">
-                    {w!.good.map((g, i) => (
-                      <li key={i} className="text-[14.5px] leading-relaxed text-ink">
-                        <span className="font-medium text-ok">{g.student}</span>：{g.why}
-                      </li>
-                    ))}
-                  </ul>
-                </Card>
-              )}
-            </div>
-            {(s!.missing.length > 0 || s!.similar.length > 0) && (
-              <div className="grid gap-5 md:grid-cols-2">
+                {s!.items.length > 0 && (
+                  <Card className="space-y-4">
+                    <h2 className="text-[16px] font-semibold text-ink">各项得分率</h2>
+                    <ItemRates items={s!.items} />
+                  </Card>
+                )}
                 {s!.missing.length > 0 && (
-                  <Card className="space-y-2.5">
-                    <h2 className="text-[16px] font-semibold text-ink">没交的（{s!.missing.length}）</h2>
-                    <p className="text-[14.5px] leading-relaxed text-ink-2">{s!.missing.join('、')}</p>
+                  <Card className="space-y-2">
+                    <h2 className="text-[16px] font-semibold text-ink">没交的 {s!.missing.length} 人</h2>
+                    <p className="text-[15px] leading-relaxed text-ink-2">{s!.missing.join('、')}</p>
                   </Card>
                 )}
                 {s!.similar.length > 0 && (
                   <Card className="space-y-2.5">
                     <h2 className="flex items-center gap-2 text-[16px] font-semibold text-ink">
-                      <Copy className="size-4 text-info" />
+                      <Copy className={cn('size-4', INK.info)} />
                       这几份很像
                     </h2>
                     <ul className="space-y-1.5">
                       {s!.similar.map((x, i) => (
-                        <li key={i} className="flex items-center gap-3 text-[14.5px] text-ink">
+                        <li key={i} className="flex items-center gap-3 text-[15px] text-ink">
                           <span className="min-w-0 flex-1">{x.names.join('、')}</span>
-                          <span className="shrink-0 tabular-nums text-info">相似 {x.ratio}%</span>
+                          <span className={cn('shrink-0 tabular-nums', INK.info)}>{x.ratio}%</span>
                         </li>
                       ))}
                     </ul>
                   </Card>
                 )}
               </div>
-            )}
+            </div>
           </>
         )
       )}
+    </div>
+  );
+}
+
+function Num({ label, value, unit, tone }: { label: string; value: string; unit?: string; tone?: string }) {
+  return (
+    <div>
+      <p className="text-[14px] text-ink-2">{label}</p>
+      <p className="mt-0.5 leading-none">
+        <span className={cn('text-[24px] font-semibold tabular-nums', tone || 'text-ink')}>{value}</span>
+        {unit && <span className="ml-1 text-[14px] text-ink-2">{unit}</span>}
+      </p>
     </div>
   );
 }

@@ -29,8 +29,8 @@ export function JoinLandingPage() {
       <header className="flex items-center gap-3 px-5 py-4 sm:px-8 sm:py-6">
         <Logo size={34} />
         <div className="leading-tight">
-          <p className="text-[17px] font-bold tracking-tight text-ink">{APP_SHORT_NAME}</p>
-          <p className="text-[12.5px] text-ink-3">{APP_NAME}</p>
+          <p className="text-[18px] font-bold tracking-tight text-ink">{APP_SHORT_NAME}</p>
+          <p className="text-[13px] text-ink-3">{APP_NAME}</p>
         </div>
       </header>
       <main className="mx-auto w-full max-w-[440px] px-5 pb-16 pt-2 sm:pt-8">
@@ -63,13 +63,13 @@ function CodeForm({ initial, error }: { initial: string; error: string }) {
   };
   return (
     <form onSubmit={next} className="rounded-xl border border-line bg-surface p-6 shadow-xs sm:p-8">
-      <h1 className="text-[22px] font-semibold tracking-tight text-ink">加入班级</h1>
+      <h1 className="text-[24px] font-semibold tracking-tight text-ink">加入班级</h1>
       <label className="mt-6 block text-[14px] text-ink">
         加课码
         <Input
           autoFocus
           sizeVariant="lg"
-          className="mt-1.5 font-mono text-[20px] uppercase tracking-[0.3em]"
+          className="mt-1.5 font-mono text-[18px] uppercase tracking-[0.3em]"
           value={code}
           maxLength={8}
           autoComplete="off"
@@ -152,7 +152,7 @@ function JoinForm({ k, code, onLeaving }: { k: ClassPeek; code: string; onLeavin
     <div className="overflow-hidden rounded-xl border border-line bg-surface shadow-xs">
       <div className="flex min-h-36 flex-col justify-end px-6 pb-5 pt-8 text-white" style={themeBackground(themeOf(k.id))}>
         <h1 className="break-words text-[24px] font-semibold leading-tight tracking-tight">{k.name}</h1>
-        <p className="mt-1 text-[14.5px] text-white/90">{k.teacher}</p>
+        <p className="mt-1 text-[15px] text-white/90">{k.teacher}</p>
       </div>
       {!k.open ? (
         <div className="px-6 py-8 text-center">

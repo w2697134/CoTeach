@@ -4,13 +4,14 @@ import { useSearchParams } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { ArrowUp, History, Square, SquarePen } from 'lucide-react';
 import { post } from '../../lib/api';
-import { toast, useAuth } from '../../lib/store';
+import { toast } from '../../lib/store';
 import { AgentAvatar, Alert, Button, IconButton, Popover, Skeleton, Textarea, cn } from '../../components/ui';
 import { BUDDY } from '../kb/data';
 import { when } from '../kb/presentation';
 import { useStuRuns, useStuSession, useStuSessions, useStuStream } from './data';
 import { BuddyRunBlock } from './Thread';
 import { LiveBanner } from '../classroom/LiveBanner';
+import { Welcome } from './Welcome';
 
 /** 开启新会话、翻以前的会话（跟老师那边的助教一样，照 DeepSeek、豆包） */
 function SessionButtons({ compact, disabled }: { compact: boolean; disabled: boolean }) {
@@ -55,11 +56,11 @@ function SessionButtons({ compact, disabled }: { compact: boolean; disabled: boo
       >
         {(close) => (
           <div className="max-h-[60vh] overflow-y-auto py-1">
-            <p className="px-3 pb-1.5 pt-1 text-[12.5px] text-ink-3">历史会话</p>
+            <p className="px-3 pb-1.5 pt-1 text-[13px] text-ink-2">历史会话</p>
             {!list.data ? (
               <Skeleton className="mx-3 my-2 h-16" />
             ) : !list.data.sessions.length ? (
-              <p className="px-3 py-3 text-[13.5px] text-ink-3">还没有</p>
+              <p className="px-3 py-3 text-[14px] text-ink-2">还没有</p>
             ) : (
               list.data.sessions.map((s) => (
                 <button
@@ -72,7 +73,7 @@ function SessionButtons({ compact, disabled }: { compact: boolean; disabled: boo
                   className={cn('flex w-full flex-col items-start gap-0.5 px-3 py-2 text-left transition-colors hover:bg-surface-3', s.id === shown && 'bg-brand-soft/60')}
                 >
                   <span className="line-clamp-1 w-full text-[14px] text-ink">{s.title}</span>
-                  <span className="text-[12px] text-ink-3">{when(s.updatedAt)}</span>
+                  <span className="text-[13px] text-ink-3">{when(s.updatedAt)}</span>
                 </button>
               ))
             )}
@@ -88,8 +89,8 @@ function SessionButtons({ compact, disabled }: { compact: boolean; disabled: boo
  * 学伴照班级资料包答，拿不准去问老师的助教；老师那边的回复、通知也送到这里。
  */
 export function BuddyPage() {
-  const me = useAuth((s) => s.user);
   const q = useStuRuns();
+  const input = useRef<HTMLTextAreaElement>(null);
   const live = useStuStream();
   const qc = useQueryClient();
   // 从别的页面带着一句话过来（比如作业页的「问 CoT 学伴」）：放进输入框，学生自己点发送
@@ -155,7 +156,7 @@ export function BuddyPage() {
         <AgentAvatar agent={BUDDY} size={38} status={busy ? 'running' : null} />
         <div className="min-w-0 flex-1 leading-tight">
           <p className="truncate text-[15px] font-semibold text-ink">{BUDDY.name}</p>
-          {busy && <p className="mt-0.5 truncate text-[12.5px] text-ink-3">{asking ? '正在问助教' : '正在回复'}</p>}
+          {busy && <p className="mt-0.5 truncate text-[13px] text-ink-2">{asking ? '在问老师的助教' : '在写回复'}</p>}
         </div>
         <SessionButtons compact={false} disabled={busy} />
       </div>
@@ -165,10 +166,12 @@ export function BuddyPage() {
       <div ref={scroller} className="min-h-0 flex-1 overflow-y-auto px-3 py-5 lg:px-6">
         <div ref={content} className="space-y-6">
           {q.data && !runs.length && (
-            <div className="flex flex-col items-center gap-3 pt-[12vh] text-center">
-              <AgentAvatar agent={BUDDY} size={72} />
-              <p className="text-[18px] font-semibold text-ink">{me?.name ? `${me.name}同学好，我是 CoT 学伴` : '我是 CoT 学伴'}</p>
-            </div>
+            <Welcome
+              onPick={(t) => {
+                setText(t);
+                requestAnimationFrame(() => input.current?.focus());
+              }}
+            />
           )}
           {q.error && (
             <Alert tone="bad">
@@ -187,6 +190,7 @@ export function BuddyPage() {
       <div className="w-full shrink-0 px-3 pb-1 pt-3 lg:px-6">
         <div className="rounded-2xl border border-line bg-surface shadow-xs transition-colors focus-within:border-brand/50">
           <Textarea
+            ref={input}
             autoGrow
             maxRows={8}
             rows={2}
@@ -201,7 +205,7 @@ export function BuddyPage() {
             }}
             placeholder={busy ? 'CoT 学伴正在回复…' : '问 CoT 学伴'}
             disabled={busy}
-            className="min-h-0 resize-none border-0 bg-transparent px-3.5 pb-1 pt-3 shadow-none! focus:ring-0"
+            className="min-h-0 resize-none border-0 bg-transparent px-4 pb-1 pt-3 text-[15px] shadow-none! focus:ring-0"
           />
           <div className="flex items-center justify-end gap-2 px-2 pb-2">
             {busy && activeId ? (

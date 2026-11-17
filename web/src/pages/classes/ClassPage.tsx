@@ -11,9 +11,11 @@ import { GradesTab } from './GradesTab';
 import { HomeworkList } from './HomeworkList';
 import { InsightsAction, InsightsTab } from './InsightsTab';
 import { CodeLine, InviteModal, InvitePanel, Projector, copyText } from './Invite';
-import { EmptyArt, ThemeBanner, themeOf, type Theme } from './look';
+import { EmptyArt, THEME_TEXT, ThemeBanner, inkVars, themeOf, type Theme } from './look';
 import { RosterInput } from './RosterInput';
 import { ClassTools } from './Tools';
+import { CHIP } from './tone';
+import { teacherTitle } from '../cot/data';
 
 /** 导入名单：拿来对一对谁还没加入。按学号对，已经在的不动；学号一样名字不一样的不改，留在框里告诉老师 */
 function ImportRoster({ id, open, onClose }: { id: number; open: boolean; onClose: () => void }) {
@@ -83,7 +85,7 @@ function ImportRoster({ id, open, onClose }: { id: number; open: boolean; onClos
 function SectionHead({ theme, title, note, actions, className }: { theme: Theme; title: string; note?: ReactNode; actions?: ReactNode; className?: string }) {
   return (
     <div className={cn('flex flex-wrap items-center gap-3 border-b px-5 pb-3 pt-5 sm:px-6', className)} style={{ borderColor: `${theme.ink}66` }}>
-      <h2 className="text-[19px] font-semibold tracking-tight" style={{ color: theme.ink }}>
+      <h2 className={cn('text-[18px] font-semibold tracking-tight', THEME_TEXT)} style={inkVars(theme)}>
         {title}
       </h2>
       {note && <span className="text-[14px] text-ink-3">{note}</span>}
@@ -94,10 +96,61 @@ function SectionHead({ theme, title, note, actions, className }: { theme: Theme;
 
 function TeacherRow({ name }: { name: string }) {
   return (
-    <div className="flex items-center gap-3 px-5 py-3 sm:px-6">
-      <Avatar name={name} size={34} />
-      <span className="text-[14.5px] font-medium text-ink">{name}</span>
+    <div className="flex items-center gap-3 px-5 py-3.5 sm:px-6">
+      <Avatar name={name} size={40} />
+      <span className="text-[16px] font-medium text-ink">{name}</span>
     </div>
+  );
+}
+
+/** 成员一格：头像、名字、学号；老师点了看他跟学伴说的。一排三四个，比一人一行的长表好找 */
+function PersonTile({
+  s,
+  me,
+  tag,
+  onOpen,
+  menu,
+}: {
+  s: { id: number; name: string; studentNo?: string; joined?: boolean };
+  me?: boolean;
+  tag?: ReactNode;
+  onOpen?: () => void;
+  menu?: ReactNode;
+}) {
+  const faded = s.joined === false;
+  const body = (
+    <>
+      <Avatar name={s.name} seed={s.id} size={36} className={cn('shrink-0', faded && 'opacity-45')} />
+      <span className="min-w-0 flex-1">
+        <span className={cn('flex items-center gap-1.5 text-[15px] font-medium', faded ? 'text-ink-2' : 'text-ink')}>
+          <span className="truncate">{s.name}</span>
+          {me && <span className="shrink-0 rounded-full bg-brand-soft px-2 text-[13px] font-normal text-brand-ink">我</span>}
+        </span>
+        {(s.studentNo || tag) && (
+          <span className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-2 text-[13px] text-ink-3">
+            {s.studentNo && <span className="truncate tabular-nums">{s.studentNo}</span>}
+            {tag}
+          </span>
+        )}
+      </span>
+    </>
+  );
+  const box = 'flex w-full items-center gap-2.5 rounded-lg border border-line bg-surface px-3 py-2.5 text-left sm:gap-3 sm:px-3.5 sm:py-3';
+  return (
+    <li className="group relative">
+      {onOpen ? (
+        <button type="button" onClick={onOpen} className={cn(box, 'pr-9 transition-colors hover:border-line-strong hover:bg-surface-2 sm:pr-10')}>
+          {body}
+        </button>
+      ) : (
+        <div className={cn(box, menu && 'pr-9 sm:pr-10')}>{body}</div>
+      )}
+      {menu && (
+        <div className="absolute right-1.5 top-1/2 -translate-y-1/2 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100 pointer-coarse:opacity-100">
+          {menu}
+        </div>
+      )}
+    </li>
   );
 }
 
@@ -157,8 +210,8 @@ function TeacherPeople({
               <button
                 type="button"
                 onClick={onInvite}
-                className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md px-2.5 text-[14px] font-medium transition-colors hover:bg-surface-3"
-                style={{ color: theme.ink }}
+                className={cn('inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md px-2.5 text-[14px] font-medium transition-colors hover:bg-surface-3', THEME_TEXT)}
+                style={inkVars(theme)}
               >
                 <UserPlus className="size-4" />
                 邀请学生
@@ -210,25 +263,21 @@ function TeacherPeople({
       ) : !shown.length ? (
         <Empty compact title="没有找到" />
       ) : (
-        <ul>
+        <ul className="grid grid-cols-2 gap-2 p-3 sm:gap-2.5 sm:p-5 lg:grid-cols-3 xl:grid-cols-4">
           {shown.map((s) => (
-            <li key={s.id} className="group flex items-center gap-3 border-b border-line px-5 py-2.5 last:border-0 hover:bg-surface-2 sm:px-6">
-              {s.joined ? (
-                <button type="button" onClick={() => openChat(s)} className="flex min-w-0 items-center gap-3 text-left">
-                  <Avatar name={s.name} seed={s.id} size={34} />
-                  <span className="min-w-0 truncate text-[14.5px] font-medium text-ink group-hover:text-brand-ink">{s.name}</span>
-                </button>
-              ) : (
-                <>
-                  <Avatar name={s.name} seed={s.id} size={34} className="opacity-45" />
-                  <span className="min-w-0 truncate text-[14.5px] font-medium text-ink-3">{s.name}</span>
-                </>
-              )}
-              <span className="shrink-0 text-[13px] tabular-nums text-ink-3">{s.studentNo}</span>
-              {!s.joined && <span className="shrink-0 rounded-full bg-surface-3 px-2 py-0.5 text-[12px] text-ink-3">还没加入</span>}
-              {s.joined && !s.inRoster && roster > 0 && <span className="shrink-0 rounded-full bg-warn-soft px-2 py-0.5 text-[12px] text-warn">不在名单里</span>}
-              {(live || s.joined) && (
-                <div className="ml-auto opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100 pointer-coarse:opacity-100">
+            <PersonTile
+              key={s.id}
+              s={s}
+              onOpen={s.joined ? () => openChat(s) : undefined}
+              tag={
+                !s.joined ? (
+                  <span className={cn('rounded-full px-2 text-[13px]', CHIP.gray)}>还没加入</span>
+                ) : !s.inRoster && roster > 0 ? (
+                  <span className={cn('rounded-full px-2 text-[13px]', CHIP.warn)}>不在名单里</span>
+                ) : undefined
+              }
+              menu={
+                (live || s.joined) && (
                   <Popover
                     width={150}
                     trigger={({ toggle }) => (
@@ -257,9 +306,9 @@ function TeacherPeople({
                       </div>
                     )}
                   </Popover>
-                </div>
-              )}
-            </li>
+                )
+              }
+            />
           ))}
         </ul>
       )}
@@ -286,13 +335,9 @@ function StudentPeople({ theme, teacher, classmates }: { theme: Theme; teacher: 
       {!shown.length ? (
         <Empty compact title="没有找到" />
       ) : (
-        <ul>
+        <ul className="grid grid-cols-2 gap-2 p-3 sm:gap-2.5 sm:p-5 lg:grid-cols-3 xl:grid-cols-4">
           {shown.map((s) => (
-            <li key={s.id} className="flex items-center gap-3 border-b border-line px-5 py-2.5 last:border-0 sm:px-6">
-              <Avatar name={s.name} seed={s.id} size={34} />
-              <span className="min-w-0 truncate text-[14.5px] font-medium text-ink">{s.name}</span>
-              {s.me && <span className="shrink-0 rounded-full bg-brand-soft px-2 py-0.5 text-[12px] text-brand-ink">我</span>}
-            </li>
+            <PersonTile key={s.id} s={s} me={s.me} />
           ))}
         </ul>
       )}
@@ -388,11 +433,11 @@ export function ClassPage() {
         <Skeleton className="h-52 rounded-2xl" />
       ) : (
         <>
-          <ThemeBanner theme={theme} className="h-auto min-h-40 rounded-xl sm:min-h-44">
-            <div className="flex min-h-40 flex-col justify-end p-6 pr-16 sm:min-h-44 sm:px-8 sm:py-7">
-              <h1 className="break-words text-[28px] font-semibold leading-tight tracking-tight sm:text-[32px]">{k.name}</h1>
-              <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[14.5px] text-white/90">
-                <span>{student ? k.teacher : `${joined} 名学生`}</span>
+          <ThemeBanner theme={theme} className="h-auto min-h-36 rounded-xl sm:min-h-40">
+            <div className="flex min-h-36 flex-col justify-end p-6 pr-16 sm:min-h-40 sm:px-8 sm:py-7">
+              <h1 className="text-balance break-words text-[24px] font-semibold leading-tight tracking-tight [text-shadow:0_1px_2px_rgba(15,23,42,.18)]">{k.name}</h1>
+              <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[15px] text-white">
+                <span>{student ? `${teacherTitle(k.teacher || '')} · ${(k.classmates || []).length} 名学生` : `${joined} 名学生`}</span>
                 {k.archived ? (
                   <span className="rounded-full bg-white/20 px-2.5 py-0.5 text-[13px] text-white">已归档</span>
                 ) : (
