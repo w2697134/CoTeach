@@ -23,7 +23,7 @@ if (cmd === 'data') {
   mkdirSync(out, { recursive: true });
   new DatabaseSync(join(dev, 'coteach.db'), { readOnly: true }).exec(`VACUUM INTO '${join(out, 'coteach.db').replace(/'/g, "''")}'`);
   copyFileSync(join(dev, '.secret'), join(out, '.secret'));
-  for (const d of ['knowledge', 'kb', 'sources', 'homework']) if (existsSync(join(dev, d))) cpSync(join(dev, d), join(out, d), { recursive: true });
+  for (const d of ['knowledge', 'kb', 'sources', 'homework', 'archives', 'uploads', 'files']) if (existsSync(join(dev, d))) cpSync(join(dev, d), join(out, d), { recursive: true });
   console.log('复制好了：', out);
 } else if (cmd === 'api') {
   const env = { ...process.env, CT_DATA_DIR: resolve(a), CT_PORT: String(b), CT_ENV_FILE: join(MAIN, 'server', '.env'), CT_DEMO_MODE: '0' };
