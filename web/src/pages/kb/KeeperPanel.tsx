@@ -1,6 +1,6 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { useNavigate } from 'react-router';
+import { useNavigate, useSearchParams } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { ArrowUp, BookOpen, Check, Users, ChevronDown, ChevronRight, FilePenLine, FilePlus, FolderInput, FolderOpen, FolderSearch, History, MoveRight, Paperclip, PenLine, Search, Send, Square, SquarePen, Trash2, Undo2, Upload, X } from 'lucide-react';
 import { post } from '../../lib/api';
@@ -682,7 +682,8 @@ export const KeeperPanel = forwardRef<
     jobsLine(runs);
   // 首页：
   // 助教页进来先看到问候和大输入框，发出去就是接着这段会话聊；正在回的、开了新会话还没说话的照这个来
-  const [home, setHome] = useState(page);
+  // 2026-11-18 起首页单独一项（/home）：点「CoT 助教」直接看对话；一段新会话还没说话时才摆问候和大输入框
+  const [home, setHome] = useState(false);
   // 正在回：直接看对话。上一句它问了老师还在等回答的，照样先看首页，那张卡片摆在大输入框下面，在首页就能答
   const lastRun = runs[runs.length - 1];
   const pendingAsk = page && lastRun?.status === 'waiting' ? [...(lastRun.events || [])].reverse().find((e) => e.type === 'ask') : undefined;
@@ -773,6 +774,17 @@ export const KeeperPanel = forwardRef<
       return true;
     },
   }));
+
+  // 从首页大输入框说的那句（/assistant?say=…）：会话取到了就替老师发出去，接着聊
+  const [params, setParams] = useSearchParams();
+  const sayFromHome = useRef(page ? params.get('say') : null);
+  useEffect(() => {
+    if (!sayFromHome.current || !q.data) return;
+    const said = sayFromHome.current;
+    sayFromHome.current = null;
+    setParams({}, { replace: true });
+    void send([], said);
+  }, [q.data]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /** extra：知识库页交资料框里刚交的文件；said：点的那句现成的话（输入框里写的留着） */
   const send = async (extra: Picked[] = [], said?: string) => {

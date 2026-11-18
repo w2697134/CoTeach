@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router';
 import { AnimatePresence, motion } from 'motion/react';
-import { ArrowLeft, BookOpen, KeyRound, LogOut, Menu, MessageCircle, Monitor, Moon, NotebookPen, Presentation, ShieldCheck, Smartphone, Sun, Users } from 'lucide-react';
+import { ArrowLeft, BookOpen, House, KeyRound, LogOut, Menu, MessageCircle, Monitor, Moon, NotebookPen, Presentation, ShieldCheck, Smartphone, Sun, Users } from 'lucide-react';
 import { APP_NAME, APP_SHORT_NAME } from '../../lib/brand';
 import { post } from '../../lib/api';
 import { toast, useAuth, useTheme, useUi } from '../../lib/store';
@@ -69,7 +69,7 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   return (
     <div className="flex h-full flex-col">
       {/* 左上角的标志点一下回首页 */}
-      <NavLink to={student ? '/cot' : '/assistant'} onClick={onNavigate} className="flex h-[72px] shrink-0 items-center gap-3 px-4">
+      <NavLink to={student ? '/cot' : '/home'} onClick={onNavigate} className="flex h-[72px] shrink-0 items-center gap-3 px-4">
         <Logo size={38} />
         <div className="min-w-0 flex-1 leading-tight">
           <p className="truncate text-[18px] font-semibold tracking-tight text-ink" title={APP_NAME}>
@@ -79,7 +79,19 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
         </div>
       </NavLink>
       <nav className="no-scrollbar min-h-0 flex-1 space-y-1.5 overflow-y-auto px-3 pb-4 pt-3">
-        {/* 第一项：老师是 CoT 助教，学生是 CoT 学伴 */}
+        {/* 老师最上面是首页：问候、大输入框、一行功能按钮 */}
+        {!student && (
+          <NavLink to="/home" onClick={onNavigate} className={({ isActive }) => item(isActive)}>
+            {({ isActive }) => (
+              <>
+                {isActive && mark}
+                <House className={cn('size-5 shrink-0', isActive ? 'text-brand' : 'text-ink-3')} />
+                <span className="min-w-0 flex-1">首页</span>
+              </>
+            )}
+          </NavLink>
+        )}
+        {/* 老师是 CoT 助教（跟它的对话），学生是 CoT 学伴 */}
         <NavLink to={student ? '/cot' : '/assistant'} onClick={onNavigate} className={({ isActive }) => item(isActive)}>
           {({ isActive }) => (
             <>
@@ -389,6 +401,8 @@ export function AppShell() {
       ? '知识库'
       : /^\/classes(\/|$)/.test(location.pathname)
         ? '课程'
+        : /^\/home/.test(location.pathname)
+          ? '首页'
         : /^\/assistant/.test(location.pathname)
           ? TA.name
           : /^\/cot/.test(location.pathname)
@@ -411,7 +425,7 @@ export function AppShell() {
   useEffect(() => setMobileNav(false), [location.pathname, setMobileNav]);
   // 知识库页面占满整屏高度，自己管滚动；班级页面是普通页面
   // 上课的页面也占满整屏：大块是课件，旁边一栏自己滚动
-  const full = location.pathname.startsWith('/c/') || /^\/(knowledge|assistant|cot|messages)(\/|$)/.test(location.pathname);
+  const full = location.pathname.startsWith('/c/') || /^\/(home|knowledge|assistant|cot|messages)(\/|$)/.test(location.pathname);
   // 一节课的页面不设最大宽度：右边助教一栏贴着屏幕右边从上到下，左边内容占满剩下的地方
   const dock = /^\/prep\/\d+/.test(location.pathname);
   return (

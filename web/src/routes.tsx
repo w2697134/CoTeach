@@ -45,6 +45,7 @@ const HomeworkDetail = page(() => import('./pages/classes/HomeworkPage'), 'Homew
 const HomeworkReview = page(() => import('./pages/classes/ReviewPage'), 'ReviewPage');
 const HomeworkEdit = page(() => import('./pages/classes/HomeworkEdit'), 'HomeworkEditPage');
 const Assistant = page(() => import('./pages/assistant/AssistantPage'), 'AssistantPage');
+const Home = page(() => import('./pages/home/HomePage'), 'HomePage');
 const Buddy = page(() => import('./pages/cot/BuddyPage'), 'BuddyPage');
 const Mistakes = page(() => import('./pages/cot/MistakesPage'), 'MistakesPage');
 const Messages = page(() => import('./pages/messages/MessagesPage'), 'MessagesPage');
@@ -59,11 +60,11 @@ function S({ children }: { children: ReactNode }) {
   return <Suspense fallback={<PageLoading />}>{children}</Suspense>;
 }
 
-/** 老师进来先到 CoT 助教（左边栏第一项），学生先到 CoT 学伴（2026-11-16）；知识库在左边栏最下面 */
+/** 老师进来先到首页（左边栏第一项，2026-11-18），学生先到 CoT 学伴（2026-11-16）；知识库在左边栏最下面 */
 function Start() {
   const role = useAuth((s) => s.user?.role);
   if (role !== 'teacher' && role !== 'admin' && role !== 'student') return <Empty title="这个账号没有可用的页面" />;
-  return <Navigate replace to={role === 'student' ? '/cot' : '/assistant'} />;
+  return <Navigate replace to={role === 'student' ? '/cot' : '/home'} />;
 }
 
 /** 管理页只给管理员 */
@@ -156,6 +157,14 @@ export const router = createBrowserRouter([
     ),
     children: [
       { index: true, element: <Start /> },
+      {
+        path: 'home',
+        element: (
+          <S>
+            <TeacherOnly><Home /></TeacherOnly>
+          </S>
+        ),
+      },
       {
         path: 'assistant',
         element: (
