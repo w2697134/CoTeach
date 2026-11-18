@@ -68,7 +68,8 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   );
   return (
     <div className="flex h-full flex-col">
-      <div className="flex h-[72px] shrink-0 items-center gap-3 px-4">
+      {/* 左上角的标志点一下回首页 */}
+      <NavLink to={student ? '/cot' : '/assistant'} onClick={onNavigate} className="flex h-[72px] shrink-0 items-center gap-3 px-4">
         <Logo size={38} />
         <div className="min-w-0 flex-1 leading-tight">
           <p className="truncate text-[18px] font-semibold tracking-tight text-ink" title={APP_NAME}>
@@ -76,7 +77,7 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
           </p>
           <p className="mt-0.5 text-[13px] text-ink-3">{student ? '学生' : '教师工作台'}</p>
         </div>
-      </div>
+      </NavLink>
       <nav className="no-scrollbar min-h-0 flex-1 space-y-1.5 overflow-y-auto px-3 pb-4 pt-3">
         {/* 第一项：老师是 CoT 助教，学生是 CoT 学伴 */}
         <NavLink to={student ? '/cot' : '/assistant'} onClick={onNavigate} className={({ isActive }) => item(isActive)}>

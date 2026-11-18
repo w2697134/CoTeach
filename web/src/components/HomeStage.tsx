@@ -22,6 +22,7 @@ export function HomeStage({
   chips,
   onPick,
   onHistory,
+  extra,
 }: {
   agent: Parameters<typeof AgentAvatar>[0]['agent'];
   hello: string;
@@ -31,6 +32,8 @@ export function HomeStage({
   onPick: (text: string) => void;
   /** 有以前的对话：一个不起眼的入口 */
   onHistory?: () => void;
+  /** 摆在大输入框下面的东西（比如助教上一句问了老师、还在等回答的那张卡片，在首页就能答） */
+  extra?: ReactNode;
 }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col items-center justify-center overflow-y-auto px-4 pb-[10vh] pt-6">
@@ -39,6 +42,7 @@ export function HomeStage({
         <h1 className="text-[28px] font-semibold tracking-tight text-ink sm:text-[34px]">{hello}</h1>
       </motion.div>
       <div className="home-glow mt-8 w-full max-w-[760px] sm:mt-10">{composer}</div>
+      {extra && <div className="mt-4 w-full max-w-[760px] text-left">{extra}</div>}
       {chips.length > 0 && (
         <motion.div
           initial={{ opacity: 0 }}

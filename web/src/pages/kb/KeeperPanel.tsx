@@ -683,11 +683,12 @@ export const KeeperPanel = forwardRef<
   // 首页：
   // 助教页进来先看到问候和大输入框，发出去就是接着这段会话聊；正在回的、开了新会话还没说话的照这个来
   const [home, setHome] = useState(page);
-  // 正在回、上一句它问了老师还在等回答：直接看对话
-  const asked = runs[runs.length - 1]?.status === 'waiting';
+  // 正在回：直接看对话。上一句它问了老师还在等回答的，照样先看首页，那张卡片摆在大输入框下面，在首页就能答
+  const lastRun = runs[runs.length - 1];
+  const pendingAsk = page && lastRun?.status === 'waiting' ? [...(lastRun.events || [])].reverse().find((e) => e.type === 'ask') : undefined;
   useEffect(() => {
-    if (busy || asked) setHome(false);
-  }, [busy, asked]);
+    if (busy) setHome(false);
+  }, [busy]);
   useEffect(() => {
     if (page && q.data && !q.data.runs.length) setHome(true);
   }, [page, q.data?.session]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -967,6 +968,7 @@ export const KeeperPanel = forwardRef<
           chips={archived ? [] : starters}
           onPick={fill}
           onHistory={runs.length ? () => setHome(false) : undefined}
+          extra={pendingAsk && lastRun ? <AskCard runId={lastRun.id} data={pendingAsk.data as unknown as AskData} live /> : null}
         />
       )}
       <div ref={scroller} className={cn('min-h-0 flex-1 overflow-y-auto py-5', page ? 'px-3 lg:px-6' : 'px-4', page && home && 'hidden')}>
