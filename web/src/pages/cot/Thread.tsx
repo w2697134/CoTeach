@@ -1,8 +1,9 @@
 import { useState } from 'react';
-import { BookOpen, ChevronRight, MessageCircleQuestion, Search } from 'lucide-react';
+import { BookOpen, ChevronRight, FileText, MessageCircleQuestion, Search } from 'lucide-react';
 import { Markdown } from '../../components/Markdown';
 import { cn } from '../../components/ui';
-import { FileCard, typeLabel } from '../kb/FileCard';
+import { FileCard, formatSize, typeLabel } from '../kb/FileCard';
+import { fileUrl, isImage } from '../classes/homework';
 import { plainText } from '../kb/data';
 import { readableError, stepLines, type StepLine } from '../kb/presentation';
 import { teacherTitle, type StuRun } from './data';
@@ -55,10 +56,32 @@ export function BuddyRunBlock({ run, live }: { run: StuRun; live: string | null 
   const errorEvent = run.events.find((e) => e.type === 'error');
   return (
     <div className="space-y-3">
-      <div className="flex justify-end">
-        <div className="max-w-[min(85%,40em)] whitespace-pre-wrap break-words rounded-2xl rounded-tr-md bg-brand px-4 py-2.5 text-[15px] leading-relaxed text-white">
-          {plainText(run.request)}
-        </div>
+      <div className="flex flex-col items-end gap-1.5">
+        {/* 学生这一句带的文件：图片摆小图，别的是文件卡片，点开看原件 */}
+        {!!run.files?.length && (
+          <div className="flex max-w-[min(85%,40em)] flex-wrap justify-end gap-1.5">
+            {run.files.map((f) =>
+              isImage(f.name) ? (
+                <a key={f.id} href={fileUrl(f, true)} target="_blank" rel="noopener" className="block">
+                  <img src={fileUrl(f, true)} alt={f.name} className="max-h-44 max-w-[240px] rounded-xl border border-line object-cover" />
+                </a>
+              ) : (
+                <a key={f.id} href={fileUrl(f)} className="flex w-[240px] max-w-full items-center gap-3 rounded-xl border border-line bg-surface px-3.5 py-2.5 text-left shadow-xs hover:border-line-strong">
+                  <span className="min-w-0 flex-1">
+                    <span className="line-clamp-1 break-all text-[14px] text-ink">{f.name}</span>
+                    <span className="mt-0.5 block text-[12px] text-ink-3">{formatSize(f.size)}</span>
+                  </span>
+                  <FileText className="size-7 shrink-0 text-brand/70" />
+                </a>
+              ),
+            )}
+          </div>
+        )}
+        {run.request.trim() && (
+          <div className="max-w-[min(85%,40em)] whitespace-pre-wrap break-words rounded-2xl rounded-tr-md bg-brand px-4 py-2.5 text-[15px] leading-relaxed text-white">
+            {plainText(run.request)}
+          </div>
+        )}
       </div>
       <div className="min-w-0 space-y-2.5">
         {done > 0 && (

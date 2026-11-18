@@ -5,7 +5,9 @@
  * 跟老师的助教一样：每一轮记在 kb_runs（agent='stu'，teacher_id 是学生自己），跟模型说的话只往后加，会话可以开新的。
  */
 import { db, getSetting, j, now } from '../db/index.js';
-import { gradeItems, gradeMarks } from '../grading/common.js';
+import { gradeItems, gradeMarks, homeworkFile } from '../grading/common.js';
+import { documentText } from '../kb/intake/service.js';
+import { materialBlock } from '../prep/files.js';
 import { bad, conflict, HttpError, notFound } from '../lib/http.js';
 import type { ToolCall, ToolSpec } from '../llm/types.js';
 import { publish, record, type RunRef } from '../kb/agent/events.js';
@@ -294,10 +296,19 @@ function checkQuota(studentId: number) {
   if (used >= limit) throw new HttpError(429, `今天已经问了 ${limit} 句，明天再来`, 'rate_limited');
 }
 
-export function startStuTurn(student: { id: number; name: string }, o: { message: string; session?: number | null }): number {
+export function startStuTurn(student: { id: number; name: string }, o: { message: string; session?: number | null; files?: number[] }): number {
   if (busy.has(student.id)) throw conflict('CoT 学伴正在回上一句，等它说完');
   const message = o.message.trim();
-  if (!message) throw bad('写点什么');
+  // 带的文件：得是这个学生自己刚传上来、还没用过的（作业附件、别的一轮里的不算）
+  const files = [...new Set(o.files || [])].map((fid) => {
+    const f = db.get<{ id: number; name: string; owner_id: number; assignment_id: number | null; submission_id: number | null; run_id: number | null }>(
+      'SELECT id, name, owner_id, assignment_id, submission_id, run_id FROM homework_files WHERE id=?',
+      fid,
+    );
+    if (!f || f.owner_id !== student.id || f.assignment_id || f.submission_id || f.run_id) throw bad('文件没传上，重新加一下');
+    return { id: f.id, name: f.name };
+  });
+  if (!message && !files.length) throw bad('写点什么');
   checkQuota(student.id);
   const session = ownStuSession(student.id, o.session);
   const runId = db.insert('kb_runs', {
@@ -310,12 +321,13 @@ export function startStuTurn(student: { id: number; name: string }, o: { message
     created_by: student.id,
     created_at: now(),
   });
+  for (const f of files) db.run('UPDATE homework_files SET run_id=? WHERE id=?', runId, f.id);
   const ctrl = new AbortController();
   busy.set(student.id, { runId, ctrl });
   const ref: RunRef = { teacherId: student.id, runId, kbId: null };
   const touched = new Set<number>();
   publishRun(null, runId);
-  void execute(student, ref, { message: message.slice(0, 4000), session, signal: ctrl.signal, touched })
+  void execute(student, ref, { message: message.slice(0, 4000), files, session, signal: ctrl.signal, touched })
     .then(() => db.update('kb_runs', runId, { status: 'done', error: null, finished_at: now() }))
     .catch((err) => {
       const stopped = ctrl.signal.aborted;
@@ -345,7 +357,11 @@ function system(classes: MyClass[]) {
   return `${buddyPrompt}\n\n${packs.length ? packs.join('\n\n') : '学生还没有加入班级。'}`;
 }
 
-async function execute(student: { id: number; name: string }, ref: RunRef, o: { message: string; session: number; signal: AbortSignal; touched: Set<number> }) {
+async function execute(
+  student: { id: number; name: string },
+  ref: RunRef,
+  o: { message: string; files: { id: number; name: string }[]; session: number; signal: AbortSignal; touched: Set<number> },
+) {
   const key = stuKey(o.session);
   for (const call of dangling(student.id, key)) append(student.id, key, ref.runId, { role: 'tool', toolCallId: call.id, content: '（没有回音）' });
   await compact({
@@ -367,7 +383,10 @@ async function execute(student: { id: number; name: string }, ref: RunRef, o: { 
   ].filter(Boolean);
   const notes = takeNotes(student.id, key);
   const block = [`（${head.join('。')}）`, ...(notes.length ? [`（这期间收到的：${notes.join('；')}）`] : [])].join('\n');
-  append(student.id, key, ref.runId, { role: 'user', content: `${block}\n${o.message}` });
+  // 带的文件读成文字（读法跟交资料、批作业一样：图片认字、文档和代码取文字），跟着这句话给学伴看
+  const given = o.files.length ? await filesMaterial(student.id, o.files, o.signal) : '';
+  const said = o.message || '（只发了文件，没写话）';
+  append(student.id, key, ref.runId, { role: 'user', content: `${block}\n${said}${given ? `\n\n${given}` : ''}` });
   const ctx: Ctx = { student, ref, session: o.session, signal: o.signal, touched: o.touched };
   for (let n = 0; n < MAX_STEPS; n++) {
     o.signal.throwIfAborted();
@@ -401,12 +420,24 @@ async function execute(student: { id: number; name: string }, ref: RunRef, o: { 
 
 /* ---------------- 给页面的 ---------------- */
 
+/** 学生这一句带的文件读成文字，拼成一段材料 */
+async function filesMaterial(studentId: number, files: { id: number; name: string }[], signal: AbortSignal) {
+  const docs: { name: string; text: string }[] = [];
+  for (const f of files) {
+    const path = db.value<string>('SELECT path FROM homework_files WHERE id=?', f.id);
+    const r = path ? await documentText(f.name, homeworkFile(path), studentId, signal) : { reason: '文件不在了' };
+    docs.push({ name: f.name, text: 'text' in r ? r.text : `（没读出来：${r.reason}）` });
+  }
+  return materialBlock('学生这次发来的文件：', docs, 20_000);
+}
+
 export function stuRun(r: any) {
   return {
     id: r.id,
     kind: r.kind as string,
     status: r.status as string,
     request: r.request as string,
+    files: db.all<{ id: number; name: string; size: number }>('SELECT id, name, size FROM homework_files WHERE run_id=? ORDER BY id', r.id),
     reply: r.reply as string | null,
     error: r.error as string | null,
     classIds: j<number[]>(r.class_ids, []),

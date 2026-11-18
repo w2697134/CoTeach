@@ -70,9 +70,28 @@ interface FileRow {
   owner_id: number;
   assignment_id: number | null;
   submission_id: number | null;
+  /** 学生跟学伴说话时带的：哪一轮 */
+  run_id: number | null;
   name: string;
   size: number;
   path: string;
+}
+
+/**
+ * 学伴那一轮带的文件老师能不能看：跟「看对话」一样的范围（assistant/buddy.ts 的 runsSeenBy）——
+ * 学生在这位老师的班里；学生的班全是这位老师的就都能看，不然只看说到这位老师的班的那几轮。
+ */
+function buddyFileSeen(teacherId: number, runId: number) {
+  const r = db.get<{ teacher_id: number; class_ids: string | null }>("SELECT teacher_id, class_ids FROM kb_runs WHERE id=? AND agent='stu'", runId);
+  if (!r) return false;
+  const classes = db.all<{ id: number; teacher_id: number }>(
+    'SELECT c.id, c.teacher_id FROM class_students s JOIN classes c ON c.id=s.class_id AND c.deleted_at IS NULL WHERE s.user_id=?',
+    r.teacher_id,
+  );
+  const mine = new Set(classes.filter((k) => k.teacher_id === teacherId).map((k) => k.id));
+  if (!mine.size) return false;
+  if (classes.every((k) => k.teacher_id === teacherId)) return true;
+  return (JSON.parse(r.class_ids || '[]') as number[]).some((id) => mine.has(id));
 }
 
 /* ---------------- 谁能看、谁能改 ---------------- */
@@ -188,6 +207,8 @@ homeworkRoutes.get('/files/:id', (c) => {
   }
   // 群里、私聊里发的文件，通知带的附件
   if (!ok) ok = fileShared(u, f.id);
+  // 学生跟学伴说话时带的文件：能「看对话」看到这一轮的老师也能点开
+  if (!ok && f.run_id && u.role !== 'student') ok = buddyFileSeen(u.id, f.run_id);
   if (!ok) throw notFound('文件不存在');
   const abs = resolve(DIR, f.path);
   if (!abs.startsWith(DIR) || !existsSync(abs)) throw notFound('文件不在了');

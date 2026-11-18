@@ -17,6 +17,8 @@ export interface StuRun {
   kind: 'chat' | 'notice';
   status: 'running' | 'done' | 'error' | 'canceled';
   request: string;
+  /** 学生这一句带的文件（截图、代码、文档） */
+  files?: { id: number; name: string; size: number }[];
   reply: string | null;
   error: string | null;
   classIds: number[];

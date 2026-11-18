@@ -2,12 +2,14 @@ import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useSearchParams } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
-import { ArrowUp, History, Square, SquarePen } from 'lucide-react';
+import { ArrowUp, History, Paperclip, Square, SquarePen, X } from 'lucide-react';
 import { VoiceButton } from '../../components/VoiceButton';
 import { post } from '../../lib/api';
 import { toast } from '../../lib/store';
 import { AgentAvatar, Alert, Button, IconButton, Popover, Skeleton, Textarea, cn } from '../../components/ui';
 import { BUDDY } from '../kb/data';
+import { FileCard, formatSize, typeLabel } from '../kb/FileCard';
+import { isImage, uploadFile } from '../classes/homework';
 import { when } from '../kb/presentation';
 import { useStuRuns, useStuSession, useStuSessions, useStuStream } from './data';
 import { BuddyRunBlock } from './Thread';
@@ -103,6 +105,27 @@ export function BuddyPage() {
     if (params.get('ask')) setParams({}, { replace: true });
   }, [params, setParams]);
   const [sending, setSending] = useState(false);
+  // 带的文件：报错截图、代码、作业文档，点回形针、粘贴、拖进来都行，一次最多 5 个
+  const [files, setFiles] = useState<{ key: string; file: File; url: string | null }[]>([]);
+  const fileInput = useRef<HTMLInputElement>(null);
+  const filesRef = useRef(files);
+  filesRef.current = files;
+  useEffect(() => () => filesRef.current.forEach((f) => f.url && URL.revokeObjectURL(f.url)), []);
+  const addFiles = (list: File[]) => {
+    const ok = list.filter((f) => f.size > 0 && f.size <= 20 * 1024 * 1024);
+    if (ok.length < list.length) toast.error('一个文件最大 20 MB');
+    setFiles((cur) => {
+      const room = Math.max(0, 5 - cur.length);
+      if (ok.length > room) toast.error('一次最多带 5 个文件');
+      return [...cur, ...ok.slice(0, room).map((file) => ({ key: `${file.name}-${file.size}-${Math.random()}`, file, url: isImage(file.name) ? URL.createObjectURL(file) : null }))];
+    });
+  };
+  const dropFile = (key: string) =>
+    setFiles((cur) => {
+      const gone = cur.find((f) => f.key === key);
+      if (gone?.url) URL.revokeObjectURL(gone.url);
+      return cur.filter((f) => f.key !== key);
+    });
   const runs = q.data?.runs || [];
   const activeId = q.data?.activeRunId ?? null;
   const busy = !!activeId || runs.some((r) => r.status === 'running');
@@ -146,13 +169,18 @@ export function BuddyPage() {
 
   const send = async () => {
     const msg = text.trim();
-    if (!msg || busy || sending) return;
+    if ((!msg && !files.length) || busy || sending) return;
     setSending(true);
     setHome(false);
     stick.current = true;
     try {
-      await post('/cot/messages', { message: msg, session: q.data?.session });
+      // 文件先传上去拿编号，跟这句话一起发
+      const ids: number[] = [];
+      for (const f of files) ids.push((await uploadFile(f.file)).id);
+      await post('/cot/messages', { message: msg, session: q.data?.session, files: ids });
       setText('');
+      files.forEach((f) => f.url && URL.revokeObjectURL(f.url));
+      setFiles([]);
       qc.invalidateQueries({ queryKey: ['stu-runs'] });
     } catch (err) {
       toast.fromError(err);
@@ -166,12 +194,45 @@ export function BuddyPage() {
 
   // 输入框：首页摆在中间，聊着的时候在底下
   const composerArea = (
-    <div className={home ? 'w-full' : 'w-full shrink-0 px-3 pb-1 pt-3 lg:px-6'}>
+    <div
+      className={home ? 'w-full' : 'w-full shrink-0 px-3 pb-1 pt-3 lg:px-6'}
+      onDragOver={(e) => {
+        if (busy || !e.dataTransfer.types.includes('Files')) return;
+        e.preventDefault();
+      }}
+      onDrop={(e) => {
+        if (busy || !e.dataTransfer.files.length) return;
+        e.preventDefault();
+        addFiles(Array.from(e.dataTransfer.files));
+      }}
+    >
       <motion.div
         layoutId="buddy-composer"
         transition={{ type: 'spring', stiffness: 260, damping: 32 }}
         className={cn('border border-line bg-surface transition-colors focus-within:border-brand/50', home ? 'rounded-[28px] shadow-lg' : 'rounded-2xl shadow-xs')}
       >
+        {files.length > 0 && (
+          // 带的文件横着排在输入框上方：图片是小图，别的是文件卡片，右上角叉掉
+          <div className="flex items-center gap-2 overflow-x-auto px-3 pb-1 pt-3 [&>*]:shrink-0">
+            {files.map((f) =>
+              f.url ? (
+                <div key={f.key} className="relative">
+                  <img src={f.url} alt="" className="size-[50px] rounded-xl border border-line object-cover shadow-xs" />
+                  <button
+                    type="button"
+                    aria-label="去掉"
+                    onClick={() => dropFile(f.key)}
+                    className="absolute -right-1.5 -top-1.5 flex size-5 items-center justify-center rounded-full bg-ink/70 text-white shadow-sm hover:bg-ink"
+                  >
+                    <X className="size-3" />
+                  </button>
+                </div>
+              ) : (
+                <FileCard key={f.key} compact name={f.file.name} meta={[typeLabel(f.file.name), formatSize(f.file.size)].filter(Boolean).join(' · ')} onRemove={() => dropFile(f.key)} />
+              ),
+            )}
+          </div>
+        )}
         <Textarea
           ref={input}
           autoGrow
@@ -180,6 +241,12 @@ export function BuddyPage() {
           value={text}
           maxLength={4000}
           onChange={(e) => setText(e.target.value)}
+          onPaste={(e) => {
+            // 截图、复制的文件直接粘贴进来
+            if (busy || !e.clipboardData.files.length) return;
+            e.preventDefault();
+            addFiles(Array.from(e.clipboardData.files));
+          }}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
               e.preventDefault();
@@ -190,7 +257,21 @@ export function BuddyPage() {
           disabled={busy}
           className={cn('min-h-0 resize-none border-0 bg-transparent px-4 pb-1 pt-3 text-[15px] shadow-none! focus:ring-0', home && 'px-5 pt-4 text-[16px]')}
         />
-        <div className="flex items-center justify-end gap-1 px-2 pb-2">
+        <div className="flex items-center gap-1 px-2 pb-2">
+          <IconButton label="加文件" onClick={() => fileInput.current?.click()} disabled={busy}>
+            <Paperclip className="size-[18px]" />
+          </IconButton>
+          <input
+            ref={fileInput}
+            type="file"
+            multiple
+            className="hidden"
+            onChange={(e) => {
+              addFiles(Array.from(e.target.files || []));
+              e.target.value = '';
+            }}
+          />
+          <span className="flex-1" />
           <VoiceButton disabled={busy} onText={(t) => (setText((x) => x + t), input.current?.focus())} />
           {busy && activeId ? (
             <button
@@ -206,7 +287,7 @@ export function BuddyPage() {
             <button
               type="button"
               onClick={send}
-              disabled={!text.trim() || busy || sending}
+              disabled={(!text.trim() && !files.length) || busy || sending}
               aria-label="发送"
               className="inline-flex size-9 shrink-0 items-center justify-center rounded-xl bg-brand text-white transition-colors hover:bg-brand-hover disabled:opacity-40"
             >

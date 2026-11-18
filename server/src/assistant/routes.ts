@@ -37,8 +37,16 @@ cotRoutes.post('/sessions', (c) => {
 });
 cotRoutes.post('/messages', async (c) => {
   const u = student(c);
-  const d = await body(c, z.object({ message: z.string().trim().min(1).max(4000), session: z.number().int().positive().nullable().optional() }));
-  return c.json({ runId: startStuTurn(u, { message: d.message, session: d.session }) });
+  const d = await body(
+    c,
+    z.object({
+      message: z.string().trim().max(4000),
+      session: z.number().int().positive().nullable().optional(),
+      // 带的文件（先传到 /homework/files 拿编号）：截图、代码、文档，一次最多 5 个
+      files: z.array(z.number().int().positive()).max(5).optional(),
+    }),
+  );
+  return c.json({ runId: startStuTurn(u, { message: d.message, session: d.session, files: d.files }) });
 });
 /**
  * 错题本（2026-11-16，学生左侧栏）：自己各个班批好发下来的作业里丢了分的那几项，新的在前。

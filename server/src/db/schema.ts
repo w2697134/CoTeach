@@ -991,3 +991,10 @@ migrations.push(`
 ALTER TABLE lessons ADD COLUMN intake_id INTEGER REFERENCES kb_intakes(id);
 ALTER TABLE lesson_asks ADD COLUMN files TEXT;
 `);
+
+// 第 28 次：学伴能带文件。学生跟学伴说话时带的截图、代码、文档像作业附件那样先传上来（homework_files），
+// 记下是哪一轮（run_id）：学伴把它们读成文字跟着这句话看；学生自己、能看这段对话的老师都能点开原件。
+migrations.push(`
+ALTER TABLE homework_files ADD COLUMN run_id INTEGER;
+CREATE INDEX idx_homework_files_run ON homework_files(run_id);
+`);
