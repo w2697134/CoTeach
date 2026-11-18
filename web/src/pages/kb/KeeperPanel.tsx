@@ -17,7 +17,7 @@ import { SpecialistsButton } from '../assistant/Specialists';
 import { LiveCard } from '../messages/Cards';
 import { useChatList } from '../messages/data';
 import { motion } from 'motion/react';
-import { HomeStage, greeting } from '../../components/HomeStage';
+import { HomeStage, greeting, teacherCall } from '../../components/HomeStage';
 import { VoiceButton } from '../../components/VoiceButton';
 import { useClasses } from '../classes/data';
 
@@ -975,7 +975,7 @@ export const KeeperPanel = forwardRef<
       {page && home && (
         <HomeStage
           agent={TA}
-          hello={greeting(me?.name ? `${me.name}老师` : '')}
+          hello={greeting(teacherCall(me?.name))}
           composer={composerArea}
           chips={archived ? [] : starters}
           onPick={fill}
@@ -989,7 +989,7 @@ export const KeeperPanel = forwardRef<
           {!page && q.data && !runs.length && (
             <div className="flex flex-col items-center gap-3 pt-[6vh] text-center">
               <AgentAvatar agent={TA} size={56} />
-              <p className="text-[15px] leading-6 text-ink-2">{me?.name ? `${me.name}老师，` : ''}资料想怎么理，说一声就行</p>
+              <p className="text-[15px] leading-6 text-ink-2">{me?.name ? `${teacherCall(me.name)}，` : ''}资料想怎么理，说一声就行</p>
               {!!suggestions?.length && !archived && (
                 <div className="mt-2 flex w-full flex-col gap-2">
                   {suggestions.map((s) => (

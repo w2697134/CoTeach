@@ -8,6 +8,9 @@ import { AgentAvatar } from './ui';
  * 再下面几句点一下就填进输入框的话。发出去就接着聊：输入框落到底下，上面是这段会话（输入框用同一个 layoutId 过渡）。
  */
 
+/** 称呼老师：名字后面加「老师」；名字本身已经以「老师」结尾的（比如「评委老师」）不再加，免得成了「评委老师老师」 */
+export const teacherCall = (name?: string | null) => (!name ? '' : name.endsWith('老师') ? name : `${name}老师`);
+
 /** 按早上、下午、晚上、深夜换说法 */
 export function greeting(name: string, now = new Date()) {
   const h = now.getHours();

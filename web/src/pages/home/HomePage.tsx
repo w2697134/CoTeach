@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
 import { ArrowUp, CircleCheck, ClipboardList, Megaphone, Presentation, Upload } from 'lucide-react';
-import { HomeStage, greeting } from '../../components/HomeStage';
+import { HomeStage, greeting, teacherCall } from '../../components/HomeStage';
 import { VoiceButton } from '../../components/VoiceButton';
 import { Button, Popover, Segmented, Textarea, cn } from '../../components/ui';
 import { post } from '../../lib/api';
@@ -88,7 +88,7 @@ export function HomePage() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <HomeStage agent={TA} hello={greeting(me?.name ? `${me.name}老师` : '')} composer={composer} chips={[]} onPick={() => {}} extra={actions} />
+      <HomeStage agent={TA} hello={greeting(teacherCall(me?.name))} composer={composer} chips={[]} onPick={() => {}} extra={actions} />
       <NewNotice open={notice} onClose={() => setNotice(false)} />
     </div>
   );
