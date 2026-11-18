@@ -17,6 +17,7 @@ export const DeckPane = forwardRef<
     initialSlide: number;
     onChange: (d: Deck) => void;
     onAskAI: (index: number) => void;
+    onSlide?: (index: number) => void;
   }
 >(function DeckPane(p, ref) {
   const busy = p.busyPage !== null && p.deck.slides[p.busyPage] ? [p.deck.slides[p.busyPage].id] : [];
@@ -30,6 +31,7 @@ export const DeckPane = forwardRef<
       readOnly={p.readOnly}
       fileName={p.fileName}
       initialSlide={p.initialSlide}
+      onSlide={p.onSlide}
     />
   );
 });

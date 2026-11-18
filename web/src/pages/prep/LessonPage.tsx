@@ -360,6 +360,8 @@ function Workspace({ l }: { l: Lesson }) {
                     initialSlide={Math.min(page, l.deck.slides.length - 1)}
                     onChange={onDeckChange}
                     onAskAI={askAbout}
+                    // 翻到哪页，右边助教栏上的「课件 · 第几页」跟着变
+                    onSlide={(i) => (setPage(i), setFocusOff(false))}
                   />
                 </div>
               ) : (

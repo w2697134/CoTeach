@@ -61,6 +61,8 @@ export interface DeckEditorProps {
   /** 导出文件名，默认用封面标题 */
   fileName?: string;
   initialSlide?: number;
+  /** 翻到哪一页（从 0 数）：外面跟着知道老师正看着第几页 */
+  onSlide?: (slideIndex: number) => void;
   /** 工具栏最左边放的东西（比如返回、课件名） */
   toolbarStart?: ReactNode;
   className?: string;
@@ -107,7 +109,7 @@ function useNarrow() {
 }
 
 export const DeckEditor = forwardRef<DeckEditorHandle, DeckEditorProps>(function DeckEditor(
-  { deck: deckProp, onChange, onAskAI, busy = [], readOnly = false, fileName, initialSlide = 0, toolbarStart, className },
+  { deck: deckProp, onChange, onAskAI, onSlide, busy = [], readOnly = false, fileName, initialSlide = 0, toolbarStart, className },
   handle,
 ) {
   const hist = useDeckHistory(() => normalizeDeck(deckProp));
@@ -117,6 +119,12 @@ export const DeckEditor = forwardRef<DeckEditorHandle, DeckEditorProps>(function
   const sel = clamp(selRaw, 0, Math.max(0, slides.length - 1));
   const selRef = useRef(sel);
   selRef.current = sel;
+  // 翻页了告诉外面（备课页右边助教栏上的「课件 · 第几页」跟着变）
+  const onSlideRef = useRef(onSlide);
+  onSlideRef.current = onSlide;
+  useEffect(() => {
+    onSlideRef.current?.(sel);
+  }, [sel]);
   const cur: Slide | undefined = slides[sel];
   const narrow = useNarrow();
 
