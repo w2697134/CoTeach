@@ -18,6 +18,7 @@ import { LiveCard } from '../messages/Cards';
 import { useChatList } from '../messages/data';
 import { motion } from 'motion/react';
 import { HomeStage, greeting } from '../../components/HomeStage';
+import { VoiceButton } from '../../components/VoiceButton';
 import { useClasses } from '../classes/data';
 
 const SHOWN = /\.(png|jpe?g|gif|webp)$/i;
@@ -884,6 +885,8 @@ export const KeeperPanel = forwardRef<
         />
         <div className="flex items-center justify-between gap-2 px-2 pb-2">
           {archived ? <span /> : <HandInButton clip onPick={attach} disabled={busy} />}
+          <span className="flex items-center gap-1">
+          {!archived && <VoiceButton disabled={busy} onText={(t) => setText((x) => x + t)} />}
           {/* 照 ChatGPT：助教在回的时候发送键变成停下键（手机上也按得到） */}
           {busy && activeId ? (
             <button
@@ -906,6 +909,7 @@ export const KeeperPanel = forwardRef<
               <ArrowUp className="size-4" />
             </button>
           )}
+          </span>
         </div>
       </motion.div>
     </div>

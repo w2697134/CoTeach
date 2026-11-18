@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { ArrowUp, X } from 'lucide-react';
+import { ArrowUp, Loader2, X } from 'lucide-react';
+import { VoiceButton } from '../../components/VoiceButton';
 import { api, post } from '../../lib/api';
 import { toast } from '../../lib/store';
 import { Button, IconButton, Textarea, cn } from '../../components/ui';
@@ -181,10 +182,11 @@ export function AskRail({ lesson, focus, onClearFocus, className }: { lesson: Le
           </div>
         )}
         <AttachedRow list={files} onRemove={drop} />
-        <div className="flex items-end gap-1.5">
-          <ClipButton onPick={attach} disabled={lesson.making} />
+        {/* 跟 CoT 助教的输入框一个样子：一个圆角框，上面打字，底下左边带文件，右边说话、发送 */}
+        <div className="rounded-2xl border border-line bg-surface shadow-xs transition-colors focus-within:border-brand/50">
           <Textarea
             autoGrow
+            rows={2}
             maxRows={6}
             value={text}
             disabled={lesson.making}
@@ -197,19 +199,22 @@ export function AskRail({ lesson, focus, onClearFocus, className }: { lesson: Le
               attach(pastedFiles(e.clipboardData.files));
             }}
             onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && (e.preventDefault(), send())}
-            className="min-h-[40px] flex-1 resize-none"
+            className="min-h-0 resize-none border-0 bg-transparent px-3.5 pb-1 pt-3 text-[15px] shadow-none! hover:border-0 focus:ring-0"
           />
-          <Button
-            variant="primary"
-            size="md"
-            className="size-10 shrink-0 rounded-full p-0"
-            loading={sending}
-            disabled={!text.trim() || busy || uploading}
-            onClick={send}
-            aria-label="发给助教"
-          >
-            {!sending && <ArrowUp className="size-4" />}
-          </Button>
+          <div className="flex items-center gap-1 px-1.5 pb-1.5">
+            <ClipButton onPick={attach} disabled={lesson.making} />
+            <span className="flex-1" />
+            <VoiceButton disabled={lesson.making} onText={(t) => setText((x) => x + t)} />
+            <button
+              type="button"
+              onClick={send}
+              disabled={!text.trim() || busy || uploading || sending}
+              aria-label="发给助教"
+              className="inline-flex size-9 shrink-0 items-center justify-center rounded-xl bg-brand text-white transition-colors hover:bg-brand-hover disabled:opacity-40"
+            >
+              {sending ? <Loader2 className="size-4 animate-spin" /> : <ArrowUp className="size-4" />}
+            </button>
+          </div>
         </div>
       </div>
     </div>

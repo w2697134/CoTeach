@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { useSearchParams } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { ArrowUp, History, Square, SquarePen } from 'lucide-react';
+import { VoiceButton } from '../../components/VoiceButton';
 import { post } from '../../lib/api';
 import { toast } from '../../lib/store';
 import { AgentAvatar, Alert, Button, IconButton, Popover, Skeleton, Textarea, cn } from '../../components/ui';
@@ -189,7 +190,8 @@ export function BuddyPage() {
           disabled={busy}
           className={cn('min-h-0 resize-none border-0 bg-transparent px-4 pb-1 pt-3 text-[15px] shadow-none! focus:ring-0', home && 'px-5 pt-4 text-[16px]')}
         />
-        <div className="flex items-center justify-end gap-2 px-2 pb-2">
+        <div className="flex items-center justify-end gap-1 px-2 pb-2">
+          <VoiceButton disabled={busy} onText={(t) => (setText((x) => x + t), input.current?.focus())} />
           {busy && activeId ? (
             <button
               type="button"

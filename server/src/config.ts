@@ -39,6 +39,13 @@ function loadSecret(): string {
   return secret;
 }
 
+function dashscopeKey(): string {
+  if (env.CT_DASHSCOPE_KEY?.trim()) return env.CT_DASHSCOPE_KEY.trim();
+  const file = env.CT_DASHSCOPE_KEY_FILE;
+  if (!file || !existsSync(file)) return '';
+  return readFileSync(file, 'utf8').match(/sk-[A-Za-z0-9_-]+/)?.[0] || '';
+}
+
 export const config = {
   env: env.NODE_ENV === 'production' ? 'production' : 'development',
   host: env.CT_HOST || '127.0.0.1',
@@ -70,6 +77,8 @@ export const config = {
    * 没有密钥的号已经登着的也算退出。
    */
   passwordLogin: env.CT_PASSWORD_LOGIN !== 'off',
+  /** 语音输入用的阿里云百炼 key：CT_DASHSCOPE_KEY，或者 CT_DASHSCOPE_KEY_FILE 指的文件（里面那串 sk-… 就行）。没有就不开语音输入，见 voice.ts */
+  dashscopeKey: dashscopeKey(),
   /** 当面等回话的智能体先用备用模型（快），主模型当备用；逗号分开，设成空就都照默认顺序。见 assistant/model.ts 的 orderFor */
   fastAgents: (env.CT_FAST_AGENTS ?? 'ta,stu')
     .split(',')
