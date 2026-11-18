@@ -270,30 +270,29 @@ function InboxPane() {
   const q = useInbox();
   const qc = useQueryClient();
   const [open, setOpen] = useState<number | null>(null);
-  const items = q.data?.items || [];
-  const unread = items.filter((x) => !x.read).length;
   const refresh = () => {
     qc.invalidateQueries({ queryKey: ['inbox'] });
     qc.invalidateQueries({ queryKey: ['messages'] });
   };
+  // 点进收件箱红点就消。
+  // 这一趟进来时还是新的那几条，这一趟里照旧加粗、带小红点，看得出哪些是刚来的
+  const fresh = useRef(new Set<number>());
+  useEffect(() => {
+    const unread = (q.data?.items || []).filter((x) => !x.read);
+    if (!unread.length) return;
+    unread.forEach((x) => fresh.current.add(x.id));
+    post('/messages/inbox/read', {}).then(refresh, () => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [q.data]);
+  const items = (q.data?.items || []).map((x) => (fresh.current.has(x.id) ? { ...x, read: false } : x));
   const mark = async (it: InboxItem, done = false) => {
-    if (it.read && (!done || it.done)) return;
-    await post(`/messages/inbox/${it.id}`, done ? { done: true } : {}).catch(toast.fromError);
-    refresh();
-  };
-  const readAll = async () => {
-    await post('/messages/inbox/read', {}).catch(toast.fromError);
+    if (!done) return;
+    await post(`/messages/inbox/${it.id}`, { done: true }).catch(toast.fromError);
     refresh();
   };
   return (
     <>
-      <PaneHead title="收件箱">
-        {unread > 0 && (
-          <Button size="sm" variant="ghost" onClick={readAll}>
-            全部已读
-          </Button>
-        )}
-      </PaneHead>
+      <PaneHead title="收件箱" />
       <div className="min-h-0 flex-1 overflow-y-auto px-3 py-4 sm:px-6">
         <div className="mx-auto max-w-[720px] space-y-2.5">
           {!q.data ? (

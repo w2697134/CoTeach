@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { get } from '../../lib/api';
 import type { AskData } from '../assistant/cards';
@@ -126,6 +127,30 @@ export const checkinLink = (token: string) => `${window.location.origin}/checkin
 /** 撤回了的通知留一行灰字（照微信） */
 export const recallLine = (mine: boolean) => (mine ? '你撤回了一条通知' : '老师撤回了一条通知');
 const pad = (n: number) => String(n).padStart(2, '0');
+/** 倒计时的样子：04:36 */
+export const mmss = (ms: number) => {
+  const s = Math.ceil(ms / 1000);
+  return `${pad(Math.floor(s / 60))}:${pad(s % 60)}`;
+};
+/** 几点几分：05:18 */
+export const hhmm = (t: number) => {
+  const d = new Date(t);
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+};
+/** 签到还剩多久：照服务器的时间往下数，一秒走一下 */
+export function useLeft(c: CheckinData | undefined) {
+  const [, tick] = useState(0);
+  const skew = useRef(0);
+  useEffect(() => {
+    if (c) skew.current = c.now - Date.now();
+  }, [c]);
+  useEffect(() => {
+    const t = window.setInterval(() => tick((x) => x + 1), 1000);
+    return () => clearInterval(t);
+  }, []);
+  if (!c) return 0;
+  return Math.max(0, c.endsAt - (Date.now() + skew.current));
+}
 /** 消息旁边的时间：今天只写几点，昨天写「昨天」，再早写日期（照微信） */
 export function chatTime(t: number, full = false) {
   const d = new Date(t),

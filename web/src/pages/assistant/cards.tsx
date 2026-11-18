@@ -215,7 +215,6 @@ export function AskCard({ runId, data, live }: { runId: number; data: AskData; l
   const [picks, setPicks] = useState<string[][]>(() => qs.map(() => []));
   const [texts, setTexts] = useState<string[]>(() => qs.map(() => ''));
   const [busy, setBusy] = useState(false);
-  const [typing, setTyping] = useState(false);
   const from = data.from;
   const suggest = data.suggest;
   // 答过的收成一行，只写答了什么（问的什么鼠标停上去看）
@@ -347,28 +346,22 @@ export function AskCard({ runId, data, live }: { runId: number; data: AskData; l
               onKeyDown={(e) => e.key === 'Enter' && !e.nativeEvent.isComposing && ready && !busy && send(picks, texts)}
             />
           )}
-          {/* 自己回一句：平时收着，点「自己回复」才展开（输入框一直摆着显得乱） */}
-          {from && q.options.length > 0 && i === 0 &&
-            (typing ? (
-              <div className="mt-2.5 flex items-center gap-1.5">
-                <Input
-                  autoFocus
-                  className="min-w-0 flex-1"
-                  value={texts[0]}
-                  maxLength={2000}
-                  placeholder="自己回一句"
-                  onChange={(e) => setTexts(texts.map((t, j) => (j === 0 ? e.target.value : t)))}
-                  onKeyDown={(e) => e.key === 'Enter' && !e.nativeEvent.isComposing && texts[0].trim() && !busy && send(qs.map(() => []), texts)}
-                />
-                <Button size="sm" variant="primary" loading={busy} disabled={!texts[0].trim()} onClick={() => send(qs.map(() => []), texts)}>
-                  回复
-                </Button>
-              </div>
-            ) : (
-              <button type="button" className="mt-2 text-[13px] text-ink-3 hover:text-brand-ink" onClick={() => setTyping(true)}>
-                自己回复
-              </button>
-            ))}
+          {/* 自己回一句：输入框一开始就摆着 */}
+          {from && q.options.length > 0 && i === 0 && (
+            <div className="mt-2.5 flex items-center gap-1.5">
+              <Input
+                className="min-w-0 flex-1"
+                value={texts[0]}
+                maxLength={2000}
+                placeholder="自己回一句"
+                onChange={(e) => setTexts(texts.map((t, j) => (j === 0 ? e.target.value : t)))}
+                onKeyDown={(e) => e.key === 'Enter' && !e.nativeEvent.isComposing && texts[0].trim() && !busy && send(qs.map(() => []), texts)}
+              />
+              <Button size="sm" variant="primary" loading={busy} disabled={!texts[0].trim()} onClick={() => send(qs.map(() => []), texts)}>
+                回复
+              </Button>
+            </div>
+          )}
         </div>
       ))}
       {!quick && (

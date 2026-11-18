@@ -9,6 +9,7 @@ import { AgentAvatar, Avatar, Button, IconButton, Input, MenuItem, MenuLabel, Mo
 import { BUDDY, TA, useKnowledgeBases } from '../../pages/kb/data';
 import { CrumbTrail, useCurrentCrumbs } from './Crumbs';
 import { useUnread } from '../../pages/messages/data';
+import { CheckinFloat } from '../../pages/messages/CheckinFloat';
 
 /** 现在打开的是哪个知识库（不在某个知识库里时为 null） */
 const openKb = (pathname: string) => Number(pathname.match(/^\/knowledge\/(\d+)/)?.[1]) || null;
@@ -480,6 +481,8 @@ export function AppShell() {
           <Outlet />
         </main>
       </div>
+      {/* 签到「分屏」小窗：挂在整个应用上，换页面也不关 */}
+      <CheckinFloat />
     </div>
   );
 }
