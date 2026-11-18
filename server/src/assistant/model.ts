@@ -38,7 +38,7 @@ const THINK_KEY: Record<Agent, string> = { ta: 'ta_think', stu: 'stu_think', hel
 export const thinkOf = (agent: Agent) => getSetting<'off' | Effort>(THINK_KEY[agent], 'high');
 /**
  * 主模型（Gemini）多久没动静就换 DeepSeek：跟人对话的等一分钟，批作业、写讲评这种后台的活等五分钟。
- * Gemini 接口只有一个号、同时最多两个请求，还跟别的项目共用，忙的时候要排队。
+ * 这个 Gemini 接口只有一个号、同时最多两个请求，还跟别的项目共用，忙的时候要排队。
  */
 const WAIT_MS: Record<Agent, number> = { ta: 60_000, stu: 60_000, helper: 90_000, grader: 300_000, specialist: 90_000, prep: 120_000 };
 

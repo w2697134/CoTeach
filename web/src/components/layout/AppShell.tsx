@@ -41,7 +41,7 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
       active ? 'bg-brand-soft text-brand-ink' : 'text-ink-2 hover:bg-surface-3 hover:text-ink',
     );
   const mark = <motion.span layoutId="nav-indicator" className="absolute -left-3 top-2.5 h-6 w-[3px] rounded-r-full bg-brand" />;
-  // 原来叫「班级」。叫课程（地址还是 /classes）
+  // 原来叫「班级」，现在叫课程（地址还是 /classes）
   const courses = (
     <NavLink to="/classes" onClick={onNavigate} className={({ isActive }) => item(isActive)}>
       {({ isActive }) => (
@@ -101,7 +101,7 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
             </>
           )}
         </NavLink>
-        {/* 照用的先后排：课程（先建课、学生加进来）、备课；「课堂」11-18 拿掉了 */}
+        {/* 按使用的先后排：课程（先建课、学生加进来）、备课 */}
         {courses}
         {/* 老师的备课：挑课程、备下节课，助教照知识库和学情写教案（2026-11-16） */}
         {!student && !admin && (

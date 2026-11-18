@@ -680,11 +680,9 @@ export const KeeperPanel = forwardRef<
     (students ? `${students} 个学生在等你回` : '') ||
     (runs.some((r) => r.status === 'waiting') ? '在等你回答' : '') ||
     jobsLine(runs);
-  // 首页：
-  // 助教页进来先看到问候和大输入框，发出去就是接着这段会话聊；正在回的、开了新会话还没说话的照这个来
-  // 2026-11-18 起首页单独一项（/home）：点「CoT 助教」直接看对话；一段新会话还没说话时才摆问候和大输入框
+  // 一段会话还没说过话时摆问候和大输入框，发出去就接着这段会话聊；别的时候（包括正在回）直接看对话
   const [home, setHome] = useState(false);
-  // 正在回：直接看对话。上一句它问了老师还在等回答的，照样先看首页，那张卡片摆在大输入框下面，在首页就能答
+  // 上一句它问了老师、老师还没答的：问候页摆着时，那张卡片放在大输入框下面
   const lastRun = runs[runs.length - 1];
   const pendingAsk = page && lastRun?.status === 'waiting' ? [...(lastRun.events || [])].reverse().find((e) => e.type === 'ask') : undefined;
   useEffect(() => {

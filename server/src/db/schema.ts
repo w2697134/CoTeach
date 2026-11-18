@@ -849,7 +849,7 @@ CREATE TABLE lecture_calls (
 CREATE INDEX idx_lecture_calls ON lecture_calls(lecture_id, id);
 `);
 
-// 第 24 次：登录密钥（2026-11-18）。选了「一个号一把密钥」：
+// 第 24 次：登录密钥（2026-11-18），一个号一把：
 // 一个号发一把，登录页贴上密钥就进这个号，不用输账号密码；把密钥发给谁，谁才进得来。
 // 只存密钥的 sha256（key_hash），原文只在发的时候给一次，丢了就换一把。hint 是末 4 位，管理员认是哪一把用。
 // revoked_at 不空是停用了（换一把也是把旧的停用）。一个号同时只有一把能用（下面的唯一索引）。
@@ -867,7 +867,7 @@ CREATE TABLE login_keys (
 CREATE UNIQUE INDEX idx_login_keys_user ON login_keys(user_id) WHERE revoked_at IS NULL;
 `);
 
-// 第 25 次：消息（2026-11-18）。
+// 第 25 次：消息（2026-11-18）
 // 「例如签到选人那种基础有用的东西还是要做的」。课堂（第 23 次）的表留着不删，界面上拿掉了。
 // chats：一门课一个群（kind=class，学生和老师都在，成员照 class_students 现算），老师和学生之间的私聊（kind=dm）；last_at 排列表用。
 // chat_messages：群里、私聊里的一条：文字、文件（homework_files 里的一份，图片也是）、通知卡、签到卡、选人卡（ref_id 指那一条）。

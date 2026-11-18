@@ -110,7 +110,7 @@ function ensureAgyFromEnv() {
   if (old && old !== mid) setSetting('fallback_model_id', old);
   setSetting('default_model_id', mid);
   setSetting('agy_default_set', true);
-  console.log(`[bootstrap] 默认模型换成 Gemini 接口的 ${model}，原来的默认模型当备用`);
+  console.log(`[bootstrap] 默认模型换成 ${model}（Gemini 接口），原来的默认模型当备用`);
 }
 
 async function ensureDemo() {

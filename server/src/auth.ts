@@ -116,7 +116,7 @@ export interface InternalEnv {
 
 /**
  * 这个人能不能用账号密码进：管理员总能；账号密码登录关了（config.passwordLogin）别人都不能；
- * 只开放给指定账号（config.loginOnly）时，名单里的和手里有登录密钥的能
+ * 只开放给指定账号（config.loginOnly）时，名单里的和手里有登录密钥的可以
  */
 export function mayUsePassword(u: { id: number; username: string; role: string; is_super?: number }) {
   if (u.role === 'admin' || u.is_super) return true;
